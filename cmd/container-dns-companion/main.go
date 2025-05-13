@@ -18,14 +18,24 @@ import (
 	_ "container-dns-companion/pkg/poll/providers"
 )
 
+// Version information
+var (
+	// Version is the current version of the application
+	Version = "development"
+
+	// BuildTime is when the application was built
+	BuildTime = "unknown"
+)
+
+// String returns a string representation of the version information
+func versionString() string {
+	return fmt.Sprintf("%s (built on %s)", Version, BuildTime)
+}
+
 var (
 	configFilePath = flag.String("config", "", "Path to configuration file")
 	logLevel       = flag.String("log-level", "", "Log level (info, debug")
 	showVersion    = flag.Bool("version", false, "Show version and exit")
-)
-
-const (
-	Version = "1.0.0"
 )
 
 func main() {
@@ -33,7 +43,7 @@ func main() {
 
 	// Show version if requested
 	if *showVersion {
-		fmt.Printf("Container DNS Companion v%s\n", Version)
+		fmt.Println(versionString())
 		os.Exit(0)
 	}
 
