@@ -13,10 +13,11 @@ import (
 	"container-dns-companion/pkg/dns"
 	"container-dns-companion/pkg/log"
 	"container-dns-companion/pkg/poll"
+	"container-dns-companion/pkg/poll/providers/docker/filter"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
+	dfilters "github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 )
 
@@ -29,6 +30,7 @@ type DockerProvider struct {
 	dnsProvider      dns.Provider
 	running          bool
 	exposeContainers bool
+	filterConfig     filter.FilterConfig
 }
 
 // Config defines configuration for the Docker provider
@@ -100,8 +102,27 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 			config.ExposeContainers)
 	}
 
-	// Store the config in the provider
+	// Create filter configuration
+	filterConfig, err := filter.NewFilterFromOptions(options)
+	if err != nil {
+		log.Warn("[poll/docker] Error creating filter configuration: %v, using default", err)
+		filterConfig = filter.DefaultFilterConfig()
+	}
+
+	// Store the config and filter config in the provider
 	provider.config = config
+	provider.filterConfig = filterConfig
+
+	// Log filter configuration
+	if len(filterConfig.Filters) > 0 && filterConfig.Filters[0].Type != filter.FilterTypeNone {
+		log.Info("[poll/docker] Provider created with %d filters", len(filterConfig.Filters))
+		for i, f := range filterConfig.Filters {
+			log.Debug("[poll/docker] Filter %d: type=%s, value=%s, operation=%s, negate=%v",
+				i+1, f.Type, f.Value, f.Operation, f.Negate)
+		}
+	} else {
+		log.Info("[poll/docker] Provider created with no filters")
+	}
 
 	log.Info("[poll/docker] Provider created with expose_containers=%v", provider.config.ExposeContainers)
 
@@ -134,7 +155,7 @@ func (p *DockerProvider) StartPolling() error {
 	ctx := context.Background()
 
 	// Set up filters for container events
-	f := filters.NewArgs()
+	f := dfilters.NewArgs()
 	f.Add("type", "container")
 	f.Add("event", "start")
 	f.Add("event", "stop")
@@ -247,6 +268,12 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 	containerName := container.Name
 	if strings.HasPrefix(containerName, "/") {
 		containerName = containerName[1:]
+	}
+
+	// First, check if the container passes our filter configuration
+	if !p.filterConfig.ShouldProcessContainer(container) {
+		log.Debug("[poll/docker] Skipping container %s because it does not match filter criteria", containerName)
+		return false
 	}
 
 	// Check if the container has the nfrastack.dns.enable label
