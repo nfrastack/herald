@@ -71,19 +71,38 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
-	// Parse options
+	// Create provider with default config
 	provider := &DockerProvider{
-		client:  client,
-		options: options,
-		running: false,
+		client:           client,
+		options:          options,
+		running:          false,
+		lastContainerIDs: make(map[string]bool),
 	}
 
-	// Check if we should expose all containers by default
+	// Parse configuration
+	var config Config
+
+	// Default value set to false
+	config.ExposeContainers = false
+
+	// Log all available options for debugging
+	log.Debug("[poll/docker] Provider options received: %v", options)
+
+	// Check if we should expose all containers by default from options
 	if val, exists := options["expose_containers"]; exists {
-		provider.exposeContainers = strings.ToLower(val) == "true" || val == "1"
+		lowerVal := strings.ToLower(val)
+		config.ExposeContainers = lowerVal == "true" || lowerVal == "1" || lowerVal == "yes"
+		log.Debug("[poll/docker] Option 'expose_containers' found with value: '%s', parsed as: %v",
+			val, config.ExposeContainers)
+	} else {
+		log.Debug("[poll/docker] No 'expose_containers' option found, using default: %v",
+			config.ExposeContainers)
 	}
 
-	log.Info("[poll/docker] Provider created with expose_containers=%v", provider.exposeContainers)
+	// Store the config in the provider
+	provider.config = config
+
+	log.Info("[poll/docker] Provider created with expose_containers=%v", provider.config.ExposeContainers)
 
 	return provider, nil
 }
@@ -230,21 +249,35 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 	}
 
 	// Check if the container has the nfrastack.dns.enable label
-	enableDNS, ok := container.Config.Labels["nfrastack.dns.enable"]
+	enableDNS, hasLabel := container.Config.Labels["nfrastack.dns.enable"]
 
-	// If the label is explicitly set to "false", skip the container
-	if ok && strings.ToLower(enableDNS) == "false" {
-		log.Debug("[poll/docker] Container %s has nfrastack.dns.enable=false, skipping", containerName)
+	// If the label is explicitly set to "false", always skip the container
+	if hasLabel && (strings.ToLower(enableDNS) == "false" || enableDNS == "0") {
+		log.Debug("[poll/docker] Skipping container %s because it has an explicit nfrastack.dns.enable=false label", containerName)
 		return false
 	}
 
-	// If ExposeContainers is true, process unless explicitly disabled above
+	// If expose_containers is true, process all containers unless explicitly disabled above
 	if p.config.ExposeContainers {
+		log.Debug("[poll/docker] Processing container %s because expose_containers=true in config", containerName)
 		return true
 	}
 
-	// If ExposeContainers is false, only process if nfrastack.dns.enable is explicitly true
-	return ok && strings.ToLower(enableDNS) == "true"
+	// If expose_containers is false and no label exists, skip the container due to config
+	if !hasLabel {
+		log.Debug("[poll/docker] Skipping container %s because expose_containers=false in config and no nfrastack.dns.enable label exists", containerName)
+		return false
+	}
+
+	// If expose_containers is false but label exists and is true, process the container
+	if strings.ToLower(enableDNS) == "true" || enableDNS == "1" {
+		log.Debug("[poll/docker] Processing container %s because it has nfrastack.dns.enable=true label (overriding expose_containers=false)", containerName)
+		return true
+	}
+
+	// If we get here, label exists but is not true or false (some other value)
+	log.Debug("[poll/docker] Skipping container %s because it has nfrastack.dns.enable=%s (not 'true') and expose_containers=false", containerName, enableDNS)
+	return false
 }
 
 // processContainer processes a single container for DNS entries
@@ -256,10 +289,10 @@ func (p *DockerProvider) processContainer(ctx context.Context, containerID strin
 		return
 	}
 
-	// Skip if container should not be processed based on labels and configuration
-	if !p.shouldProcessContainer(container) {
-		log.Debug("[poll/docker] Skipping container %s due to DNS configuration", container.Name)
-		return
+	// Ensure container name doesn't have slash prefix
+	containerName := container.Name
+	if strings.HasPrefix(containerName, "/") {
+		containerName = containerName[1:]
 	}
 
 	// Extract DNS entries for this container
@@ -267,9 +300,7 @@ func (p *DockerProvider) processContainer(ctx context.Context, containerID strin
 
 	// If we found DNS entries, process them
 	if len(entries) > 0 {
-		p.processDNSEntries(containerID, container.Name, entries)
-	} else {
-		log.Debug("[poll/docker] No DNS entries found for container %s (%s)", container.Name, containerID[:12])
+		p.processDNSEntries(containerID, containerName, entries)
 	}
 }
 
@@ -660,7 +691,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	}
 
 	// Check if DNS is explicitly enabled or disabled
-	dnsEnabled := p.exposeContainers // Default based on config
+	dnsEnabled := p.config.ExposeContainers // Default based on config setting, not p.exposeContainers
 
 	// Check for explicit setting from container labels
 	for key, value := range labels {
@@ -670,15 +701,18 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 				dnsEnabled = true
 			} else if explicitValue == "false" || explicitValue == "0" {
 				dnsEnabled = false
+				log.Debug("[poll/docker] Container %s has nfrastack.dns.enable=false label, skipping", containerName)
 				return entries // Return empty entries list
 			}
 		}
 	}
 
-	// If expose_containers=false and no explicit enable, skip this container
-	if !dnsEnabled {
-		return entries // Return empty entries list
-	}
+	// Log debug message if DNS is enabled but no entries found
+	defer func() {
+		if dnsEnabled && len(entries) == 0 {
+			log.Debug("[poll/docker] DNS is enabled for container %s but no valid DNS entries were found", containerName)
+		}
+	}()
 
 	// Track processed domains to avoid duplicates
 	processedDomains := make(map[string]bool)

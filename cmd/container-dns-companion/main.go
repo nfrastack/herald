@@ -70,7 +70,7 @@ func main() {
 	}
 
 	// Set log timestamps from config
-	if cfg.Global.LogTimestamp {
+	if cfg.Global.LogTimestamps {
 		// Set environment variable for timestamps
 		os.Setenv("LOG_TIMESTAMPS", "true")
 		// Re-initialize the logger to apply the timestamp setting
@@ -171,7 +171,24 @@ func main() {
 		}
 
 		log.Info("[poll] Initializing poll provider: %s", pollProfileName)
-		pollProvider, err := poll.NewPollProvider(pollProviderType, pollProviderConfig.Options)
+
+		// Create options map for the provider
+		providerOptions := make(map[string]string)
+
+		// Add the direct fields from the provider config
+		if pollProviderConfig.ExposeContainers {
+			providerOptions["expose_containers"] = "true"
+			log.Debug("[poll] Adding expose_containers=true to provider options")
+		}
+
+		// Add any additional options from the options map
+		for k, v := range pollProviderConfig.Options {
+			providerOptions[k] = v
+		}
+
+		log.Debug("[poll] Provider %s options: %v", pollProfileName, providerOptions)
+
+		pollProvider, err := poll.NewPollProvider(pollProviderType, providerOptions)
 		if err != nil {
 			log.Fatal("[poll] Failed to initialize poll provider '%s': %v", pollProfileName, err)
 		}

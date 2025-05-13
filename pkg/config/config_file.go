@@ -13,160 +13,125 @@ import (
 // SecretRegex matches environment variable references like ${ENV_VAR}
 var SecretRegex = regexp.MustCompile(`\${([^}]+)}`)
 
-// ConfigFile represents a full configuration file
+// ConfigFile represents the structure of the configuration file
 type ConfigFile struct {
-	// Global configuration
-	Global GlobalConfig `toml:"global"`
-
-	// Provider configurations
+	Global   GlobalConfig              `toml:"global"`
 	Provider map[string]ProviderConfig `toml:"provider"`
-
-	// Poll configurations
-	Poll map[string]PollConfig `toml:"poll"`
-
-	// Domain configurations
-	Domain map[string]DomainConfig `toml:"domain"`
-
-	// Profiles
-	Profile map[string]ProfileConfig `toml:"profile"`
+	Poll     map[string]ProviderConfig `toml:"poll"`
+	Domain   map[string]DomainConfig   `toml:"domain"`
+	Profile  map[string]ProfileConfig  `toml:"profile"`
 }
 
-// GlobalConfig contains global application settings
+// GlobalConfig represents global configuration settings
 type GlobalConfig struct {
-	// Logging
-	LogLevel     string `toml:"log_level"`
-	LogType      string `toml:"log_type"`
-	LogPath      string `toml:"log_path"`
-	LogFile      string `toml:"log_file"`
-	LogTimestamp bool   `toml:"log_timestamps"`
-
-	// Operation mode
-	DryRun bool `toml:"dry_run"`
-
-	// DNS settings
-	DNSProvider    string `toml:"dns_provider"`
-	DNSRecordType  string `toml:"dns_record_type"`
-	DNSRecordTTL   int    `toml:"dns_record_ttl"`
-	DNSRecordValue string `toml:"dns_record_value"`
-
-	// Poll settings
-	PollProfiles []string `toml:"poll_profiles"`
+	LogLevel             string   `toml:"log_level"`
+	LogTimestamps        bool     `toml:"log_timestamps"`
+	LogType              string   `toml:"log_type"`
+	LogPath              string   `toml:"log_path"`
+	DNSProvider          string   `toml:"dns_provider"`
+	PollProfiles         []string `toml:"poll_profiles"`
+	DNSRecordType        string   `toml:"dns_record_type"`
+	DNSRecordTTL         int      `toml:"dns_record_ttl"`
+	DNSRecordTarget      string   `toml:"dns_record_target"`
+	UpdateExistingRecord bool     `toml:"update_existing_record"`
+	// Additional options as a map
+	Options map[string]interface{} `toml:"options"`
 }
 
-// ProviderConfig contains DNS provider configuration
+// ProviderConfig represents configuration for a provider
 type ProviderConfig struct {
-	// Provider type (cloudflare, route53, etc)
-	Type string `toml:"type"`
-
-	// Default TTL for DNS records
-	DefaultTTL int `toml:"default_ttl"`
-
-	// API credentials
-	APIKey    string `toml:"api_key"`
-	APISecret string `toml:"api_secret"`
-	APIToken  string `toml:"api_token"`
-
-	// Additional provider-specific options
-	Options map[string]string `toml:"options"`
+	Type             string            `toml:"type"`
+	APIToken         string            `toml:"api_token"`
+	APIKey           string            `toml:"api_key"`
+	APIEmail         string            `toml:"api_email"`
+	DefaultTTL       int               `toml:"default_ttl"`
+	ExposeContainers bool              `toml:"expose_containers"`
+	Options          map[string]string `toml:"options"`
 }
 
-// PollConfig contains poll provider configuration
-type PollConfig struct {
-	// Provider type (docker, traefik, etc)
-	Type string `toml:"type"`
-
-	// Provider-specific options
-	Options map[string]string `toml:"options"`
-}
-
-// DomainConfig contains domain configuration
+// DomainConfig represents the configuration for a domain
 type DomainConfig struct {
-	// Domain name
-	Name string `toml:"name"`
-
-	// DNS provider to use
-	Provider string `toml:"provider"`
-
-	// Zone ID (if needed)
-	ZoneID string `toml:"zone_id"`
-
-	// TTL for DNS records
-	TTL int `toml:"ttl"`
-
-	// Record type (A, AAAA, CNAME, etc)
-	RecordType string `toml:"record_type"`
-
-	// Target for the DNS record
-	Target string `toml:"target"`
-
-	// Whether to update existing records
-	UpdateExistingRecord bool `toml:"update_existing_record"`
-
-	// Additional options
-	Options map[string]string `toml:"options"`
+	Name                 string            `toml:"name"`
+	Provider             string            `toml:"provider"`
+	ZoneID               string            `toml:"zone_id"`
+	TTL                  int               `toml:"ttl"`
+	RecordType           string            `toml:"record_type"`
+	Target               string            `toml:"target"`
+	UpdateExistingRecord bool              `toml:"update_existing_record"`
+	Options              map[string]string `toml:"options"`
 }
 
-// ProfileConfig contains profile configuration
+// ProfileConfig represents a configuration profile
 type ProfileConfig struct {
-	// Profile name is the key in the map
-
-	// Logging
-	LogLevel     string `toml:"log_level"`
-	LogType      string `toml:"log_type"`
-	LogPath      string `toml:"log_path"`
-	LogFile      string `toml:"log_file"`
-	LogTimestamp bool   `toml:"log_timestamps"`
-
-	// Operation mode
-	DryRun bool `toml:"dry_run"`
-
-	// Poll settings
-	PollProfiles []string `toml:"poll_profiles"`
-
-	// Domains to manage
-	Domains []string `toml:"domains"`
+	LogLevel      string   `toml:"log_level"`
+	LogTimestamps bool     `toml:"log_timestamps"`
+	LogType       string   `toml:"log_type"`
+	LogPath       string   `toml:"log_path"`
+	DryRun        bool     `toml:"dry_run"`
+	PollProfiles  []string `toml:"poll_profiles"`
+	Domains       []string `toml:"domains"`
 }
 
-// LoadConfigFile loads configuration from a file
-func LoadConfigFile(configFile string) (*ConfigFile, error) {
-	// Read the file
-	data, err := os.ReadFile(configFile)
+// GetOptions returns the options map as strings for the provider
+func (pc *ProviderConfig) GetOptions() map[string]string {
+	return pc.setProviderOptions()
+}
+
+// setProviderOptions sets the options map for the provider based on the config
+func (pc *ProviderConfig) setProviderOptions() map[string]string {
+	// Create a map of options from all fields in the config
+	options := make(map[string]string)
+
+	// Add expose_containers setting from the direct field
+	if pc.ExposeContainers {
+		options["expose_containers"] = "true"
+		log.Debug("[config] Setting provider option expose_containers = true")
+	} else {
+		options["expose_containers"] = "false"
+		log.Debug("[config] Setting provider option expose_containers = false")
+	}
+
+	// Add all fields from the provider config options map
+	for k, v := range pc.Options {
+		log.Debug("[config] Setting provider option %s = %s", k, v)
+		options[k] = v
+	}
+
+	// Debug logging to see what options are being passed
+	log.Debug("[config] Provider options: %v", options)
+
+	return options
+}
+
+// LoadConfigFile loads the configuration from a TOML file
+func LoadConfigFile(path string) (*ConfigFile, error) {
+	log.Debug("[config] Loading configuration from %s", path)
+
+	var cfg ConfigFile
+
+	// Open and decode the TOML file
+	_, err := toml.DecodeFile(path, &cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("failed to decode TOML file: %w", err)
 	}
 
-	log.Debug("Loading configuration from %s", configFile)
-
-	// Process environment variables and secrets
-	processedData := processConfigFileSecrets(string(data))
-
-	// Parse TOML
-	var config ConfigFile
-	if _, err := toml.Decode(processedData, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	// Validate basic configuration
+	if cfg.Global.DNSProvider == "" {
+		return nil, fmt.Errorf("no DNS provider specified in configuration")
 	}
 
-	// Set defaults
-	setConfigDefaults(&config)
+	// Check if the specified DNS provider has a configuration
+	_, exists := cfg.Provider[cfg.Global.DNSProvider]
+	if !exists {
+		return nil, fmt.Errorf("configuration for DNS provider '%s' not found", cfg.Global.DNSProvider)
+	}
 
-	return &config, nil
-}
+	// Set defaults for global logging if not specified
+	if cfg.Global.LogLevel == "" {
+		cfg.Global.LogLevel = "info"
+	}
 
-// setConfigDefaults sets default values for the configuration
-func setConfigDefaults(config *ConfigFile) {
-	// Set global defaults
-	if config.Global.LogLevel == "" {
-		config.Global.LogLevel = "info"
-	}
-	if config.Global.LogType == "" {
-		config.Global.LogType = "console"
-	}
-	if config.Global.DNSRecordType == "" {
-		config.Global.DNSRecordType = "A"
-	}
-	if config.Global.DNSRecordTTL <= 0 {
-		config.Global.DNSRecordTTL = 300 // 5 minutes
-	}
+	return &cfg, nil
 }
 
 // processConfigFileSecrets replaces environment variable references in the config file
