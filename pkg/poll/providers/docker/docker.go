@@ -389,29 +389,11 @@ func (p *DockerProvider) processDNSEntries(containerID string, containerName str
 			}
 		}
 
-		// If target is still missing, get container IP only if it's an A record
-		if target == "" && recordType == "A" {
-			// Try to get container IP for A records
-			container, err := p.client.ContainerInspect(context.Background(), containerID)
-			if err != nil {
-				log.Error("[poll/docker] Failed to inspect container for IP: %v", err)
-				continue
-			}
-
-			// Use the first network with an IP
-			for _, network := range container.NetworkSettings.Networks {
-				if network.IPAddress != "" {
-					target = network.IPAddress
-					log.Debug("[poll/docker] Using container IP as target for A record: %s", target)
-					break
-				}
-			}
-		}
-
-		// If we still don't have a target, skip this entry
+		// If target is still missing, this is a fatal error - we require an explicit target
 		if target == "" {
-			log.Error("[poll/docker] No target specified for DNS entry %s.%s, skipping", hostname, domain)
-			continue
+			log.Fatal("[poll/docker] No target specified for DNS entry %s.%s and no valid target found in container, domain, or global configuration",
+				hostname, domain)
+			return // This will never execute due to Fatal, but kept for clarity
 		}
 
 		// Set TTL from global default if still not set
@@ -663,17 +645,6 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 	target := ""
 	if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
 		target = t
-	} else {
-		// Use container IP for A records only if explicitly set to A
-		if recordType == "A" {
-			// Try to use the first network with an IP
-			for _, network := range container.NetworkSettings.Networks {
-				if network.IPAddress != "" {
-					target = network.IPAddress
-					break
-				}
-			}
-		}
 	}
 
 	// Skip if we don't have a target
@@ -737,6 +708,18 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	// Check if DNS is explicitly enabled or disabled
 	dnsEnabled := p.config.ExposeContainers // Default based on config setting
 
+	// Check for explicit setting from container labels
+	if value, exists := labels["nfrastack.dns.enable"]; exists {
+		explicitValue := strings.ToLower(value)
+		if explicitValue == "true" || explicitValue == "1" {
+			dnsEnabled = true
+		} else if explicitValue == "false" || explicitValue == "0" {
+			dnsEnabled = false
+			log.Debug("[poll/docker] Container %s has nfrastack.dns.enable=false label, skipping", containerName)
+			return entries // Return empty entries list
+		}
+	}
+
 	// Log debug message if DNS is enabled but no entries found
 	defer func() {
 		if dnsEnabled && len(entries) == 0 {
@@ -785,14 +768,6 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 			target := ""
 			if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
 				target = t
-			} else if recordType == "A" {
-				// Use container IP address for A records only if explicitly set to A
-				for _, network := range container.NetworkSettings.Networks {
-					if network.IPAddress != "" {
-						target = network.IPAddress
-						break
-					}
-				}
 			}
 
 			// Create DNS entry with proper hostname and domain
@@ -851,14 +826,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 			hostname := ""
 			if len(parts) > 2 {
 				hostname = strings.Join(parts[:len(parts)-2], ".")
-			}
-
-			// For records at the domain level (like testhost.example.com where testhost is the hostname part)
-			// We need to extract the first part as the hostname and the rest as the domain
-			if hostname == "" && len(parts) == 3 {
-				hostname = parts[0]
-				domain = strings.Join(parts[1:], ".")
-			} else if hostname == "" && len(parts) == 2 {
+			} else if len(parts) == 2 {
 				// For apex domain records, use @ as hostname
 				hostname = "@"
 			}
@@ -866,26 +834,16 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 			// Double check our parsing
 			log.Debug("[poll/docker] Parsed Traefik host: hostname=%s, domain=%s", hostname, domain)
 
-			// Get the container IP address for the target
-			target := ""
-			for _, network := range container.NetworkSettings.Networks {
-				if network.IPAddress != "" {
-					target = network.IPAddress
-					break
-				}
-			}
-
-			// Skip if no target
-			if target == "" {
-				log.Warn("[poll/docker] Container %s has no valid IP address for Traefik host rule: %s",
-					container.ID[:12], host)
-				continue
-			}
-
-			// Get record-specific configurations from labels
+			// Get record-specific configurations from labels - no defaults!
 			recordType := ""
 			if rt, exists := labels["nfrastack.dns.record.type"]; exists && rt != "" {
 				recordType = rt
+			}
+
+			// No default target for Traefik entries - this will be resolved from domain config
+			target := ""
+			if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
+				target = t
 			}
 
 			// Get TTL
@@ -905,20 +863,20 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 				}
 			}
 
-			// Create DNS entry using full hostname as the Hostname field
+			// Create DNS entry using hostname and domain separately
 			entry := poll.DNSEntry{
-				Hostname:   host, // Use the full hostname for now
+				Hostname:   hostname,
 				Domain:     domain,
 				RecordType: recordType, // Will be set by domain or global config if empty
-				Target:     target,
-				TTL:        ttl,       // Will be set by domain or global config if 0
-				Overwrite:  overwrite, // Will be set by domain or global config
+				Target:     target,     // Will be set by domain or global config
+				TTL:        ttl,        // Will be set by domain or global config if 0
+				Overwrite:  overwrite,  // Will be set by domain or global config
 			}
 
 			entries = append(entries, entry)
 
-			log.Debug("[poll/docker] Found Traefik Host entry: %s (%s) -> %s (TTL: %d, Overwrite: %v)",
-				host, recordType, target, ttl, overwrite)
+			log.Debug("[poll/docker] Found Traefik Host entry: %s.%s (%s) -> %s (TTL: %d, Overwrite: %v)",
+				hostname, domain, recordType, target, ttl, overwrite)
 		}
 	}
 
