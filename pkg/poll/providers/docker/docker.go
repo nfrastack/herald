@@ -562,35 +562,58 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 		return entries
 	}
 
-	// Get the container hostname from labels or container ID
-	hostname := ""
-	if h, exists := labels["nfrastack.dns.hostname"]; exists && h != "" {
-		hostname = h
-	} else if h, exists := labels["org.tiredofit.dns.hostname"]; exists && h != "" {
-		hostname = h
-	} else {
-		// Use first 12 chars of container ID as hostname
-		hostname = container.ID[:12]
-	}
-
 	// Check if this container should be registered for the given domain
 	shouldRegister := false
+	hostname := container.ID[:12] // Default to container ID if no specific hostname
 
-	// Check through various label formats that might specify the domain
-	if d, exists := labels["nfrastack.dns.domain"]; exists && d == domain {
-		shouldRegister = true
-	} else if d, exists := labels["org.tiredofit.dns.domain"]; exists && d == domain {
-		shouldRegister = true
-	} else if hostDomain, exists := labels["nfrastack.dns.host"]; exists {
+	// Check through nfrastack.dns.host label for the domain
+	if hostLabel, exists := labels["nfrastack.dns.host"]; exists && hostLabel != "" {
 		// Format: nfrastack.dns.host=subdomain.example.com
-		parts := strings.Split(hostDomain, ".")
+		parts := strings.Split(hostLabel, ".")
 		if len(parts) >= 2 {
 			hostDomain := strings.Join(parts[len(parts)-2:], ".")
 			if hostDomain == domain {
 				shouldRegister = true
-				// Override hostname if it's part of the host label
+				// Extract hostname from host label (everything before domain)
 				if len(parts) > 2 {
 					hostname = strings.Join(parts[:len(parts)-2], ".")
+				}
+			}
+		}
+	}
+
+	// Also check Traefik rules for Host entries
+	if !shouldRegister {
+		for k, v := range labels {
+			if strings.HasPrefix(k, "traefik.http.routers.") && strings.Contains(k, ".rule") && strings.Contains(v, "Host(") {
+				// Extract the host from the value (format: Host(`subdomain.example.com`))
+				hostStart := strings.Index(v, "Host(`")
+				if hostStart == -1 {
+					continue
+				}
+				hostStart += 6 // Move past "Host(`"
+
+				hostEnd := strings.Index(v[hostStart:], "`)")
+				if hostEnd == -1 {
+					continue
+				}
+
+				host := v[hostStart : hostStart+hostEnd]
+
+				// Split the host into parts to extract domain
+				parts := strings.Split(host, ".")
+				if len(parts) >= 2 {
+					hostDomain := strings.Join(parts[len(parts)-2:], ".")
+					if hostDomain == domain {
+						shouldRegister = true
+						// Extract hostname from host (everything before domain)
+						if len(parts) > 2 {
+							hostname = strings.Join(parts[:len(parts)-2], ".")
+						} else {
+							hostname = "@" // Use @ for apex domain
+						}
+						break
+					}
 				}
 			}
 		}
@@ -601,10 +624,8 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 	}
 
 	// Get record type from label or default
-	recordType := "A"
+	recordType := ""
 	if rt, exists := labels["nfrastack.dns.record.type"]; exists && rt != "" {
-		recordType = rt
-	} else if rt, exists := labels["org.tiredofit.dns.record.type"]; exists && rt != "" {
 		recordType = rt
 	}
 
@@ -612,10 +633,8 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 	target := ""
 	if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
 		target = t
-	} else if t, exists := labels["org.tiredofit.dns.target"]; exists && t != "" {
-		target = t
 	} else {
-		// Use container IP for A records
+		// Use container IP for A records only if explicitly set to A
 		if recordType == "A" {
 			// Try to use the first network with an IP
 			for _, network := range container.NetworkSettings.Networks {
@@ -635,13 +654,8 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 	}
 
 	// Get TTL from label or default
-	ttl := 60
+	ttl := 0 // No default TTL
 	if ttlStr, exists := labels["nfrastack.dns.record.ttl"]; exists && ttlStr != "" {
-		parsed, err := strconv.Atoi(ttlStr)
-		if err == nil {
-			ttl = parsed
-		}
-	} else if ttlStr, exists := labels["org.tiredofit.dns.record.ttl"]; exists && ttlStr != "" {
 		parsed, err := strconv.Atoi(ttlStr)
 		if err == nil {
 			ttl = parsed
@@ -649,11 +663,11 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 	}
 
 	// Check for overwrite flag
-	overwrite := true
+	overwrite := false // No default overwrite
 	if overwriteStr, exists := labels["nfrastack.dns.record.overwrite"]; exists {
-		overwrite = overwriteStr != "false"
-	} else if overwriteStr, exists := labels["org.tiredofit.dns.record.overwrite"]; exists {
-		overwrite = overwriteStr != "false"
+		if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
+			overwrite = true
+		}
 	}
 
 	// Create the container info
@@ -691,19 +705,17 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	}
 
 	// Check if DNS is explicitly enabled or disabled
-	dnsEnabled := p.config.ExposeContainers // Default based on config setting, not p.exposeContainers
+	dnsEnabled := p.config.ExposeContainers // Default based on config setting
 
 	// Check for explicit setting from container labels
-	for key, value := range labels {
-		if key == "nfrastack.dns.enable" {
-			explicitValue := strings.ToLower(value)
-			if explicitValue == "true" || explicitValue == "1" {
-				dnsEnabled = true
-			} else if explicitValue == "false" || explicitValue == "0" {
-				dnsEnabled = false
-				log.Debug("[poll/docker] Container %s has nfrastack.dns.enable=false label, skipping", containerName)
-				return entries // Return empty entries list
-			}
+	if value, exists := labels["nfrastack.dns.enable"]; exists {
+		explicitValue := strings.ToLower(value)
+		if explicitValue == "true" || explicitValue == "1" {
+			dnsEnabled = true
+		} else if explicitValue == "false" || explicitValue == "0" {
+			dnsEnabled = false
+			log.Debug("[poll/docker] Container %s has nfrastack.dns.enable=false label, skipping", containerName)
+			return entries // Return empty entries list
 		}
 	}
 
@@ -717,100 +729,9 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	// Track processed domains to avoid duplicates
 	processedDomains := make(map[string]bool)
 
-	// First look for explicit domain/hostname settings
+	// Look for nfrastack.dns.host labels - this is now the primary label to use
 	for k, v := range labels {
-		if k == "nfrastack.dns.domain" || k == "org.tiredofit.dns.domain" {
-			domain := v
-
-			// Skip if already processed
-			if processedDomains[domain] {
-				continue
-			}
-
-			processedDomains[domain] = true
-
-			// Get hostname from labels
-			hostname := ""
-			if h, exists := labels["nfrastack.dns.hostname"]; exists && h != "" {
-				hostname = h
-			} else if h, exists := labels["org.tiredofit.dns.hostname"]; exists && h != "" {
-				hostname = h
-			} else {
-				// Use first 12 chars of container ID as hostname
-				hostname = container.ID[:12]
-			}
-
-			// Get record type
-			recordType := "A"
-			if rt, exists := labels["nfrastack.dns.record.type"]; exists && rt != "" {
-				recordType = rt
-			} else if rt, exists := labels["org.tiredofit.dns.record.type"]; exists && rt != "" {
-				recordType = rt
-			}
-
-			// Get target
-			target := ""
-			if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
-				target = t
-			} else if t, exists := labels["org.tiredofit.dns.target"]; exists && t != "" {
-				target = t
-			} else if recordType == "A" {
-				// Use container IP address for A records
-				for _, network := range container.NetworkSettings.Networks {
-					if network.IPAddress != "" {
-						target = network.IPAddress
-						break
-					}
-				}
-			}
-
-			// Skip if no target
-			if target == "" {
-				continue
-			}
-
-			// Get TTL
-			ttl := 60
-			if ttlStr, exists := labels["nfrastack.dns.record.ttl"]; exists && ttlStr != "" {
-				parsed, err := strconv.Atoi(ttlStr)
-				if err == nil {
-					ttl = parsed
-				}
-			} else if ttlStr, exists := labels["org.tiredofit.dns.record.ttl"]; exists && ttlStr != "" {
-				parsed, err := strconv.Atoi(ttlStr)
-				if err == nil {
-					ttl = parsed
-				}
-			}
-
-			// Check for overwrite flag
-			overwrite := true
-			if overwriteStr, exists := labels["nfrastack.dns.record.overwrite"]; exists {
-				overwrite = overwriteStr != "false"
-			} else if overwriteStr, exists := labels["org.tiredofit.dns.record.overwrite"]; exists {
-				overwrite = overwriteStr != "false"
-			}
-
-			// Create DNS entry
-			entry := poll.DNSEntry{
-				Hostname:   hostname,
-				Domain:     domain,
-				RecordType: recordType,
-				Target:     target,
-				TTL:        ttl,
-				Overwrite:  overwrite,
-			}
-
-			entries = append(entries, entry)
-
-			log.Debug("[poll/docker] Found DNS entry: %s.%s (%s) -> %s (TTL: %d, Overwrite: %v)",
-				hostname, domain, recordType, target, ttl, overwrite)
-		}
-	}
-
-	// Also check for host labels
-	for k, v := range labels {
-		if (k == "nfrastack.dns.host" || k == "org.tiredofit.dns.host") && v != "" {
+		if k == "nfrastack.dns.host" && v != "" {
 			parts := strings.Split(v, ".")
 			if len(parts) < 2 {
 				continue
@@ -834,11 +755,9 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 				hostname = container.ID[:12]
 			}
 
-			// Get record type
-			recordType := "A"
+			// Get record-specific configurations
+			recordType := ""
 			if rt, exists := labels["nfrastack.dns.record.type"]; exists && rt != "" {
-				recordType = rt
-			} else if rt, exists := labels["org.tiredofit.dns.record.type"]; exists && rt != "" {
 				recordType = rt
 			}
 
@@ -846,10 +765,8 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 			target := ""
 			if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
 				target = t
-			} else if t, exists := labels["org.tiredofit.dns.target"]; exists && t != "" {
-				target = t
 			} else if recordType == "A" {
-				// Use container IP address for A records
+				// Use container IP address for A records only if explicitly set to A
 				for _, network := range container.NetworkSettings.Networks {
 					if network.IPAddress != "" {
 						target = network.IPAddress
@@ -858,31 +775,21 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 				}
 			}
 
-			// Skip if no target
-			if target == "" {
-				continue
-			}
-
 			// Get TTL
-			ttl := 60
+			ttl := 0 // No default TTL
 			if ttlStr, exists := labels["nfrastack.dns.record.ttl"]; exists && ttlStr != "" {
 				parsed, err := strconv.Atoi(ttlStr)
 				if err == nil {
 					ttl = parsed
 				}
-			} else if ttlStr, exists := labels["org.tiredofit.dns.record.ttl"]; exists && ttlStr != "" {
-				parsed, err := strconv.Atoi(ttlStr)
-				if err == nil {
-					ttl = parsed
-				}
 			}
 
-			// Check for overwrite flag
-			overwrite := true
+			// No default for overwrite, will be determined by domain or global config
+			overwrite := false
 			if overwriteStr, exists := labels["nfrastack.dns.record.overwrite"]; exists {
-				overwrite = overwriteStr != "false"
-			} else if overwriteStr, exists := labels["org.tiredofit.dns.record.overwrite"]; exists {
-				overwrite = overwriteStr != "false"
+				if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
+					overwrite = true
+				}
 			}
 
 			// Create DNS entry
@@ -956,10 +863,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 			// Double check our parsing
 			log.Debug("[poll/docker] Parsed Traefik host: hostname=%s, domain=%s", hostname, domain)
 
-			// Default record type
-			recordType := "A"
-
-			// Use container IP address for A records
+			// Get the container IP address for the target
 			target := ""
 			for _, network := range container.NetworkSettings.Networks {
 				if network.IPAddress != "" {
@@ -975,39 +879,37 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 				continue
 			}
 
-			// Default TTL
-			ttl := 60
+			// Get record-specific configurations from labels
+			recordType := ""
+			if rt, exists := labels["nfrastack.dns.record.type"]; exists && rt != "" {
+				recordType = rt
+			}
 
-			// Default overwrite flag
-			overwrite := true
-
-			// Check if we should override these defaults from other labels
+			// Get TTL
+			ttl := 0 // No default TTL
 			if ttlStr, exists := labels["nfrastack.dns.record.ttl"]; exists && ttlStr != "" {
-				parsed, err := strconv.Atoi(ttlStr)
-				if err == nil {
-					ttl = parsed
-				}
-			} else if ttlStr, exists := labels["org.tiredofit.dns.record.ttl"]; exists && ttlStr != "" {
 				parsed, err := strconv.Atoi(ttlStr)
 				if err == nil {
 					ttl = parsed
 				}
 			}
 
+			// No default for overwrite
+			overwrite := false
 			if overwriteStr, exists := labels["nfrastack.dns.record.overwrite"]; exists {
-				overwrite = overwriteStr != "false"
-			} else if overwriteStr, exists := labels["org.tiredofit.dns.record.overwrite"]; exists {
-				overwrite = overwriteStr != "false"
+				if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
+					overwrite = true
+				}
 			}
 
 			// Create DNS entry using full hostname as the Hostname field
 			entry := poll.DNSEntry{
 				Hostname:   host, // Use the full hostname for now
 				Domain:     domain,
-				RecordType: recordType,
+				RecordType: recordType, // Will be set by domain or global config if empty
 				Target:     target,
-				TTL:        ttl,
-				Overwrite:  overwrite,
+				TTL:        ttl,       // Will be set by domain or global config if 0
+				Overwrite:  overwrite, // Will be set by domain or global config
 			}
 
 			entries = append(entries, entry)
