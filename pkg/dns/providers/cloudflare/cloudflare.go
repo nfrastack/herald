@@ -1,0 +1,320 @@
+// Package cloudflare provides a Cloudflare DNS provider implementation
+package cloudflare
+
+import (
+	"container-dns-companion/pkg/dns"
+	"container-dns-companion/pkg/log"
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"container-dns-companion/pkg/config"
+
+	"github.com/cloudflare/cloudflare-go"
+	"golang.org/x/exp/maps"
+)
+
+// Register this provider with the DNS registry
+func Register() {
+	dns.RegisterProvider("cloudflare", NewProvider)
+}
+
+// Provider implements the DNS provider interface for Cloudflare
+type Provider struct {
+	api        *cloudflare.API
+	config     map[string]string
+	zoneID     string
+	defaultTTL int
+}
+
+// NewProvider creates a new Cloudflare DNS provider
+func NewProvider(config map[string]string) (dns.Provider, error) {
+	p := &Provider{
+		config: config,
+		zoneID: config["zone_id"],
+	}
+
+	// Log available configuration keys for debugging
+	log.Debug("Cloudflare provider config keys: %v", maps.Keys(config))
+
+	// Log values received (excluding sensitive ones)
+	for k, v := range config {
+		if !strings.Contains(k, "token") && !strings.Contains(k, "key") && !strings.Contains(k, "secret") && !strings.Contains(k, "password") {
+			log.Debug("Cloudflare config: %s = %s", k, v)
+		} else {
+			log.Debug("Cloudflare config: %s = ****", k)
+		}
+	}
+
+	// Initialize default TTL
+	ttl, err := strconv.Atoi(config["default_ttl"])
+	if err != nil || ttl <= 0 {
+		ttl = 60 // Default TTL if not specified or invalid
+	}
+	p.defaultTTL = ttl
+
+	// Don't try to initialize API immediately - only when needed
+	return p, nil
+}
+
+// lazyInitAPI initializes the Cloudflare API client if not already initialized
+func (p *Provider) lazyInitAPI() error {
+	// If API is already initialized, return immediately
+	if p.api != nil {
+		return nil
+	}
+
+	// Debug configuration
+	log.Debug("[dns/cloudflare] Cloudflare provider configuration:")
+	log.Debug("[dns/cloudflare]  - API Token present: %v", config.GetConfig(p.config, "api_token") != "")
+	log.Debug("[dns/cloudflare]  - Zone ID present: %v", config.GetConfig(p.config, "zone_id") != "")
+	log.Debug("[dns/cloudflare]  - All config keys: %v", p.config)
+
+	var api *cloudflare.API
+	var err error
+
+	// Check if we have an API token
+	apiToken := config.GetConfig(p.config, "api_token")
+	if apiToken != "" {
+		// Use the token-based authentication method
+		log.Debug("[dns/cloudflare] Initializing Cloudflare API with token authentication")
+		log.Debug("[dns/cloudflare] API Token (partial): %s...", maskToken(apiToken))
+		api, err = cloudflare.NewWithAPIToken(apiToken)
+		if err != nil {
+			return fmt.Errorf("[dns/cloudflare] failed to initialize API with token: %w", err)
+		}
+	} else {
+		// Check for email and API key (legacy auth)
+		email := config.GetConfig(p.config, "api_email")
+		apiKey := config.GetConfig(p.config, "api_key")
+
+		if email == "" || apiKey == "" {
+			return fmt.Errorf("[dns/cloudflare] missing required credentials (either api_token or both api_key and api_email)")
+		}
+
+		// Use the key-based authentication method
+		log.Debug("[dns/cloudflare] Initializing Cloudflare API with key-based authentication")
+		api, err = cloudflare.New(apiKey, email)
+		if err != nil {
+			return fmt.Errorf("[dns/cloudflare] failed to initialize API with key: %w", err)
+		}
+	}
+
+	p.api = api
+	return nil
+}
+
+// maskToken returns a masked version of the token for safe logging
+func maskToken(token string) string {
+	if len(token) <= 5 {
+		return "****"
+	}
+	return token[:5] + "****"
+}
+
+// getZoneID retrieves the zone ID for a domain
+func (p *Provider) getZoneID(domain string) (string, error) {
+	// Initialize API if needed
+	if err := p.lazyInitAPI(); err != nil {
+		return "", err
+	}
+
+	if domain == "" {
+		return "", fmt.Errorf("[dns/cloudflare] domain name is required to get zone ID")
+	}
+
+	// Get zone ID using the API
+	zoneID, err := p.api.ZoneIDByName(domain)
+	if err != nil {
+		return "", fmt.Errorf("[dns/cloudflare] failed to get zone ID for domain %s: %w", domain, err)
+	}
+	return zoneID, nil
+}
+
+// CreateOrUpdateRecord creates or updates a DNS record
+func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostname string, target string, ttl int, overwrite bool) error {
+	// Initialize API if needed
+	if err := p.lazyInitAPI(); err != nil {
+		return err
+	}
+
+	// Get zone ID for the domain
+	zoneID, err := p.getZoneID(domain)
+	if err != nil {
+		return err
+	}
+
+	// Format the full hostname
+	fullHostname := dns.JoinHostWithDomain(hostname, domain)
+
+	// Create context for API calls
+	ctx := context.Background()
+
+	// Create resource container with zone ID
+	rc := cloudflare.ZoneIdentifier(zoneID)
+
+	// Check if record exists
+	recordID, err := p.GetRecordID(domain, recordType, hostname)
+
+	// If we found a record and overwrite is true
+	if err == nil && recordID != "" {
+		if overwrite {
+			log.Debug("[dns/cloudflare] Record %s (%s) exists and overwrite=true, updating it", fullHostname, recordType)
+			// Record exists, update it
+			proxied := false
+			updateParams := cloudflare.UpdateDNSRecordParams{
+				ID:      recordID,
+				Type:    recordType,
+				Name:    fullHostname,
+				Content: target,
+				TTL:     ttl,
+				Proxied: &proxied,
+			}
+
+			// Call the UpdateDNSRecord API
+			_, err = p.api.UpdateDNSRecord(ctx, rc, updateParams)
+			if err != nil {
+				return fmt.Errorf("[dns/cloudflare] failed to update DNS record: %w", err)
+			}
+
+			log.Info("[dns/cloudflare] Updated DNS record %s (%s) -> %s", fullHostname, recordType, target)
+			return nil
+		} else {
+			// Record exists but overwrite is false
+			log.Debug("[dns/cloudflare] Record %s (%s) exists but overwrite=false, skipping", fullHostname, recordType)
+			return fmt.Errorf("[dns/cloudflare] record %s (%s) already exists and overwrite is not enabled", fullHostname, recordType)
+		}
+	}
+
+	// Check if another record type exists with the same hostname
+	// This is specifically to handle the CNAME conflict error we're seeing
+	listParams := cloudflare.ListDNSRecordsParams{
+		Name: fullHostname,
+	}
+
+	records, _, err := p.api.ListDNSRecords(ctx, rc, listParams)
+	if err != nil {
+		log.Debug("[dns/cloudflare] Error checking for conflicting records: %v", err)
+	} else if len(records) > 0 {
+		// Found records with the same name but different type
+		for _, record := range records {
+			if record.Type != recordType {
+				if overwrite {
+					// Delete the conflicting record if overwrite is enabled
+					log.Debug("[dns/cloudflare] Found conflicting record type %s for %s, deleting it", record.Type, fullHostname)
+					err = p.api.DeleteDNSRecord(ctx, rc, record.ID)
+					if err != nil {
+						return fmt.Errorf("[dns/cloudflare] failed to delete conflicting DNS record: %w", err)
+					}
+					log.Info("[dns/cloudflare] Deleted conflicting DNS record %s (%s)", fullHostname, record.Type)
+				} else {
+					// Report the conflict if overwrite is disabled
+					return fmt.Errorf("[dns/cloudflare] conflicting record type %s exists for %s and overwrite is not enabled",
+						record.Type, fullHostname)
+				}
+			}
+		}
+	}
+
+	// Record doesn't exist or conflicts have been resolved, create it
+	proxied := false
+	createParams := cloudflare.CreateDNSRecordParams{
+		Type:    recordType,
+		Name:    fullHostname,
+		Content: target,
+		TTL:     ttl,
+		Proxied: &proxied,
+	}
+
+	// Call the CreateDNSRecord API
+	_, err = p.api.CreateDNSRecord(ctx, rc, createParams)
+	if err != nil {
+		return fmt.Errorf("[dns/cloudflare] failed to create DNS record: %w", err)
+	}
+
+	log.Info("[dns/cloudflare] Created DNS record %s (%s) -> %s", fullHostname, recordType, target)
+	return nil
+}
+
+// GetRecordID gets a DNS record ID for a specific record
+func (p *Provider) GetRecordID(domain string, recordType string, hostname string) (string, error) {
+	// Initialize API if needed
+	if err := p.lazyInitAPI(); err != nil {
+		return "", err
+	}
+
+	// Get zone ID for the domain
+	zoneID, err := p.getZoneID(domain)
+	if err != nil {
+		return "", err
+	}
+
+	// Format the full hostname
+	fullHostname := dns.JoinHostWithDomain(hostname, domain)
+
+	// Create context for API calls
+	ctx := context.Background()
+
+	// Create resource container with zone ID
+	rc := cloudflare.ZoneIdentifier(zoneID)
+
+	// List records to find the one we need
+	params := cloudflare.ListDNSRecordsParams{
+		Type: recordType,
+		Name: fullHostname,
+	}
+
+	records, _, err := p.api.ListDNSRecords(ctx, rc, params)
+	if err != nil {
+		return "", fmt.Errorf("[dns/cloudflare] failed to find DNS record: %w", err)
+	}
+
+	if len(records) == 0 {
+		return "", nil // No error, but no record found
+	}
+
+	return records[0].ID, nil
+}
+
+// DeleteRecord deletes a DNS record
+func (p *Provider) DeleteRecord(domain string, recordType string, hostname string) error {
+	// Initialize API if needed
+	if err := p.lazyInitAPI(); err != nil {
+		return err
+	}
+
+	// Get zone ID for the domain
+	zoneID, err := p.getZoneID(domain)
+	if err != nil {
+		return err
+	}
+
+	// Format the full hostname
+	fullHostname := dns.JoinHostWithDomain(hostname, domain)
+
+	// Create context for API calls
+	ctx := context.Background()
+
+	// Create resource container with zone ID
+	rc := cloudflare.ZoneIdentifier(zoneID)
+
+	// Get record ID
+	recordID, err := p.GetRecordID(domain, recordType, hostname)
+	if err != nil {
+		return err
+	}
+
+	if recordID == "" {
+		return fmt.Errorf("[dns/cloudflare] record %s not found", fullHostname)
+	}
+
+	// Delete the record
+	err = p.api.DeleteDNSRecord(ctx, rc, recordID)
+	if err != nil {
+		return fmt.Errorf("[dns/cloudflare] failed to delete DNS record: %w", err)
+	}
+
+	log.Info("[dns/cloudflare] deleted DNS record %s (%s)", fullHostname, recordType)
+	return nil
+}
