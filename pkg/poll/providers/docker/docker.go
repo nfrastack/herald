@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +32,8 @@ type DockerProvider struct {
 	running          bool
 	exposeContainers bool
 	filterConfig     filter.FilterConfig
-	swarmMode        bool // Whether to operate in Docker Swarm mode
+	swarmMode        bool                           // Whether to operate in Docker Swarm mode
+	domainConfigs    map[string]config.DomainConfig // Add this field to hold domain configs
 }
 
 // Config defines configuration for the Docker provider
@@ -72,7 +73,27 @@ func (c *DockerContainerInfo) GetTarget() string {
 
 // NewProvider creates a new Docker poll provider
 func NewProvider(options map[string]string) (poll.Provider, error) {
-	client, err := client.NewClientWithOpts(client.FromEnv)
+	// Setup Docker client options from environment or provided options
+	clientOpts := []client.Opt{client.FromEnv}
+
+	// Check for explicit Docker host from options
+	if dockerHost, exists := options["docker_host"]; exists && dockerHost != "" {
+		log.Debug("[poll/docker] Using explicit Docker host: %s", dockerHost)
+		clientOpts = append(clientOpts, client.WithHost(dockerHost))
+	}
+
+	// Check for TLS options
+	if certPath, exists := options["docker_cert_path"]; exists && certPath != "" {
+		log.Debug("[poll/docker] Using Docker TLS certificates from: %s", certPath)
+		clientOpts = append(clientOpts, client.WithTLSClientConfig(
+			filepath.Join(certPath, "ca.pem"),
+			filepath.Join(certPath, "cert.pem"),
+			filepath.Join(certPath, "key.pem"),
+		))
+	}
+
+	// Create Docker client with options
+	client, err := client.NewClientWithOpts(clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
@@ -164,6 +185,11 @@ func (p *DockerProvider) StopPolling() error {
 // SetDNSProvider assigns a DNS provider for direct updates
 func (p *DockerProvider) SetDNSProvider(provider dns.Provider) {
 	p.dnsProvider = provider
+}
+
+// Add SetDomainConfigs method
+func (p *DockerProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
+	p.domainConfigs = domainConfigs
 }
 
 // StartPolling starts watching Docker events for container changes
@@ -265,7 +291,7 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 		containerName = containerName[1:]
 	}
 
-	log.Debug("[poll/docker] Container %s: (%s) - %s", event.Action, containerName, containerID[:12])
+	log.Debug("[poll/docker] Container event: %s - name: %s - id: %s", event.Action, containerName, containerID[:12])
 
 	// Process based on event action
 	switch event.Action {
@@ -468,53 +494,11 @@ func (p *DockerProvider) processDNSEntries(containerID string, containerName str
 		hostname := entry.Hostname
 		domain := entry.Domain
 
-		// Get domain-specific configuration
-		domainKey := strings.ReplaceAll(domain, ".", "_")
-		domainConfig := config.GetDomainConfig(domainKey)
-
 		// Set defaults from the entry initially
 		recordType := entry.RecordType
 		ttl := entry.TTL
 		target := entry.Target
 		updateExisting := entry.Overwrite
-
-		// Apply domain-specific configuration if available
-		if domainConfig != nil {
-			log.Debug("[poll/docker] Found domain config for %s: %v", domain, domainConfig)
-
-			// Always use domain record_type if it exists (higher priority than container labels)
-			if domainConfig["record_type"] != "" {
-				recordType = domainConfig["record_type"]
-				log.Debug("[poll/docker] Using domain-specific record type: %s", recordType)
-			}
-
-			// Use domain TTL if it exists and entry TTL is not specified
-			if ttl <= 0 && domainConfig["ttl"] != "" {
-				if parsedTTL, err := strconv.Atoi(domainConfig["ttl"]); err == nil && parsedTTL > 0 {
-					ttl = parsedTTL
-					log.Debug("[poll/docker] Using domain-specific TTL: %d", ttl)
-				}
-			}
-
-			// Use domain target if it exists and entry target is not specified
-			if target == "" && domainConfig["target"] != "" {
-				target = domainConfig["target"]
-				log.Debug("[poll/docker] Using domain-specific target: %s", target)
-			}
-
-			// Use domain update_existing_record setting
-			if updateExistingStr, exists := domainConfig["update_existing_record"]; exists && updateExistingStr != "" {
-				if parsedUpdate, err := strconv.ParseBool(updateExistingStr); err == nil {
-					// Use domain configuration unless explicitly overridden in container
-					if !entry.Overwrite {
-						updateExisting = parsedUpdate
-						log.Debug("[poll/docker] Using domain-specific update_existing_record: %v", updateExisting)
-					}
-				}
-			}
-		} else {
-			log.Debug("[poll/docker] No domain config found for %s", domain)
-		}
 
 		// If no record type specified yet, use global default
 		if recordType == "" {
@@ -579,39 +563,6 @@ func (p *DockerProvider) processDNSEntries(containerID string, containerName str
 			}
 		}
 	}
-}
-
-// getDomainConfig retrieves domain-specific configuration from environment
-func (p *DockerProvider) getDomainConfig(domainKey string) map[string]string {
-	// Look for domain configuration in environment variables
-	prefix := "DOMAIN_" + strings.ToUpper(domainKey) + "_"
-
-	// List of expected domain configuration keys
-	configKeys := []string{
-		"NAME", "PROVIDER", "ZONE_ID", "TTL", "RECORD_TYPE",
-		"TARGET", "UPDATE_EXISTING_RECORD",
-	}
-
-	domainConfig := make(map[string]string)
-	hasConfig := false
-
-	// Check for each expected key
-	for _, key := range configKeys {
-		envKey := prefix + key
-		if value, exists := os.LookupEnv(envKey); exists && value != "" {
-			domainConfig[strings.ToLower(key)] = value
-			hasConfig = true
-		}
-	}
-
-	// Only return the config if we found at least one valid entry
-	if hasConfig {
-		log.Debug("[poll/docker] Found domain configuration for %s with %d settings",
-			domainKey, len(domainConfig))
-		return domainConfig
-	}
-
-	return nil
 }
 
 // GetDNSEntries returns all DNS entries from all containers
@@ -792,7 +743,7 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 
 	// Skip if we don't have a target
 	if target == "" {
-		log.Warn("[poll/docker] Container %s has no target IP for domain %s",
+		log.Warn("[poll/docker] Container %s has no target for domain %s (no label set)",
 			container.ID[:12], domain)
 		return entries
 	}
@@ -843,38 +794,170 @@ func getContainerName(container types.ContainerJSON) string {
 
 // extractDNSEntriesFromContainer extracts DNS entries from a Docker container
 func (p *DockerProvider) extractDNSEntriesFromContainer(container types.ContainerJSON) []poll.DNSEntry {
-	var entries []poll.DNSEntry
+	log.Debug("[poll/docker] domainConfigs map at entry: %v", p.domainConfigs)
 
-	// Get the container's labels and network settings
+	var entries []poll.DNSEntry
 	containerName := getContainerName(container)
 	labels := container.Config.Labels
-	// Only retrieve networkSettings if needed later in the code
-
 	if len(labels) == 0 {
 		return entries
 	}
 
-	// Check if DNS is explicitly enabled or disabled
-	dnsEnabled := p.config.ExposeContainers // Default based on config setting
-
-	// Check for explicit setting from container labels
-	if value, exists := container.Config.Labels["nfrastack.dns.enable"]; exists {
-		explicitValue := strings.ToLower(value)
-		if explicitValue == "true" || explicitValue == "1" {
-			dnsEnabled = true
-		} else if explicitValue == "false" || explicitValue == "0" {
-			dnsEnabled = false
-			log.Debug("[poll/docker] Container %s has nfrastack.dns.enable=false label, skipping", containerName)
-			return entries // Return empty entries list
-		}
+	// 1. Check for nfrastack.dns.enable or legacy nfrastack.dns label
+	dnsLabel, hasDNSLabel := labels["nfrastack.dns.enable"]
+	if !hasDNSLabel {
+		dnsLabel, hasDNSLabel = labels["nfrastack.dns"]
 	}
-
-	// If not enabled, skip processing
-	if !dnsEnabled {
+	if hasDNSLabel {
+		val := strings.ToLower(dnsLabel)
+		if val == "false" || val == "0" {
+			log.Debug("[poll/docker] Skipping container %s due to nfrastack.dns.enable/nfrastack.dns label set to false", containerName)
+			return entries
+		}
+		if val == "true" || val == "1" {
+			log.Debug("[poll/docker] DNS enabled for container %s due to label override", containerName)
+			// continue processing
+		} else {
+			log.Debug("[poll/docker] Skipping container %s due to nfrastack.dns.enable/nfrastack.dns label set to unknown value '%s'", containerName, dnsLabel)
+			return entries
+		}
+	} else if !p.config.ExposeContainers {
+		log.Debug("[poll/docker] Skipping container %s because expose_containers is false and no enable label is set", containerName)
 		return entries
 	}
 
-	// The rest of the function remains unchanged
+	// 2. Hostname/domain extraction
+	var hostSource, hostValue string
+	if v, ok := labels["nfrastack.dns.host"]; ok && v != "" {
+		hostSource = "nfrastack.dns.host"
+		hostValue = v
+	} else {
+		for k, v := range labels {
+			if strings.HasPrefix(k, "traefik.http.routers.") && strings.Contains(k, ".rule") && strings.Contains(v, "Host(") {
+				hostStart := strings.Index(v, "Host(`")
+				if hostStart == -1 {
+					continue
+				}
+				hostStart += 6
+				hostEnd := strings.Index(v[hostStart:], "`)")
+				if hostEnd == -1 {
+					continue
+				}
+				hostValue = v[hostStart : hostStart+hostEnd]
+				hostSource = k
+				break
+			}
+		}
+	}
+	if hostValue == "" {
+		log.Debug("[poll/docker] No hostname/domain found for container %s, skipping", containerName)
+		return entries
+	}
+	log.Debug("[poll/docker] Using label %s=%s for hostname/domain extraction on container %s", hostSource, hostValue, containerName)
+	parts := strings.Split(hostValue, ".")
+	if len(parts) < 2 {
+		log.Debug("[poll/docker] Host value '%s' is not a valid FQDN for container %s, skipping", hostValue, containerName)
+		return entries
+	}
+	domain := strings.Join(parts[len(parts)-2:], ".")
+	hostname := strings.Join(parts[:len(parts)-2], ".")
+	if hostname == "" {
+		hostname = "@"
+	}
+
+	// 3. Other nfrastack.dns.* labels and config precedence
+	recordType := ""
+	if rt, exists := labels["nfrastack.dns.record.type"]; exists && rt != "" {
+		recordType = rt
+		log.Debug("[poll/docker] Found label nfrastack.dns.record.type=%s on container %s", rt, containerName)
+	}
+	target := ""
+	if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
+		target = t
+		log.Debug("[poll/docker] Found label nfrastack.dns.target=%s on container %s", t, containerName)
+	}
+	ttl := 0
+	if ttlStr, exists := labels["nfrastack.dns.record.ttl"]; exists && ttlStr != "" {
+		if parsed, err := strconv.Atoi(ttlStr); err == nil {
+			log.Debug("[poll/docker] Found label nfrastack.dns.record.ttl=%s on container %s", ttlStr, containerName)
+			ttl = parsed
+		}
+	}
+	overwrite := false
+	if overwriteStr, exists := labels["nfrastack.dns.record.overwrite"]; exists {
+		if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
+			log.Debug("[poll/docker] Found label nfrastack.dns.record.overwrite=%s on container %s", overwriteStr, containerName)
+			overwrite = true
+		}
+	}
+
+	// Domain config fallback
+	if p.domainConfigs != nil {
+		for _, domainCfg := range p.domainConfigs {
+			if domainCfg.Name == domain {
+				if target == "" && domainCfg.Target != "" {
+					log.Debug("[poll/docker] Using domain config for %s: value: target %s", domain, domainCfg.Target)
+					target = domainCfg.Target
+				}
+				if recordType == "" && domainCfg.RecordType != "" {
+					log.Debug("[poll/docker] Using domain config for %s: value: recordType %s", domain, domainCfg.RecordType)
+					recordType = domainCfg.RecordType
+				}
+				if ttl == 0 && domainCfg.TTL > 0 {
+					log.Debug("[poll/docker] Using domain config for %s: value: TTL %d", domain, domainCfg.TTL)
+					ttl = domainCfg.TTL
+				}
+				if !overwrite && domainCfg.UpdateExistingRecord {
+					log.Debug("[poll/docker] Using domain config for %s: value: UpdateExistingRecord true", domain)
+					overwrite = true
+				}
+				break
+			}
+		}
+	}
+
+	// Global config fallback (if still unset)
+	if target == "" && p.options != nil {
+		if globalTarget, ok := p.options["dns_record_target"]; ok && globalTarget != "" {
+			log.Debug("[poll/docker] Using global config for %s: value: target %s", domain, globalTarget)
+			target = globalTarget
+		}
+	}
+	if recordType == "" && p.options != nil {
+		if globalType, ok := p.options["dns_record_type"]; ok && globalType != "" {
+			log.Debug("[poll/docker] Using global config for %s: value: type %s", domain, globalType)
+			recordType = globalType
+		}
+	}
+	if ttl == 0 && p.options != nil {
+		if globalTTL, ok := p.options["dns_record_ttl"]; ok && globalTTL != "" {
+			if parsed, err := strconv.Atoi(globalTTL); err == nil {
+				log.Debug("[poll/docker] Using global config for %s: value: TTL %d", domain, parsed)
+				ttl = parsed
+			}
+		}
+	}
+	if !overwrite && p.options != nil {
+		if globalOverwrite, ok := p.options["update_existing_record"]; ok && (globalOverwrite == "true" || globalOverwrite == "1") {
+			log.Debug("[poll/docker] Using global config update_existing_record for %s: true", domain)
+			overwrite = true
+		}
+	}
+
+	if target == "" {
+		log.Warn("[poll/docker] Container %s has no target for domain %s (no label, domain, or global config set)", containerName, domain)
+		return entries
+	}
+
+	log.Debug("[poll/docker] Final values for container %s: hostname=%s, domain=%s, recordType=%s, target=%s, ttl=%d, overwrite=%v", containerName, hostname, domain, recordType, target, ttl, overwrite)
+	entries = append(entries, poll.DNSEntry{
+		Hostname:   hostname,
+		Domain:     domain,
+		RecordType: recordType,
+		Target:     target,
+		TTL:        ttl,
+		Overwrite:  overwrite,
+	})
 	return entries
 }
 
