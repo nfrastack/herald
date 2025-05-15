@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+//
+// SPDX-License-Identifier: BSD-3
+
 // Package poll provides polling mechanisms for DNS updates
 package poll
 

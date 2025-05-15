@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+//
+// SPDX-License-Identifier: BSD-3
+
 // Package providers imports all available DNS providers
 package providers
 

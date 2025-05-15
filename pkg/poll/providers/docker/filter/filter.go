@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+//
+// SPDX-License-Identifier: BSD-3
+
 package filter
 
 import (
@@ -67,7 +71,7 @@ func NewFilterFromOptions(options map[string]string) (FilterConfig, error) {
 	// If we have a simple filter
 	if hasFilterType && filterType != "" {
 		if filterType != string(FilterTypeNone) && (!hasFilterValue || filterValue == "") {
-			return config, fmt.Errorf("filter_value is required when filter_type is not 'none'")
+			return config, fmt.Errorf("[poll/docker/filter] filter_value is required when filter_type is not 'none'")
 		}
 
 		config.Filters = []Filter{

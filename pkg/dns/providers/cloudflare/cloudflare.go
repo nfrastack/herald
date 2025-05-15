@@ -1,15 +1,18 @@
+// SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+//
+// SPDX-License-Identifier: BSD-3
+
 // Package cloudflare provides a Cloudflare DNS provider implementation
 package cloudflare
 
 import (
+	"container-dns-companion/pkg/config"
 	"container-dns-companion/pkg/dns"
 	"container-dns-companion/pkg/log"
 	"context"
 	"fmt"
 	"strconv"
 	"strings"
-
-	"container-dns-companion/pkg/config"
 
 	"github.com/cloudflare/cloudflare-go"
 	"golang.org/x/exp/maps"
