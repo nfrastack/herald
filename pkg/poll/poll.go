@@ -89,7 +89,7 @@ func GetProvider(name string, options map[string]string) (Provider, error) {
 	factory, ok := providers[name]
 	providersMu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("unknown poll provider: %s", name)
+		return nil, fmt.Errorf("[poll] unknown poll provider: %s", name)
 	}
 	return factory(options)
 }
@@ -108,7 +108,7 @@ func GetPoller(name string, options map[string]string) (*Poller, error) {
 
 	containerProvider, ok := provider.(ContainerProvider)
 	if !ok {
-		return nil, fmt.Errorf("provider %s is not a container provider", name)
+		return nil, fmt.Errorf("[poll] provider %s is not a container provider", name)
 	}
 
 	// Create a poller with the container provider (no DNS provider yet)
@@ -188,29 +188,29 @@ func (p *Poller) SetDefaultZoneID(zoneID string) {
 
 // Poll polls the container provider for DNS entries and updates DNS
 func (p *Poller) Poll() error {
-	log.Debug("Starting poll cycle...")
+	log.Debug("[poll] Starting poll cycle...")
 
 	// Get DNS entries from container provider
-	log.Debug("Calling containerProvider.GetDNSEntries()")
+	log.Debug("[poll] Calling containerProvider.GetDNSEntries()")
 	entries, err := p.containerProvider.GetDNSEntries()
 	if err != nil {
-		return fmt.Errorf("failed to get DNS entries: %w", err)
+		return fmt.Errorf("[poll] failed to get DNS entries: %w", err)
 	}
 
-	log.Debug("Found %d DNS entries to process", len(entries))
+	log.Debug("[poll] Found %d DNS entries to process", len(entries))
 	if len(entries) == 0 {
-		log.Debug("No DNS entries found, skipping update")
+		log.Debug("[poll] No DNS entries found, skipping update")
 		p.lastPoll = time.Now()
 		return nil
 	}
 
 	// Process DNS entries
 	if err := p.processDNSEntries(entries); err != nil {
-		log.Error("Failed to process DNS entries: %v", err)
+		log.Error("[poll] Failed to process DNS entries: %v", err)
 	}
 
 	p.lastPoll = time.Now()
-	log.Debug("Poll cycle completed at %s", p.lastPoll.Format(time.RFC3339))
+	log.Debug("[poll] Poll cycle completed at %s", p.lastPoll.Format(time.RFC3339))
 	return nil
 }
 
@@ -225,7 +225,7 @@ func (p *Poller) processDNSEntries(entries []DNSEntry) error {
 			continue
 		}
 
-		log.Debug("Processing DNS entry: %s (%s) -> %s", entry.Hostname, entry.RecordType, entry.Target)
+		log.Debug("[poll] Processing DNS entry: %s (%s) -> %s", entry.Hostname, entry.RecordType, entry.Target)
 
 		// Set TTL to default if not provided
 		ttl := entry.TTL
@@ -264,7 +264,7 @@ func (p *Poller) processDNSEntries(entries []DNSEntry) error {
 		exists := false
 		recordID, err := p.dnsProvider.GetRecordID(domain.Name, record.Type, hostname)
 		if err != nil {
-			log.Error("Error checking if record exists: %v", err)
+			log.Error("[poll] Error checking if record exists: %v", err)
 			continue
 		}
 
@@ -278,14 +278,14 @@ func (p *Poller) processDNSEntries(entries []DNSEntry) error {
 			log.Debug("Record %s (%s) exists, updating", record.Name, record.Type)
 			err = p.dnsProvider.CreateOrUpdateRecord(domain.Name, record.Type, hostname, record.Value, record.TTL, overwrite)
 			if err != nil {
-				log.Error("Error updating record: %v", err)
+				log.Error("[poll] Error updating record: %v", err)
 				continue
 			}
 		} else {
 			log.Debug("Record %s (%s) does not exist, creating", record.Name, record.Type)
 			err = p.dnsProvider.CreateOrUpdateRecord(domain.Name, record.Type, hostname, record.Value, record.TTL, overwrite)
 			if err != nil {
-				log.Error("Error creating record: %v", err)
+				log.Error("[poll] Error creating record: %v", err)
 				continue
 			}
 		}
@@ -296,11 +296,11 @@ func (p *Poller) processDNSEntries(entries []DNSEntry) error {
 
 // StartPolling starts polling for DNS entries
 func (p *Poller) StartPolling() error {
-	log.Info("Starting DNS poll cycle...")
+	log.Info("[poll] Starting DNS poll cycle...")
 
 	// Do an initial poll immediately
 	if err := p.Poll(); err != nil {
-		log.Error("Error during initial poll: %v", err)
+		log.Error("[poll] Error during initial poll: %v", err)
 	}
 
 	// Create ticker for regular polling
@@ -311,7 +311,7 @@ func (p *Poller) StartPolling() error {
 		for range ticker.C {
 			log.Info("Polling for DNS entries (interval: %d seconds)...", p.pollInterval)
 			if err := p.Poll(); err != nil {
-				log.Error("Error polling for DNS entries: %v", err)
+				log.Error("[poll] Error polling for DNS entries: %v", err)
 			}
 		}
 	}()

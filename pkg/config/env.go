@@ -20,9 +20,9 @@ var (
 	EnvCache = make(map[string]string)
 
 	// Regular expressions to match environment variable patterns
-	providerRegex     = regexp.MustCompile(`^PROVIDER_([A-Za-z0-9_]+)_(.+)$`)
-	domainNumberRegex = regexp.MustCompile(`^DOMAIN([0-9]+)_(.+)$`)
-	pollRegex         = regexp.MustCompile(`^POLL_([A-Za-z0-9_]+)_(.+)$`)
+	domainNameRegex = regexp.MustCompile(`^DOMAIN_([A-Za-z0-9_]+)_(.+)$`)
+	providerRegex   = regexp.MustCompile(`^PROVIDER_([A-Za-z0-9_]+)_(.+)$`)
+	pollRegex       = regexp.MustCompile(`^POLL_([A-Za-z0-9_]+)_(.+)$`)
 )
 
 // LoadFromEnvironment loads configuration values from environment variables
@@ -336,7 +336,6 @@ func setLogLevelFromEnv(cfg *ConfigFile) {
 // setDomainSettingsFromEnv configures domains from environment variables
 func setDomainSettingsFromEnv(cfg *ConfigFile) {
 	// Process named domains (DOMAIN_<NAME>_*) format
-	domainNameRegex := regexp.MustCompile(`^DOMAIN_([A-Za-z0-9_]+)_(.+)$`)
 
 	// First, find all domain names from environment variables
 	domainNames := make(map[string]string) // map[domainKeyInEnvVar]actualDomainName
@@ -606,33 +605,6 @@ func ApplyConfigToEnv(cfg *ConfigFile, prefix string) {
 			setIfPresent(providerTypePrefix+strings.ToUpper(option), value)
 		}
 	}
-
-	domainIndex := 1
-	for _, domain := range cfg.Domain {
-		domainVar := fmt.Sprintf("DOMAIN%d", domainIndex)
-		setIfPresent(domainVar, domain.Name)
-		domainPrefix := fmt.Sprintf("%s_", domainVar)
-		if domain.ZoneID != "" {
-			setIfPresent(domainPrefix+"ZONE_ID", domain.ZoneID)
-		}
-		if domain.Provider != "" {
-			setIfPresent(domainPrefix+"PROVIDER", domain.Provider)
-		}
-		if domain.TTL > 0 {
-			setIfPresent(domainPrefix+"TTL", strconv.Itoa(domain.TTL))
-		}
-		if domain.RecordType != "" {
-			setIfPresent(domainPrefix+"RECORD_TYPE", domain.RecordType)
-		}
-		if domain.Target != "" {
-			setIfPresent(domainPrefix+"TARGET", domain.Target)
-		}
-		setIfPresent(domainPrefix+"UPDATE_EXISTING", strconv.FormatBool(domain.UpdateExistingRecord))
-		for option, value := range domain.Options {
-			setIfPresent(domainPrefix+strings.ToUpper(option), value)
-		}
-		domainIndex++
-	}
 }
 
 // Cache-related functions
@@ -731,46 +703,6 @@ func GetEnvVarBool(key string, defaultValue bool) bool {
 // GetEnvVarInt gets an integer environment variable with a default value
 func GetEnvVarInt(key string, defaultValue int) int {
 	return EnvToInt(key, defaultValue)
-}
-
-// GetLegacyDomainEnvs gets the legacy domain configurations from environment variables
-// in the format DOMAIN_<NAME>, DOMAIN_<NAME>_TARGET, and DOMAIN_<NAME>_RECORD_TYPE
-func GetLegacyDomainEnvs() map[string]DomainConfig {
-	result := map[string]DomainConfig{}
-
-	envVars := os.Environ()
-	for _, envVar := range envVars {
-		parts := strings.SplitN(envVar, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := parts[0]
-		value := parts[1]
-
-		// Check for DOMAIN_<NAME> pattern
-		if strings.HasPrefix(key, "DOMAIN_") && !strings.HasSuffix(key, "_TARGET") && !strings.HasSuffix(key, "_RECORD_TYPE") {
-			name := strings.TrimPrefix(key, "DOMAIN_")
-			domain := value
-
-			// Look for corresponding TARGET and RECORD_TYPE
-			target := os.Getenv(fmt.Sprintf("DOMAIN_%s_TARGET", name))
-			recordType := os.Getenv(fmt.Sprintf("DOMAIN_%s_RECORD_TYPE", name))
-
-			// Default to A record if not specified
-			if recordType == "" {
-				recordType = "A"
-			}
-
-			result[name] = DomainConfig{
-				Name:       domain,
-				Target:     target,
-				RecordType: recordType,
-			}
-		}
-	}
-
-	return result
 }
 
 // ApplyLoggingConfig initializes the logger using the effective log level and log_timestamps from config

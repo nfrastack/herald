@@ -939,7 +939,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	}
 	if !overwrite && p.options != nil {
 		if globalOverwrite, ok := p.options["update_existing_record"]; ok && (globalOverwrite == "true" || globalOverwrite == "1") {
-			log.Debug("[poll/docker] Using global config update_existing_record for %s: true", domain)
+			log.Debug("[poll/docker] Using global config for %s: value: update_existing_record %s: true", domain)
 			overwrite = true
 		}
 	}

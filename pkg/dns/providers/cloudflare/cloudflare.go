@@ -36,14 +36,14 @@ func NewProvider(config map[string]string) (dns.Provider, error) {
 	}
 
 	// Log available configuration keys for debugging
-	log.Debug("Cloudflare provider config keys: %v", maps.Keys(config))
+	log.Debug("[provider/cloudflare] Cloudflare provider config keys: %v", maps.Keys(config))
 
 	// Log values received (excluding sensitive ones)
 	for k, v := range config {
 		if !strings.Contains(k, "token") && !strings.Contains(k, "key") && !strings.Contains(k, "secret") && !strings.Contains(k, "password") {
-			log.Debug("Cloudflare config: %s = %s", k, v)
+			log.Debug("[provider/cloudflare] Cloudflare config: %s = %s", k, v)
 		} else {
-			log.Debug("Cloudflare config: %s = ****", k)
+			log.Debug("[provider/cloudflare] Cloudflare config: %s = ****", k)
 		}
 	}
 
@@ -66,10 +66,10 @@ func (p *Provider) lazyInitAPI() error {
 	}
 
 	// Debug configuration
-	log.Debug("[dns/cloudflare] Cloudflare provider configuration:")
-	log.Debug("[dns/cloudflare]  - API Token present: %v", config.GetConfig(p.config, "api_token") != "")
-	log.Debug("[dns/cloudflare]  - Zone ID present: %v", config.GetConfig(p.config, "zone_id") != "")
-	log.Debug("[dns/cloudflare]  - All config keys: %v", p.config)
+	log.Debug("[provider/cloudflare] Cloudflare provider configuration:")
+	log.Debug("[provider/cloudflare]  - API Token present: %v", config.GetConfig(p.config, "api_token") != "")
+	log.Debug("[provider/cloudflare]  - Zone ID present: %v", config.GetConfig(p.config, "zone_id") != "")
+	log.Debug("[provider/cloudflare]  - All config keys: %v", p.config)
 
 	var api *cloudflare.API
 	var err error
@@ -78,11 +78,11 @@ func (p *Provider) lazyInitAPI() error {
 	apiToken := config.GetConfig(p.config, "api_token")
 	if apiToken != "" {
 		// Use the token-based authentication method
-		log.Debug("[dns/cloudflare] Initializing Cloudflare API with token authentication")
-		log.Debug("[dns/cloudflare] API Token (partial): %s...", maskToken(apiToken))
+		log.Debug("[provider/cloudflare] Initializing Cloudflare API with token authentication")
+		log.Debug("[provider/cloudflare] API Token (partial): %s...", maskToken(apiToken))
 		api, err = cloudflare.NewWithAPIToken(apiToken)
 		if err != nil {
-			return fmt.Errorf("[dns/cloudflare] failed to initialize API with token: %w", err)
+			return fmt.Errorf("[provider/cloudflare] failed to initialize API with token: %w", err)
 		}
 	} else {
 		// Check for email and API key (legacy auth)
@@ -90,14 +90,14 @@ func (p *Provider) lazyInitAPI() error {
 		apiKey := config.GetConfig(p.config, "api_key")
 
 		if email == "" || apiKey == "" {
-			return fmt.Errorf("[dns/cloudflare] missing required credentials (either api_token or both api_key and api_email)")
+			return fmt.Errorf("[provider/cloudflare] missing required credentials (either api_token or both api_key and api_email)")
 		}
 
 		// Use the key-based authentication method
-		log.Debug("[dns/cloudflare] Initializing Cloudflare API with key-based authentication")
+		log.Debug("[provider/cloudflare] Initializing Cloudflare API with key-based authentication")
 		api, err = cloudflare.New(apiKey, email)
 		if err != nil {
-			return fmt.Errorf("[dns/cloudflare] failed to initialize API with key: %w", err)
+			return fmt.Errorf("[provider/cloudflare] failed to initialize API with key: %w", err)
 		}
 	}
 
@@ -121,13 +121,13 @@ func (p *Provider) getZoneID(domain string) (string, error) {
 	}
 
 	if domain == "" {
-		return "", fmt.Errorf("[dns/cloudflare] domain name is required to get zone ID")
+		return "", fmt.Errorf("[provider/cloudflare] domain name is required to get zone ID")
 	}
 
 	// Get zone ID using the API
 	zoneID, err := p.api.ZoneIDByName(domain)
 	if err != nil {
-		return "", fmt.Errorf("[dns/cloudflare] failed to get zone ID for domain %s: %w", domain, err)
+		return "", fmt.Errorf("[provider/cloudflare] failed to get zone ID for domain %s: %w", domain, err)
 	}
 	return zoneID, nil
 }
@@ -160,7 +160,7 @@ func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostna
 	// If we found a record and overwrite is true
 	if err == nil && recordID != "" {
 		if overwrite {
-			log.Debug("[dns/cloudflare] Record %s (%s) exists and overwrite=true, updating it", fullHostname, recordType)
+			log.Debug("[provider/cloudflare] Record %s (%s) exists and overwrite=true, updating it", fullHostname, recordType)
 			// Record exists, update it
 			proxied := false
 			updateParams := cloudflare.UpdateDNSRecordParams{
@@ -175,15 +175,15 @@ func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostna
 			// Call the UpdateDNSRecord API
 			_, err = p.api.UpdateDNSRecord(ctx, rc, updateParams)
 			if err != nil {
-				return fmt.Errorf("[dns/cloudflare] failed to update DNS record: %w", err)
+				return fmt.Errorf("[provider/cloudflare] failed to update DNS record: %w", err)
 			}
 
-			log.Info("[dns/cloudflare] Updated DNS record %s (%s) -> %s", fullHostname, recordType, target)
+			log.Info("[provider/cloudflare] Updated DNS record %s (%s) -> %s", fullHostname, recordType, target)
 			return nil
 		} else {
 			// Record exists but overwrite is false
-			log.Debug("[dns/cloudflare] Record %s (%s) exists but overwrite=false, skipping", fullHostname, recordType)
-			return fmt.Errorf("[dns/cloudflare] record %s (%s) already exists and overwrite is not enabled", fullHostname, recordType)
+			log.Debug("[provider/cloudflare] Record %s (%s) exists but overwrite=false, skipping", fullHostname, recordType)
+			return fmt.Errorf("[provider/cloudflare] record %s (%s) already exists and overwrite is not enabled", fullHostname, recordType)
 		}
 	}
 
@@ -195,22 +195,22 @@ func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostna
 
 	records, _, err := p.api.ListDNSRecords(ctx, rc, listParams)
 	if err != nil {
-		log.Debug("[dns/cloudflare] Error checking for conflicting records: %v", err)
+		log.Debug("[provider/cloudflare] Error checking for conflicting records: %v", err)
 	} else if len(records) > 0 {
 		// Found records with the same name but different type
 		for _, record := range records {
 			if record.Type != recordType {
 				if overwrite {
 					// Delete the conflicting record if overwrite is enabled
-					log.Debug("[dns/cloudflare] Found conflicting record type %s for %s, deleting it", record.Type, fullHostname)
+					log.Debug("[provider/cloudflare] Found conflicting record type %s for %s, deleting it", record.Type, fullHostname)
 					err = p.api.DeleteDNSRecord(ctx, rc, record.ID)
 					if err != nil {
-						return fmt.Errorf("[dns/cloudflare] failed to delete conflicting DNS record: %w", err)
+						return fmt.Errorf("[provider/cloudflare] failed to delete conflicting DNS record: %w", err)
 					}
-					log.Info("[dns/cloudflare] Deleted conflicting DNS record %s (%s)", fullHostname, record.Type)
+					log.Info("[provider/cloudflare] Deleted conflicting DNS record %s (%s)", fullHostname, record.Type)
 				} else {
 					// Report the conflict if overwrite is disabled
-					return fmt.Errorf("[dns/cloudflare] conflicting record type %s exists for %s and overwrite is not enabled",
+					return fmt.Errorf("[provider/cloudflare] conflicting record type %s exists for %s and overwrite is not enabled",
 						record.Type, fullHostname)
 				}
 			}
@@ -230,10 +230,10 @@ func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostna
 	// Call the CreateDNSRecord API
 	_, err = p.api.CreateDNSRecord(ctx, rc, createParams)
 	if err != nil {
-		return fmt.Errorf("[dns/cloudflare] failed to create DNS record: %w", err)
+		return fmt.Errorf("[provider/cloudflare] failed to create DNS record: %w", err)
 	}
 
-	log.Info("[dns/cloudflare] Created DNS record %s (%s) -> %s", fullHostname, recordType, target)
+	log.Info("[provider/cloudflare] Created DNS record %s (%s) -> %s", fullHostname, recordType, target)
 	return nil
 }
 
@@ -267,7 +267,7 @@ func (p *Provider) GetRecordID(domain string, recordType string, hostname string
 
 	records, _, err := p.api.ListDNSRecords(ctx, rc, params)
 	if err != nil {
-		return "", fmt.Errorf("[dns/cloudflare] failed to find DNS record: %w", err)
+		return "", fmt.Errorf("[provider/cloudflare] failed to find DNS record: %w", err)
 	}
 
 	if len(records) == 0 {
@@ -306,15 +306,15 @@ func (p *Provider) DeleteRecord(domain string, recordType string, hostname strin
 	}
 
 	if recordID == "" {
-		return fmt.Errorf("[dns/cloudflare] record %s not found", fullHostname)
+		return fmt.Errorf("[provider/cloudflare] record %s not found", fullHostname)
 	}
 
 	// Delete the record
 	err = p.api.DeleteDNSRecord(ctx, rc, recordID)
 	if err != nil {
-		return fmt.Errorf("[dns/cloudflare] failed to delete DNS record: %w", err)
+		return fmt.Errorf("[provider/cloudflare] failed to delete DNS record: %w", err)
 	}
 
-	log.Info("[dns/cloudflare] deleted DNS record %s (%s)", fullHostname, recordType)
+	log.Info("[provider/cloudflare] deleted DNS record %s (%s)", fullHostname, recordType)
 	return nil
 }
