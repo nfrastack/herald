@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"container-dns-companion/pkg/config"
 	"container-dns-companion/pkg/dns"
 	"container-dns-companion/pkg/log"
 )
@@ -24,6 +25,13 @@ type Provider interface {
 
 	// GetDNSEntries returns all DNS entries from the provider
 	GetDNSEntries() ([]DNSEntry, error)
+}
+
+// ProviderWithDomainConfigs allows setting domain configs on a poll provider
+// (for providers that need domain config awareness, e.g., Docker)
+type ProviderWithDomainConfigs interface {
+	Provider
+	SetDomainConfigs(map[string]config.DomainConfig)
 }
 
 // ContainerInfo represents information about a container
