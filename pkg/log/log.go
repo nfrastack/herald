@@ -23,12 +23,13 @@ const (
 
 // Logger provides logging functionality for the application
 type Logger struct {
-	debugLogger *log.Logger
-	infoLogger  *log.Logger
-	warnLogger  *log.Logger
-	errorLogger *log.Logger
-	level       string
-	mu          sync.Mutex
+	debugLogger    *log.Logger
+	infoLogger     *log.Logger
+	warnLogger     *log.Logger
+	errorLogger    *log.Logger
+	level          string
+	mu             sync.Mutex
+	showTimestamps bool
 }
 
 var (
@@ -36,10 +37,10 @@ var (
 	once          sync.Once
 )
 
-// Initialize creates the default logger with the specified level
-func Initialize(level string) {
+// Initialize creates the default logger with the specified level and timestamp visibility
+func Initialize(level string, showTimestamps bool) {
 	once.Do(func() {
-		defaultLogger = NewLogger(level)
+		defaultLogger = NewLogger(level, showTimestamps)
 	})
 }
 
@@ -47,22 +48,20 @@ func Initialize(level string) {
 func GetLogger() *Logger {
 	once.Do(func() {
 		// Default to info if not initialized
-		defaultLogger = NewLogger(os.Getenv("LOG_LEVEL"))
+		defaultLogger = NewLogger(os.Getenv("LOG_LEVEL"), true)
 	})
 	return defaultLogger
 }
 
-// NewLogger creates a new logger with the specified level
-func NewLogger(level string) *Logger {
+// NewLogger creates a new logger with the specified level and timestamp visibility
+func NewLogger(level string, showTimestamps bool) *Logger {
 	if level == "" {
 		level = LevelInfo // Default log level
 	}
 	level = strings.ToLower(level)
 
-	// Use custom timestamp format
-	flags := 0 // No standard flags
+	flags := 0 // Always use no standard flags to avoid double timestamps
 
-	// Create loggers with custom prefixes
 	debugLogger := log.New(os.Stdout, "", flags)
 	infoLogger := log.New(os.Stdout, "", flags)
 	warnLogger := log.New(os.Stdout, "", flags)
@@ -92,11 +91,12 @@ func NewLogger(level string) *Logger {
 	}
 
 	return &Logger{
-		debugLogger: debugLogger,
-		infoLogger:  infoLogger,
-		warnLogger:  warnLogger,
-		errorLogger: errorLogger,
-		level:       level,
+		debugLogger:    debugLogger,
+		infoLogger:     infoLogger,
+		warnLogger:     warnLogger,
+		errorLogger:    errorLogger,
+		level:          level,
+		showTimestamps: showTimestamps,
 	}
 }
 
@@ -117,42 +117,67 @@ func (l *Logger) GetLevel() string {
 // Debug logs a debug message with optional formatting
 func (l *Logger) Debug(format string, args ...interface{}) {
 	if l.level == LevelDebug {
-		timestamp := time.Now().Format("2006-01-02 15:04:05")
 		message := fmt.Sprintf(format, args...)
-		l.debugLogger.Output(2, fmt.Sprintf("%s DEBUG %s", timestamp, message))
+		if l.showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s DEBUG %s", timestamp, message)
+		} else {
+			message = fmt.Sprintf("DEBUG %s", message)
+		}
+		l.debugLogger.Output(2, message)
 	}
 }
 
 // Info logs an info message with optional formatting
 func (l *Logger) Info(format string, args ...interface{}) {
 	if l.level == LevelDebug || l.level == LevelInfo {
-		timestamp := time.Now().Format("2006-01-02 15:04:05")
 		message := fmt.Sprintf(format, args...)
-		l.infoLogger.Output(2, fmt.Sprintf("%s INFO %s", timestamp, message))
+		if l.showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s INFO %s", timestamp, message)
+		} else {
+			message = fmt.Sprintf("INFO %s", message)
+		}
+		l.infoLogger.Output(2, message)
 	}
 }
 
 // Warn logs a warning message with optional formatting
 func (l *Logger) Warn(format string, args ...interface{}) {
 	if l.level == LevelDebug || l.level == LevelInfo || l.level == LevelWarn {
-		timestamp := time.Now().Format("2006-01-02 15:04:05")
 		message := fmt.Sprintf(format, args...)
-		l.warnLogger.Output(2, fmt.Sprintf("%s WARN %s", timestamp, message))
+		if l.showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s WARN %s", timestamp, message)
+		} else {
+			message = fmt.Sprintf("WARN %s", message)
+		}
+		l.warnLogger.Output(2, message)
 	}
 }
 
 // Error logs an error message with optional formatting
 func (l *Logger) Error(format string, args ...interface{}) {
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	message := fmt.Sprintf(format, args...)
-	l.errorLogger.Output(2, fmt.Sprintf("%s ERROR %s", timestamp, message))
+	if l.showTimestamps {
+		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		message = fmt.Sprintf("%s ERROR %s", timestamp, message)
+	} else {
+		message = fmt.Sprintf("ERROR %s", message)
+	}
+	l.errorLogger.Output(2, message)
 }
 
 // Fatal logs an error message and exits the program
 func (l *Logger) Fatal(format string, args ...interface{}) {
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	message := fmt.Sprintf(format, args...)
-	l.errorLogger.Output(2, fmt.Sprintf("%s FATAL %s", timestamp, message))
+	if l.showTimestamps {
+		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		message = fmt.Sprintf("%s FATAL %s", timestamp, message)
+	} else {
+		message = fmt.Sprintf("FATAL %s", message)
+	}
+	l.errorLogger.Output(2, message)
 	os.Exit(1)
 }
 

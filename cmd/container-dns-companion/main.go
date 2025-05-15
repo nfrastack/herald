@@ -47,8 +47,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Initialize logging
-	log.Initialize(*logLevel)
 	log.Info("Starting Container DNS Companion")
 
 	// Register DNS providers after logging is initialized
@@ -74,22 +72,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set log level from config if not overridden by flag
-	if *logLevel == "" && cfg.Global.LogLevel != "" {
-		log.GetLogger().SetLevel(cfg.Global.LogLevel)
-	}
-
-	// Set log timestamps from config
-	if cfg.Global.LogTimestamps {
-		// Set environment variable for timestamps
-		os.Setenv("LOG_TIMESTAMPS", "true")
-		// Re-initialize the logger to apply the timestamp setting
-		currentLevel := log.GetLogger().GetLevel()
-		log.Initialize(currentLevel)
-	}
+	// Apply logging configuration
+	config.ApplyLoggingConfig(cfg)
 
 	// Apply configuration to environment variables
 	config.ApplyConfigToEnv(cfg, "")
+
+	// Load environment variable configuration (overrides config file)
+	config.LoadFromEnvironment(cfg)
 
 	// Initialize DNS provider
 	dnsProviderName := cfg.Global.DNSProvider
@@ -206,6 +196,11 @@ func main() {
 		// If the poll provider supports containers, set the DNS provider
 		if containerProvider, ok := pollProvider.(poll.ProviderWithContainer); ok {
 			containerProvider.SetDNSProvider(dnsProvider)
+		}
+
+		// If the poll provider supports domain configs, set them
+		if withDomainConfigs, ok := pollProvider.(poll.ProviderWithDomainConfigs); ok {
+			withDomainConfigs.SetDomainConfigs(cfg.Domain)
 		}
 
 		// Start polling
