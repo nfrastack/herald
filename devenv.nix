@@ -1,10 +1,10 @@
 { pkgs, lib, config, inputs, ... }:
 
 {
-  packages = [ 
+  languages.go.enable = true;
+
+  packages = [
     pkgs.git
     pkgs.gnumake
   ];
-
-  languages.go.enable = true;
 }
