@@ -26,8 +26,8 @@ var (
 
 	// Regular expressions to match environment variable patterns
 	domainNameRegex = regexp.MustCompile(`^DOMAIN_([A-Za-z0-9_]+)_(.+)$`)
-	providerRegex   = regexp.MustCompile(`^PROVIDER_([A-Za-z0-9_]+)_(.+)$`)
 	pollRegex       = regexp.MustCompile(`^POLL_([A-Za-z0-9_]+)_(.+)$`)
+	providerRegex   = regexp.MustCompile(`^PROVIDER_([A-Za-z0-9_]+)_(.+)$`)
 )
 
 // LoadFromEnvironment loads configuration values from environment variables
