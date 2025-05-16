@@ -85,42 +85,51 @@ func main() {
 	// Load environment variable configuration (overrides config file)
 	config.LoadFromEnvironment(cfg)
 
-	// Initialize DNS provider
-	dnsProviderName := cfg.Global.DNSProvider
-	if dnsProviderName == "" {
-		log.Fatal("[provider] DNS provider not specified in configuration")
+	// Determine DNS provider name (automatic selection if only one, else error if not specified per domain)
+	providerNames := make([]string, 0, len(cfg.Provider))
+	for name := range cfg.Provider {
+		providerNames = append(providerNames, name)
+	}
+	var dnsProviderName string
+	if len(providerNames) == 1 {
+		dnsProviderName = providerNames[0]
+		log.Info("[provider] Only one DNS provider defined, using: %s", dnsProviderName)
+	} else {
+		// If more than one provider, require explicit provider selection per domain
+		log.Info("[provider] Multiple DNS providers defined. Each domain must specify its provider explicitly.")
 	}
 
-	// Get the provider configuration
-	providerConfig, ok := cfg.Provider[dnsProviderName]
-	if !ok {
-		log.Fatal("[provider] Provider configuration not found for: %s", dnsProviderName)
+	// Get the provider configuration (if only one provider, or for each domain as needed)
+	var providerConfig config.ProviderConfig
+	if dnsProviderName != "" {
+		var ok bool
+		providerConfig, ok = cfg.Provider[dnsProviderName]
+		if !ok {
+			log.Fatal("[provider] Provider configuration not found for: %s", dnsProviderName)
+		}
 	}
 
-	log.Info("[provider] Initializing DNS provider: %s", dnsProviderName)
-
-	// Create a proper config map with all required fields
+	// Create providerOptions map if needed
 	providerOptions := make(map[string]string)
-
-	// Add the API token if present
-	if providerConfig.APIToken != "" {
-		providerOptions["api_token"] = providerConfig.APIToken
+	if dnsProviderName != "" {
+		if providerConfig.APIToken != "" {
+			providerOptions["api_token"] = providerConfig.APIToken
+		}
+		if providerConfig.DefaultTTL > 0 {
+			providerOptions["default_ttl"] = fmt.Sprintf("%d", providerConfig.DefaultTTL)
+		}
+		for k, v := range providerConfig.Options {
+			providerOptions[k] = v
+		}
 	}
 
-	// Add the default TTL if present
-	if providerConfig.DefaultTTL > 0 {
-		providerOptions["default_ttl"] = fmt.Sprintf("%d", providerConfig.DefaultTTL)
-	}
-
-	// Add any additional options
-	for k, v := range providerConfig.Options {
-		providerOptions[k] = v
-	}
-
-	// Initialize DNS provider with the options
-	dnsProvider, err := dns.LoadProviderFromConfig(dnsProviderName, providerOptions)
-	if err != nil {
-		log.Fatal("[provider] Failed to initialize DNS provider: %v", err)
+	// Initialize DNS provider if only one is defined
+	var dnsProvider dns.Provider
+	if dnsProviderName != "" {
+		dnsProvider, err = dns.LoadProviderFromConfig(dnsProviderName, providerOptions)
+		if err != nil {
+			log.Fatal("[provider] Failed to initialize DNS provider: %v", err)
+		}
 	}
 
 	// Load domain configurations into a shared data structure

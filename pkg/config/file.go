@@ -33,7 +33,6 @@ type GlobalConfig struct {
 	LogTimestamps        bool     `toml:"log_timestamps"`
 	LogType              string   `toml:"log_type"`
 	LogPath              string   `toml:"log_path"`
-	DNSProvider          string   `toml:"dns_provider"`
 	PollProfiles         []string `toml:"poll_profiles"`
 	DNSRecordType        string   `toml:"dns_record_type"`
 	DNSRecordTTL         int      `toml:"dns_record_ttl"`
@@ -120,23 +119,113 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 		return nil, fmt.Errorf("[config/file] failed to decode TOML file: %w", err)
 	}
 
-	// Validate basic configuration
-	if cfg.Global.DNSProvider == "" {
-		return nil, fmt.Errorf("[config/file] no DNS provider specified in configuration")
-	}
-
-	// Check if the specified DNS provider has a configuration
-	_, exists := cfg.Provider[cfg.Global.DNSProvider]
-	if !exists {
-		return nil, fmt.Errorf("[config/file] configuration for DNS provider '%s' not found", cfg.Global.DNSProvider)
-	}
-
-	// Set defaults for global logging if not specified
+	// Application-level defaults for global config
 	if cfg.Global.LogLevel == "" {
 		cfg.Global.LogLevel = "info"
 	}
+	if !cfg.Global.LogTimestamps {
+		cfg.Global.LogTimestamps = true
+	}
+	if cfg.Global.LogType == "" {
+		cfg.Global.LogType = "console"
+	}
+	// No default for LogPath
+	// No default for DNSRecordType
+	if cfg.Global.DNSRecordTTL == 0 {
+		cfg.Global.DNSRecordTTL = 3600
+	}
+	if !cfg.Global.UpdateExistingRecord {
+		cfg.Global.UpdateExistingRecord = false
+	}
+
+	// PollProfiles logic
+	if len(cfg.Global.PollProfiles) == 0 {
+		if len(cfg.Poll) == 1 {
+			// Only one poll profile defined, use it
+			for k := range cfg.Poll {
+				cfg.Global.PollProfiles = []string{k}
+				break
+			}
+		} else if len(cfg.Poll) > 1 {
+			// Use all defined poll profiles
+			profiles := make([]string, 0, len(cfg.Poll))
+			for k := range cfg.Poll {
+				profiles = append(profiles, k)
+			}
+			cfg.Global.PollProfiles = profiles
+		}
+	}
+
+	// Provider logic: if only one provider, domains without provider get it
+	if len(cfg.Provider) == 1 {
+		var onlyProvider string
+		for k := range cfg.Provider {
+			onlyProvider = k
+			break
+		}
+		for domainName, domainCfg := range cfg.Domain {
+			if domainCfg.Provider == "" {
+				domainCfg.Provider = onlyProvider
+				cfg.Domain[domainName] = domainCfg
+			}
+		}
+	}
+
+	// Smart logic for domain record_type based on target
+	for name, domainCfg := range cfg.Domain {
+		if domainCfg.RecordType == "" && domainCfg.Target != "" {
+			// Check if target is an IP address
+			if isIPAddress(domainCfg.Target) {
+				domainCfg.RecordType = "A"
+			} else {
+				domainCfg.RecordType = "CNAME"
+			}
+			cfg.Domain[name] = domainCfg
+		}
+	}
+
+	// Set Docker poll provider defaults if not set
+	for name, pollCfg := range cfg.Poll {
+		if pollCfg.Type == "docker" {
+			if pollCfg.Options == nil {
+				pollCfg.Options = make(map[string]string)
+			}
+			if pollCfg.Options["host"] == "" {
+				pollCfg.Options["host"] = "unix:///var/run/docker.sock"
+			}
+			if _, ok := pollCfg.Options["expose_containers"]; !ok {
+				pollCfg.Options["expose_containers"] = "false"
+			}
+			if pollCfg.Options["filter_type"] == "" {
+				pollCfg.Options["filter_type"] = "none"
+			}
+			if _, ok := pollCfg.Options["process_existing_containers"]; !ok {
+				pollCfg.Options["process_existing_containers"] = "false"
+			}
+			cfg.Poll[name] = pollCfg
+		}
+		if pollCfg.Type == "traefik" {
+			if pollCfg.Options == nil {
+				pollCfg.Options = make(map[string]string)
+			}
+			if pollCfg.Options["poll_interval"] == "" {
+				pollCfg.Options["poll_interval"] = "60"
+			}
+			if pollCfg.Options["filter_type"] == "" {
+				pollCfg.Options["filter_type"] = "none"
+			}
+			// poll_url must be set explicitly by the user
+			cfg.Poll[name] = pollCfg
+		}
+	}
 
 	return &cfg, nil
+}
+
+// Helper to check if a string is an IP address
+func isIPAddress(s string) bool {
+	// Simple check for IPv4/IPv6
+	return strings.Count(s, ".") == 3 || strings.Count(s, ":") >= 2
 }
 
 // processConfigFileSecrets replaces environment variable references in the config file

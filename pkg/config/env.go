@@ -496,28 +496,6 @@ func processDNSDefaultSettingsFromEnv(cfg *ConfigFile) {
 		cfg.Global.UpdateExistingRecord = EnvToBool("GLOBAL_UPDATE_EXISTING", cfg.Global.UpdateExistingRecord)
 		log.Debug("[config/env] Set global update existing record to %v", cfg.Global.UpdateExistingRecord)
 	}
-
-	// Global providers - comma separated list
-	if providersStr := GetEnvVar("GLOBAL_PROVIDER", ""); providersStr != "" {
-		providers := strings.Split(providersStr, ",")
-		// Trim spaces from each provider name
-		for i := range providers {
-			providers[i] = strings.TrimSpace(providers[i])
-		}
-
-		// Override existing providers
-		if len(providers) > 0 && providers[0] != "" {
-			cfg.Global.DNSProvider = providers[0] // Set default provider to first in list
-			log.Debug("[config/env] Set default DNS provider to '%s'", providers[0])
-
-			// Store full list in options
-			if cfg.Global.Options == nil {
-				cfg.Global.Options = make(map[string]interface{})
-			}
-			cfg.Global.Options["providers"] = providersStr
-			log.Debug("[config/env] Set available DNS providers to: %s", providersStr)
-		}
-	}
 }
 
 // mergeEnvironmentOverrides ensures cfg.Domain, cfg.Poll, and cfg.Provider are fully merged and ready for use
