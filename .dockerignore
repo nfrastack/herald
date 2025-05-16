@@ -1,0 +1,12 @@
+.devenv*
+.direnv*
+.dockerignore
+.env*
+.git
+.github
+Containerfile
+Dockerfile
+bin/
+devenv*
+dns-companion.conf
+flake.*

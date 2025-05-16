@@ -82,14 +82,20 @@
 
             log_level = lib.mkOption {
               type = lib.types.str;
-              default = null;
+              default = "info";
               example = "debug";
               description = "Set the logging level (e.g., debug, info).";
             };
 
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${pkgs.system}.container-dns-companion;
+              description = "Container DNS Companion package to use.";
+            };
+
             log_timestamps = lib.mkOption {
               type = lib.types.nullOr lib.types.bool;
-              default = null;
+              default = true;
               example = true;
               description = "Enable or disable log timestamps.";
             };
@@ -159,7 +165,7 @@
 
             polls = lib.mkOption {
               type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
-              default = {};
+              default = { };
               example = {
                 docker = {
                   type = "docker";
@@ -254,7 +260,7 @@
               description = "Container DNS Companion";
               wantedBy = [ "multi-user.target" ];
               serviceConfig = {
-                ExecStart = "${pkgs.container-dns-companion}/bin/container-dns-companion";
+                ExecStart = "${cfg.package}/bin/container-dns-companion";
                 User = "root";
                 Group = "root";
               };
