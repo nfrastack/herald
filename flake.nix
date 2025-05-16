@@ -201,41 +201,37 @@
           config = lib.mkIf cfg.enable {
             environment.systemPackages = [ cfg.package ];
 
-            # Helper to serialize values for config file
-            toConfValue = v:
-              if builtins.isList v then
-                "[" + (lib.concatStringsSep ", " (map (x: toConfValue x) v)) + "]"
-              else if builtins.isBool v then
-                (if v then "true" else "false")
-              else if builtins.isInt v then
-                builtins.toString v
-              else
-                "\"${builtins.toString v}\"";
-
-            # Helper to render section
-            renderSection = name: attrs:
-              if attrs == {} then ""
-              else
-                "[${name}]\n" +
-                (lib.concatStringsSep "\n" (
-                  lib.mapAttrsToList (k: v: "${k} = ${toConfValue v}") attrs
-                )) + "\n";
-
-            # Collect explicitly set global options
-            globalOpts = lib.filterAttrs (k: v: v != null) {
-              log_level = cfg.log_level;
-              log_timestamps = cfg.log_timestamps;
-              poll_profiles = cfg.poll_profiles;
-              dns_provider = cfg.dns_provider;
-              dns_record_type = cfg.dns_record_type;
-              dns_record_ttl = cfg.dns_record_ttl;
-              dns_record_target = cfg.dns_record_target;
-              update_existing_record = cfg.update_existing_record;
-            };
-
             # Write config file only with explicitly set options
             environment.etc."dns-companion.conf".text =
               let
+                globalOpts = lib.filterAttrs (k: v: v != null) {
+                  log_level = cfg.log_level;
+                  log_timestamps = cfg.log_timestamps;
+                  poll_profiles = cfg.poll_profiles;
+                  dns_provider = cfg.dns_provider;
+                  dns_record_type = cfg.dns_record_type;
+                  dns_record_ttl = cfg.dns_record_ttl;
+                  dns_record_target = cfg.dns_record_target;
+                  update_existing_record = cfg.update_existing_record;
+                };
+                toConfValue = v:
+                  if builtins.isList v then
+                    "[" + (lib.concatStringsSep ", " (map (x: toConfValue x) v)) + "]"
+                  else if builtins.isBool v then
+                    (if v then "true" else "false")
+                  else if builtins.isInt v then
+                    builtins.toString v
+                  else
+                    "\"${builtins.toString v}\"";
+
+                renderSection = name: attrs:
+                  if attrs == {} then ""
+                  else
+                    "[${name}]\n" +
+                    (lib.concatStringsSep "\n" (
+                      lib.mapAttrsToList (k: v: "${k} = ${toConfValue v}") attrs
+                    )) + "\n";
+
                 globalSection = renderSection "global" globalOpts;
                 providerSections = lib.concatStringsSep "\n" (
                   lib.mapAttrsToList (name: opts: renderSection "provider.${name}" opts) cfg.providers
