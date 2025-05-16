@@ -9,6 +9,7 @@ import (
 	"container-dns-companion/pkg/config"
 	"container-dns-companion/pkg/dns"
 	"container-dns-companion/pkg/log"
+
 	"context"
 	"fmt"
 	"strconv"

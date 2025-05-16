@@ -5,6 +5,12 @@
 package docker
 
 import (
+	"container-dns-companion/pkg/config"
+	"container-dns-companion/pkg/dns"
+	"container-dns-companion/pkg/log"
+	"container-dns-companion/pkg/poll"
+	"container-dns-companion/pkg/poll/providers/docker/filter"
+
 	"context"
 	"fmt"
 	"net"
@@ -12,12 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"container-dns-companion/pkg/config"
-	"container-dns-companion/pkg/dns"
-	"container-dns-companion/pkg/log"
-	"container-dns-companion/pkg/poll"
-	"container-dns-companion/pkg/poll/providers/docker/filter"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"

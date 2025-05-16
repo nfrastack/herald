@@ -5,8 +5,9 @@
 package config
 
 import (
-	"bufio"
 	"container-dns-companion/pkg/log"
+
+	"bufio"
 	"fmt"
 	"os"
 	"regexp"

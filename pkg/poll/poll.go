@@ -6,14 +6,14 @@
 package poll
 
 import (
+	"container-dns-companion/pkg/config"
+	"container-dns-companion/pkg/dns"
+	"container-dns-companion/pkg/log"
+
 	"fmt"
 	"strings"
 	"sync"
 	"time"
-
-	"container-dns-companion/pkg/config"
-	"container-dns-companion/pkg/dns"
-	"container-dns-companion/pkg/log"
 )
 
 // Provider defines the interface for all poll providers

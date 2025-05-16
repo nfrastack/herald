@@ -6,10 +6,10 @@
 package dns
 
 import (
+	"container-dns-companion/pkg/log"
+
 	"fmt"
 	"sync"
-
-	"container-dns-companion/pkg/log"
 )
 
 // Provider defines the interface for all DNS providers
