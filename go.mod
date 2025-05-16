@@ -6,7 +6,6 @@ toolchain go1.24.2
 
 require (
 	github.com/BurntSushi/toml v1.5.0
-	github.com/aws/aws-sdk-go v1.55.7
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/docker/docker v24.0.6+incompatible
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6
@@ -24,7 +23,6 @@ require (
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
-	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
