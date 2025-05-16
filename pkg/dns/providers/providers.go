@@ -13,7 +13,6 @@ import (
 func RegisterProviders() {
 	// Register all available providers
 	cloudflare.Register()
-	route53.Register()
 }
 
 // Import the provider packages here to ensure they're included in the build
