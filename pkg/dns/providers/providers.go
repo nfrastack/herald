@@ -1,13 +1,12 @@
 // SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
 //
-// SPDX-License-Identifier: BSD-3
+// SPDX-License-Identifier: BSD-3-Clause
 
 // Package providers imports all available DNS providers
 package providers
 
 import (
 	"container-dns-companion/pkg/dns/providers/cloudflare"
-	"container-dns-companion/pkg/dns/providers/route53"
 )
 
 // RegisterProviders registers all DNS providers
