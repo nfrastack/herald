@@ -80,6 +80,12 @@
               description = "Enable the systemd service for Container DNS Companion.";
             };
 
+            configFile = lib.mkOption {
+              type = lib.types.str;
+              default = "/etc/dns-companion.conf";
+              description = "Path to the configuration file for Container DNS Companion.";
+            };
+
             log_level = lib.mkOption {
               type = lib.types.str;
               default = "info";
@@ -207,60 +213,103 @@
           config = lib.mkIf cfg.enable {
             environment.systemPackages = [ cfg.package ];
 
-            # Write config file only with explicitly set options
-            environment.etc."dns-companion.conf".text =
-              let
-                globalOpts = lib.filterAttrs (k: v: v != null) {
-                  log_level = cfg.log_level;
-                  log_timestamps = cfg.log_timestamps;
-                  poll_profiles = cfg.poll_profiles;
-                  dns_provider = cfg.dns_provider;
-                  dns_record_type = cfg.dns_record_type;
-                  dns_record_ttl = cfg.dns_record_ttl;
-                  dns_record_target = cfg.dns_record_target;
-                  update_existing_record = cfg.update_existing_record;
-                };
-                toConfValue = v:
-                  if builtins.isList v then
-                    "[" + (lib.concatStringsSep ", " (map (x: toConfValue x) v)) + "]"
-                  else if builtins.isBool v then
-                    (if v then "true" else "false")
-                  else if builtins.isInt v then
-                    builtins.toString v
-                  else
-                    "\"${builtins.toString v}\"";
-
-                renderSection = name: attrs:
-                  if attrs == {} then ""
-                  else
-                    "[${name}]\n" +
-                    (lib.concatStringsSep "\n" (
-                      lib.mapAttrsToList (k: v: "${k} = ${toConfValue v}") attrs
-                    )) + "\n";
-
-                globalSection = renderSection "global" globalOpts;
-                providerSections = lib.concatStringsSep "\n" (
-                  lib.mapAttrsToList (name: opts: renderSection "provider.${name}" opts) cfg.providers
-                );
-                pollSections = lib.concatStringsSep "\n" (
-                  lib.mapAttrsToList (name: opts: renderSection "poll.${name}" opts) cfg.polls
-                );
-                domainSections = lib.concatStringsSep "\n" (
-                  lib.mapAttrsToList (name: opts: renderSection "domain.${name}" opts) cfg.domains
-                );
-              in
-                lib.concatStringsSep "\n" [
-                  globalSection
-                  providerSections
-                  pollSections
-                  domainSections
-                ];
+            # Only write config if user set any global option or has any profiles
+            system.activationScripts = lib.mkIf (
+              cfg.log_level != null ||
+              cfg.log_timestamps != null ||
+              cfg.poll_profiles != null ||
+              cfg.dns_provider != null ||
+              cfg.dns_record_type != null ||
+              cfg.dns_record_ttl != null ||
+              cfg.dns_record_target != null ||
+              cfg.update_existing_record != null ||
+              cfg.providers != {} ||
+              cfg.polls != {} ||
+              cfg.domains != {}
+            ) {
+              container-dns-companion-config = {
+                text =
+                  let
+                    globalOpts = lib.filterAttrs (k: v: v != null) {
+                      log_level = cfg.log_level;
+                      log_timestamps = cfg.log_timestamps;
+                      poll_profiles = cfg.poll_profiles;
+                      dns_provider = cfg.dns_provider;
+                      dns_record_type = cfg.dns_record_type;
+                      dns_record_ttl = cfg.dns_record_ttl;
+                      dns_record_target = cfg.dns_record_target;
+                      update_existing_record = cfg.update_existing_record;
+                    };
+                    toConfValue = v:
+                      if builtins.isList v then
+                        "[" + (lib.concatStringsSep ", " (map (x: toConfValue x) v)) + "]"
+                      else if builtins.isBool v then
+                        (if v then "true" else "false")
+                      else if builtins.isInt v then
+                        builtins.toString v
+                      else
+                        "\"${builtins.toString v}\"";
+                    renderSection = name: attrs:
+                      if attrs == {} then ""
+                      else
+                        "[${name}]\n" +
+                        (lib.concatStringsSep "\n" (
+                          lib.mapAttrsToList (k: v: "${k} = ${toConfValue v}") attrs
+                        )) + "\n";
+                    globalSection = renderSection "global" globalOpts;
+                    providerSections = lib.concatStringsSep "\n" (
+                      lib.mapAttrsToList (name: opts: renderSection "provider.${name}" opts) cfg.providers
+                    );
+                    pollSections = lib.concatStringsSep "\n" (
+                      lib.mapAttrsToList (name: opts: renderSection "poll.${name}" opts) cfg.polls
+                    );
+                    domainSections = lib.concatStringsSep "\n" (
+                      lib.mapAttrsToList (name: opts: renderSection "domain.${name}" opts) cfg.domains
+                    );
+                    configText = lib.concatStringsSep "\n" [
+                      globalSection
+                      providerSections
+                      pollSections
+                      domainSections
+                    ];
+                  in
+                    ''
+                      if [ ! -e "${getDir cfg.configFile}" ]; then
+                        mkdir -p "${getDir cfg.configFile}"
+                      fi
+                      cat > ${cfg.configFile} <<'EOC'
+                      ${configText}
+                      EOC
+                      chmod 0600 ${cfg.configFile}
+                    '';
+                deps = [];
+              };
+            };
 
             systemd.services.container-dns-companion = lib.mkIf cfg.service.enable {
               description = "Container DNS Companion";
               wantedBy = [ "multi-user.target" ];
               serviceConfig = {
-                ExecStart = "${cfg.package}/bin/container-dns-companion";
+                ExecStart =
+                  let
+                    needsConfigFile =
+                      cfg.log_level != null ||
+                      cfg.log_timestamps != null ||
+                      cfg.poll_profiles != null ||
+                      cfg.dns_provider != null ||
+                      cfg.dns_record_type != null ||
+                      cfg.dns_record_ttl != null ||
+                      cfg.dns_record_target != null ||
+                      cfg.update_existing_record != null ||
+                      cfg.providers != {} ||
+                      cfg.polls != {} ||
+                      cfg.domains != {};
+                    configFileArg = if needsConfigFile then "-config ${cfg.configFile}" else "";
+                    args = lib.strings.concatStringsSep " " (lib.lists.filter (s: s != "") [
+                      "${cfg.package}/bin/container-dns-companion"
+                      configFileArg
+                    ]);
+                  in args;
                 User = "root";
                 Group = "root";
               };
