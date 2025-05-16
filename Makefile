@@ -46,6 +46,10 @@ check-release:
 		exit 1; \
 	fi
 
+docker-build:
+	docker build --build-arg CDC_VERSION=$(VERSION) -t nfrastack/$(BINARY_NAME):$(VERSION) -f docker/Dockerfile .
+	docker tag nfrastack/$(BINARY_NAME):$(VERSION) nfrastack/$(BINARY_NAME):latest
+
 help:
 	@echo "make build           Build the binary"
 	@echo "make build-release   Build the binary with version information"
@@ -54,4 +58,5 @@ help:
 	@echo "make install         Install the binary locally"
 	@echo "make release         Build and prepare for release"
 	@echo "make check-release   Verify if the repository is tagged and clean"
+	@echo "make docker-build    Build the Docker image with CDC_VERSION as build-arg and tag"
 	@echo "make help            Show this message"

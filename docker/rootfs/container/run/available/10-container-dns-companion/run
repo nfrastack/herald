@@ -1,0 +1,16 @@
+#!/command/with-contenv bash
+# SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+source /container/base/functions/container/init
+SERVICE_NAME="container-dns-companion"
+prepare_service single
+check_container_initialized
+check_service_initialized init
+liftoff
+
+print_start "Starting Container DNS Companion $(container-dns-companion -version | awk '{print $1}')"
+exec s6-setuidgid "${CDC_USER}" \
+                                /usr/local/bin/container-dns-companion \
+                                    -config "${CONFIG_PATH}/${CONFIG_FILE}"
