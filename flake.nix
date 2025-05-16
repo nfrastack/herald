@@ -89,8 +89,8 @@
             };
 
             log_level = lib.mkOption {
-              type = lib.types.str;
-              default = "info";
+              type = lib.types.nullOr lib.types.str;
+              default = null;
               example = "debug";
               description = "Set the logging level (e.g., debug, info).";
             };
@@ -103,7 +103,7 @@
 
             log_timestamps = lib.mkOption {
               type = lib.types.nullOr lib.types.bool;
-              default = true;
+              default = null;
               example = true;
               description = "Enable or disable log timestamps.";
             };
