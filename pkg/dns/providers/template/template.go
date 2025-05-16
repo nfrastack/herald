@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
 //
-// SPDX-License-Identifier: BSD-3
+// SPDX-License-Identifier: BSD-3-Clause
 
 // Package template provides a template for implementing new DNS providers
 package template

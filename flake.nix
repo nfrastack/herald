@@ -26,7 +26,7 @@
             meta = {
               description = "Manage DNS records based on DNS servers based on events from Docker or Traefik";
               homepage = "https://github.com/nfrastack/container-dns-companion";
-              license = "BSD-3";
+              license = "BSD-3-Clause";
               maintainers = [
                 {
                   name = "nfrastack";
