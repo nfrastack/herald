@@ -50,10 +50,12 @@
         let pkgs = nixpkgsFor.${system};
         in pkgs.mkShell {
           buildInputs = with pkgs; [
-            make
+            gnumake
             go
           ];
         });
+
+      devShell = forAllSystems (system: self.devShells.${system});
 
       defaultPackage = forAllSystems (system: self.packages.${system}.container-dns-companion);
 
