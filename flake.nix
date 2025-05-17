@@ -126,7 +126,7 @@
               type = lib.types.nullOr lib.types.str;
               default = null;
               example = "A";
-              description = "Default DNS record type (e.g., A, CNAME).";
+              description = "Default DNS record type (e.g., A, AAAA, CNAME).";
             };
 
             dns_record_ttl = lib.mkOption {
@@ -188,7 +188,7 @@
                 Poll profiles for service/container discovery. Each attribute key is the poller name, and the value is an attribute set of options for that poller.
                 Example:
                   polls.docker = { type = "docker"; host = "unix:///var/run/docker.sock"; };
-                  polls.traefik = { type = "traefik"; poll_url = "..."; };
+                  polls.traefik = { type = "traefik"; poll_url = "http://traefik:8080/api/http/routers"; };
               '';
             };
 

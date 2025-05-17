@@ -520,6 +520,15 @@ func (p *DockerProvider) processDNSEntries(containerID string, containerName str
 			}
 		}
 
+		if recordType == "AAAA" && target != "" {
+			// Validate target is an IPv6 address for AAAA records
+			if ip := net.ParseIP(target); ip == nil || ip.To16() == nil || ip.To4() != nil {
+				log.Error("[poll/docker] Invalid target for AAAA record: %s is not an IPv6 address. Skipping DNS entry %s.%s",
+					target, hostname, domain)
+				continue
+			}
+		}
+
 		// If target is still missing, this is a fatal error - we require an explicit target
 		if target == "" {
 			log.Fatal("[poll/docker] No target specified for DNS entry %s.%s and no valid target found in container, domain, or global configuration",
@@ -959,6 +968,36 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 		if globalOverwrite, ok := p.options["update_existing_record"]; ok && (globalOverwrite == "true" || globalOverwrite == "1") {
 			log.Debug("[poll/docker] Using global config for %s: value: update_existing_record true", domain)
 			overwrite = true
+		}
+	}
+
+	// --- AAAA record support and smart detection ---
+	// If recordType is not set, auto-detect based on target
+	if recordType == "" && target != "" {
+		ip := net.ParseIP(target)
+		if ip != nil {
+			if ip.To4() != nil {
+				recordType = "A"
+			} else if ip.To16() != nil {
+				recordType = "AAAA"
+			}
+		}
+		if recordType == "" {
+			recordType = "CNAME"
+		}
+	}
+
+	// Validate target for A and AAAA records
+	if recordType == "A" && target != "" {
+		if ip := net.ParseIP(target); ip == nil || ip.To4() == nil {
+			log.Error("[poll/docker] Invalid target for A record: %s is not an IPv4 address. Skipping DNS entry %s.%s", target, hostname, domain)
+			return entries
+		}
+	}
+	if recordType == "AAAA" && target != "" {
+		if ip := net.ParseIP(target); ip == nil || ip.To16() == nil || ip.To4() != nil {
+			log.Error("[poll/docker] Invalid target for AAAA record: %s is not an IPv6 address. Skipping DNS entry %s.%s", target, hostname, domain)
+			return entries
 		}
 	}
 
