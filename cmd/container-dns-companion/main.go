@@ -153,7 +153,7 @@ func main() {
 		}
 		domainMap["record_type"] = domainCfg.RecordType
 		domainMap["target"] = domainCfg.Target
-		domainMap["update_existing_record"] = fmt.Sprintf("%t", domainCfg.UpdateExistingRecord)
+		domainMap["update_existing_record"] = fmt.Sprintf("%t", domainCfg.RecordUpdateExisting)
 
 		// Add additional options
 		for k, v := range domainCfg.Options {

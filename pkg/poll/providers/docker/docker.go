@@ -1075,8 +1075,8 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 					log.Debug("[poll/docker] Using domain config for %s: value: TTL %d", domain, domainCfg.TTL)
 					ttl = domainCfg.TTL
 				}
-				if !overwrite && domainCfg.UpdateExistingRecord {
-					log.Debug("[poll/docker] Using domain config for %s: value: UpdateExistingRecord true", domain)
+				if !overwrite && domainCfg.RecordUpdateExisting {
+					log.Debug("[poll/docker] Using domain config for %s: value: RecordUpdateExisting true", domain)
 					overwrite = true
 				}
 				break

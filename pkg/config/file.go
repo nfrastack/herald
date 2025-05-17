@@ -63,7 +63,7 @@ type DomainConfig struct {
 	TTL                    int               `toml:"ttl"`
 	RecordType             string            `toml:"record_type"`
 	Target                 string            `toml:"target"`
-	UpdateExistingRecord   bool              `toml:"update_existing_record"`
+	RecordUpdateExisting   bool              `toml:"record_update_existing"`
 	Options                map[string]string `toml:"options"`
 	RecordTypeAMultiple    bool              `toml:"record_type_a_multiple"`
 	RecordTypeAAAAMultiple bool              `toml:"record_type_aaaa_multiple"`

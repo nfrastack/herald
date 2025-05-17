@@ -433,9 +433,9 @@ func setNamedDomainConfigFromEnv(domainKey, domainName, configKey string, domain
 	}
 
 	// Update existing records
-	if updateStr := GetEnvVar(prefix+"UPDATE_EXISTING", ""); updateStr != "" {
-		domainCfg.UpdateExistingRecord = EnvToBool(prefix+"UPDATE_EXISTING", domainCfg.UpdateExistingRecord)
-		log.Debug("[config/env] Set update existing records for domain '%s' to %v", domainName, domainCfg.UpdateExistingRecord)
+	if updateStr := GetEnvVar(prefix+"RECORD_UPDATE_EXISTING", ""); updateStr != "" {
+		domainCfg.RecordUpdateExisting = EnvToBool(prefix+"RECORD_UPDATE_EXISTING", domainCfg.RecordUpdateExisting)
+		log.Debug("[config/env] Set record update existing for domain '%s' to %v", domainName, domainCfg.RecordUpdateExisting)
 	}
 
 	// Excluded subdomains - Add to Options map since ExcludedSubdomains field doesn't exist
