@@ -88,13 +88,37 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 
 	// Check for TLS options
-	if certPath, exists := options["docker_cert_path"]; exists && certPath != "" {
-		log.Debug("[poll/docker] Using Docker TLS certificates from: %s", certPath)
-		clientOpts = append(clientOpts, client.WithTLSClientConfig(
-			filepath.Join(certPath, "ca.pem"),
-			filepath.Join(certPath, "cert.pem"),
-			filepath.Join(certPath, "key.pem"),
-		))
+	var tlsVerifySet, tlsVerify bool
+	if val, exists := options["docker_tls_verify"]; exists {
+		tlsVerifySet = true
+		tlsVerify = strings.ToLower(val) == "true" || val == "1"
+	}
+	certPath := options["docker_cert_path"]
+	caPath := options["docker_ca"]
+	certFile := options["docker_cert"]
+	keyFile := options["docker_key"]
+
+	if certPath != "" || caPath != "" || certFile != "" || keyFile != "" || tlsVerifySet {
+		// Determine actual file paths if certPath is set
+		if caPath == "" && certPath != "" {
+			caPath = filepath.Join(certPath, "ca.pem")
+		}
+		if certFile == "" && certPath != "" {
+			certFile = filepath.Join(certPath, "cert.pem")
+		}
+		if keyFile == "" && certPath != "" {
+			keyFile = filepath.Join(certPath, "key.pem")
+		}
+		// Only add CA if path exists
+		if caPath != "" {
+			clientOpts = append(clientOpts, client.WithTLSClientConfig(caPath, certFile, keyFile))
+			log.Debug("[poll/docker] Using Docker TLS config: ca=%s cert=%s key=%s", caPath, certFile, keyFile)
+		}
+		// If tlsVerify is explicitly set to false, skip server verification (not recommended)
+		if tlsVerifySet && !tlsVerify {
+			clientOpts = append(clientOpts, client.WithTLSClientConfig("", "", ""))
+			log.Warn("[poll/docker] Docker TLS verification is disabled! Not recommended for production.")
+		}
 	}
 
 	// Create Docker client with options

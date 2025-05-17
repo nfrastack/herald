@@ -627,6 +627,19 @@ func GetCachedEnvVar(key, defaultValue string) string {
 		value = defaultValue
 	}
 
+	// If value starts with file: or file://, read the file contents
+	if strings.HasPrefix(value, "file://") {
+		filePath := strings.TrimPrefix(value, "file://")
+		if data, err := os.ReadFile(filePath); err == nil {
+			value = strings.TrimSpace(string(data))
+		}
+	} else if strings.HasPrefix(value, "file:") {
+		filePath := strings.TrimPrefix(value, "file:")
+		if data, err := os.ReadFile(filePath); err == nil {
+			value = strings.TrimSpace(string(data))
+		}
+	}
+
 	// Cache the value for future use
 	CacheEnvVar(key, value)
 
