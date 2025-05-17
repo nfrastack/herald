@@ -19,6 +19,7 @@ import (
 
 // Log levels
 const (
+	LevelTrace = "trace"
 	LevelDebug = "debug"
 	LevelInfo  = "info"
 	LevelWarn  = "warn"
@@ -59,10 +60,11 @@ func GetLogger() *Logger {
 
 // NewLogger creates a new logger with the specified level and timestamp visibility
 func NewLogger(level string, showTimestamps bool) *Logger {
-	if level == "" {
-		level = LevelInfo // Default log level
+	logger := &Logger{
+		level:          LevelInfo,
+		showTimestamps: showTimestamps,
 	}
-	level = strings.ToLower(level)
+	logger.SetLevel(level)
 
 	flags := 0 // Always use no standard flags to avoid double timestamps
 
@@ -99,8 +101,8 @@ func NewLogger(level string, showTimestamps bool) *Logger {
 		infoLogger:     infoLogger,
 		warnLogger:     warnLogger,
 		errorLogger:    errorLogger,
-		level:          level,
-		showTimestamps: showTimestamps,
+		level:          logger.level,
+		showTimestamps: logger.showTimestamps,
 	}
 }
 
@@ -108,7 +110,20 @@ func NewLogger(level string, showTimestamps bool) *Logger {
 func (l *Logger) SetLevel(level string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.level = strings.ToLower(level)
+	switch strings.ToLower(level) {
+	case LevelTrace:
+		l.level = LevelTrace
+	case LevelDebug:
+		l.level = LevelDebug
+	case LevelInfo:
+		l.level = LevelInfo
+	case LevelWarn:
+		l.level = LevelWarn
+	case LevelError:
+		l.level = LevelError
+	default:
+		l.level = LevelInfo
+	}
 }
 
 // GetLevel returns the current logger level
@@ -127,7 +142,7 @@ func (l *Logger) SetShowTimestamps(show bool) {
 
 // Debug logs a debug message with optional formatting
 func (l *Logger) Debug(format string, args ...interface{}) {
-	if l.level == LevelDebug {
+	if l.level == LevelDebug || l.level == LevelTrace {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
@@ -141,7 +156,7 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 
 // Info logs an info message with optional formatting
 func (l *Logger) Info(format string, args ...interface{}) {
-	if l.level == LevelDebug || l.level == LevelInfo {
+	if l.level == LevelDebug || l.level == LevelInfo || l.level == LevelTrace {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
@@ -155,7 +170,7 @@ func (l *Logger) Info(format string, args ...interface{}) {
 
 // Warn logs a warning message with optional formatting
 func (l *Logger) Warn(format string, args ...interface{}) {
-	if l.level == LevelDebug || l.level == LevelInfo || l.level == LevelWarn {
+	if l.level == LevelDebug || l.level == LevelInfo || l.level == LevelWarn || l.level == LevelTrace {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
@@ -192,17 +207,31 @@ func (l *Logger) Fatal(format string, args ...interface{}) {
 	os.Exit(1)
 }
 
-// Trace logs function entry and exit with timing
-func (l *Logger) Trace(funcName string) func() {
-	if l.level != LevelDebug {
+// Trace logs a trace message with optional formatting
+func (l *Logger) Trace(format string, args ...interface{}) {
+	if l.level == LevelTrace {
+		message := fmt.Sprintf(format, args...)
+		if l.showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s TRACE %s", timestamp, message)
+		} else {
+			message = fmt.Sprintf("TRACE %s", message)
+		}
+		l.debugLogger.Output(2, message)
+	}
+}
+
+// TraceFunction logs function entry and exit with timing
+func (l *Logger) TraceFunction(funcName string) func() {
+	if l.level != LevelTrace {
 		return func() {}
 	}
 
 	start := time.Now()
-	l.Debug("ENTER: %s", funcName)
+	l.Trace("ENTER: %s", funcName)
 
 	return func() {
-		l.Debug("EXIT: %s (took %v)", funcName, time.Since(start))
+		l.Trace("EXIT: %s (took %v)", funcName, time.Since(start))
 	}
 }
 
@@ -233,10 +262,15 @@ func Fatal(format string, args ...interface{}) {
 	GetLogger().Fatal(format, args...)
 }
 
+// Trace logs a trace message with the default logger
+func Trace(format string, args ...interface{}) {
+	GetLogger().Trace(format, args...)
+}
+
 // DumpState logs the current state of an object for debugging
 func DumpState(prefix string, obj interface{}) {
 	logger := GetLogger()
-	if logger.level != LevelDebug {
+	if logger.level != LevelDebug && logger.level != LevelTrace {
 		return
 	}
 
@@ -258,7 +292,7 @@ func DumpState(prefix string, obj interface{}) {
 // TracePath logs the execution path with caller information
 func TracePath(path string, args ...interface{}) {
 	logger := GetLogger()
-	if logger.level != LevelDebug {
+	if logger.level != LevelDebug && logger.level != LevelTrace {
 		return
 	}
 
@@ -280,5 +314,5 @@ func TracePath(path string, args ...interface{}) {
 	}
 
 	// Make the path tracing more visible with >>> markers
-	fmt.Printf("[DEBUG] [%s] [%s] >>> PATH: %s <<<\n", now, callerInfo, message)
+	fmt.Printf("[TRACE] [%s] [%s] >>> PATH: %s <<<\n", now, callerInfo, message)
 }
