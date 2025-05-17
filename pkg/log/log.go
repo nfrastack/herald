@@ -118,6 +118,13 @@ func (l *Logger) GetLevel() string {
 	return l.level
 }
 
+// SetShowTimestamps sets the visibility of timestamps in log messages
+func (l *Logger) SetShowTimestamps(show bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.showTimestamps = show
+}
+
 // Debug logs a debug message with optional formatting
 func (l *Logger) Debug(format string, args ...interface{}) {
 	if l.level == LevelDebug {

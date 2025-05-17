@@ -37,28 +37,21 @@ func versionString() string {
 }
 
 var (
-	configFilePath   = flag.String("config", "", "Path to configuration file")
-	logLevel         = flag.String("log-level", "", "Log level (info, debug)")
-	logTimestamps    = flag.Bool("log-timestamps", false, "Enable log timestamps")
-	logTimestampsSet = false
-	showVersion      = flag.Bool("version", false, "Show version and exit")
+	configFilePath = flag.String("config", "", "Path to configuration file")
+	showVersion    = flag.Bool("version", false, "Show version and exit")
 )
 
 func main() {
 	flag.Parse()
-
-	// Detect if log-timestamps was set explicitly
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "log-timestamps" {
-			logTimestampsSet = true
-		}
-	})
 
 	// Show version if requested
 	if *showVersion {
 		fmt.Println(versionString())
 		os.Exit(0)
 	}
+
+	// Initialize logger early to avoid singleton lock-in at wrong level
+	log.Initialize("info", true)
 
 	// Determine the config file path
 	configFile := "dns-companion.conf"
@@ -73,20 +66,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := config.LoadConfigFile(configFilePath, *logLevel, func() *bool {
-		if logTimestampsSet {
-			return logTimestamps
-		} else {
-			return nil
-		}
-	}())
+	cfg, err := config.LoadConfigFile(configFilePath)
 	if err != nil {
 		fmt.Printf("Failed to load configuration: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Now initialize logging with the config values
-	log.Initialize(cfg.Global.LogLevel, cfg.Global.LogTimestamps)
+	// After loading config, update logger level and timestamps
+	log.GetLogger().SetLevel(cfg.Global.LogLevel)
+	log.GetLogger().SetShowTimestamps(cfg.Global.LogTimestamps)
+	log.Debug("Logger reconfigured with level: %s", cfg.Global.LogLevel)
 
 	log.Info("Starting Container DNS Companion")
 	log.Info("[config] Using config file: %s", configFilePath)

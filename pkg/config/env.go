@@ -318,19 +318,17 @@ func getAllEnvVars() []string {
 func setLogLevelFromEnv(cfg *ConfigFile) {
 	if level := GetEnvVar("LOG_LEVEL", ""); level != "" {
 		upperLevel := strings.ToUpper(level)
+		// Only update the config struct, do not set the logger here
+		// Logger will be initialized later with the final value
 		switch upperLevel {
 		case "DEBUG":
 			cfg.Global.LogLevel = "debug"
-			log.GetLogger().SetLevel("debug")
 		case "INFO":
 			cfg.Global.LogLevel = "info"
-			log.GetLogger().SetLevel("info")
 		case "WARN", "WARNING":
 			cfg.Global.LogLevel = "warn"
-			log.GetLogger().SetLevel("warn")
 		case "ERROR":
 			cfg.Global.LogLevel = "error"
-			log.GetLogger().SetLevel("error")
 		default:
 			log.Warn("[config/env] Unknown log level '%s', using current level", level)
 		}

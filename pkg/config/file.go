@@ -8,6 +8,7 @@ import (
 	"container-dns-companion/pkg/log"
 
 	"fmt"
+	"net"
 	"os"
 	"regexp"
 	"strings"
@@ -33,6 +34,7 @@ type GlobalConfig struct {
 	LogTimestamps        bool     `toml:"log_timestamps"`
 	LogType              string   `toml:"log_type"`
 	LogPath              string   `toml:"log_path"`
+	DNSProvider          string   `toml:"dns_provider"`
 	PollProfiles         []string `toml:"poll_profiles"`
 	DNSRecordType        string   `toml:"dns_record_type"`
 	DNSRecordTTL         int      `toml:"dns_record_ttl"`
@@ -108,32 +110,26 @@ func (pc *ProviderConfig) setProviderOptions() map[string]string {
 }
 
 // LoadConfigFile loads the configuration from a TOML file
-// Accepts logLevelOverride and logTimestampsOverride for CLI precedence
-func LoadConfigFile(path string, logLevelOverride string, logTimestampsOverride *bool) (*ConfigFile, error) {
+func LoadConfigFile(path string) (*ConfigFile, error) {
+	log.Debug("[config/file] Loading configuration from %s", path)
+
 	var cfg ConfigFile
 
-	// Open and decode the TOML file
+	// 1. Load config file
 	_, err := toml.DecodeFile(path, &cfg)
 	if err != nil {
 		return nil, fmt.Errorf("[config/file] failed to decode TOML file: %w", err)
 	}
 
-	// Load environment variable configuration (overrides config file)
+	// 2. Load environment variable configuration (overrides config file)
 	LoadFromEnvironment(&cfg)
 
-	// Command-line overrides (highest precedence)
-	if logLevelOverride != "" {
-		cfg.Global.LogLevel = logLevelOverride
-	}
-	if logTimestampsOverride != nil {
-		cfg.Global.LogTimestamps = *logTimestampsOverride
-	}
-
-	// Application-level defaults for global config (lowest precedence)
+	// 3. Set application-level defaults ONLY if still unset after config and env
 	if cfg.Global.LogLevel == "" {
 		cfg.Global.LogLevel = "info"
 	}
-	if !cfg.Global.LogTimestamps {
+	// Only set to true if still unset (default bool is false, so check for explicit false)
+	if os.Getenv("LOG_TIMESTAMPS") == "" && !fieldSetInConfigFile(path, "log_timestamps") {
 		cfg.Global.LogTimestamps = true
 	}
 	if cfg.Global.LogType == "" {
@@ -142,24 +138,9 @@ func LoadConfigFile(path string, logLevelOverride string, logTimestampsOverride 
 	if cfg.Global.DNSRecordTTL == 0 {
 		cfg.Global.DNSRecordTTL = 3600
 	}
-	if !cfg.Global.UpdateExistingRecord {
+	// Only set to false if still unset (default bool is false, so check for explicit false)
+	if os.Getenv("UPDATE_EXISTING_RECORD") == "" && !fieldSetInConfigFile(path, "update_existing_record") {
 		cfg.Global.UpdateExistingRecord = false
-	}
-
-	// PollProfiles logic
-	if len(cfg.Global.PollProfiles) == 0 {
-		if len(cfg.Poll) == 1 {
-			for k := range cfg.Poll {
-				cfg.Global.PollProfiles = []string{k}
-				break
-			}
-		} else if len(cfg.Poll) > 1 {
-			profiles := make([]string, 0, len(cfg.Poll))
-			for k := range cfg.Poll {
-				profiles = append(profiles, k)
-			}
-			cfg.Global.PollProfiles = profiles
-		}
 	}
 
 	// Provider logic: if only one provider, assign it to domains without provider
@@ -177,7 +158,7 @@ func LoadConfigFile(path string, logLevelOverride string, logTimestampsOverride 
 		}
 	}
 
-	// Smart logic for domain record_type based on target
+	// Smart logic for domain record_type based on target (domain-level only)
 	for name, domainCfg := range cfg.Domain {
 		if domainCfg.RecordType == "" && domainCfg.Target != "" {
 			if isIPAddress(domainCfg.Target) {
@@ -189,47 +170,43 @@ func LoadConfigFile(path string, logLevelOverride string, logTimestampsOverride 
 		}
 	}
 
-	// Set Docker and Traefik poll provider defaults if not set
-	for name, pollCfg := range cfg.Poll {
-		if pollCfg.Type == "docker" {
-			if pollCfg.Options == nil {
-				pollCfg.Options = make(map[string]string)
-			}
-			if pollCfg.Options["host"] == "" {
-				pollCfg.Options["host"] = "unix:///var/run/docker.sock"
-			}
-			if _, ok := pollCfg.Options["expose_containers"]; !ok {
-				pollCfg.Options["expose_containers"] = "false"
-			}
-			if pollCfg.Options["filter_type"] == "" {
-				pollCfg.Options["filter_type"] = "none"
-			}
-			if _, ok := pollCfg.Options["process_existing_containers"]; !ok {
-				pollCfg.Options["process_existing_containers"] = "false"
-			}
-			cfg.Poll[name] = pollCfg
+	// If poll_profiles is not set, use all defined poll profiles
+	if len(cfg.Global.PollProfiles) == 0 && len(cfg.Poll) > 0 {
+		profiles := make([]string, 0, len(cfg.Poll))
+		for k := range cfg.Poll {
+			profiles = append(profiles, k)
 		}
-		if pollCfg.Type == "traefik" {
-			if pollCfg.Options == nil {
-				pollCfg.Options = make(map[string]string)
-			}
-			if pollCfg.Options["poll_interval"] == "" {
-				pollCfg.Options["poll_interval"] = "60"
-			}
-			if pollCfg.Options["filter_type"] == "" {
-				pollCfg.Options["filter_type"] = "none"
-			}
-			cfg.Poll[name] = pollCfg
-		}
+		cfg.Global.PollProfiles = profiles
 	}
 
 	return &cfg, nil
 }
 
+// Helper to check if a field is set in the config file (for booleans)
+func fieldSetInConfigFile(path, field string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf := make([]byte, 4096)
+	for {
+		n, err := f.Read(buf)
+		if n > 0 {
+			if strings.Contains(string(buf[:n]), field+" = ") {
+				return true
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	return false
+}
+
 // Helper to check if a string is an IP address
 func isIPAddress(s string) bool {
-	// Simple check for IPv4/IPv6
-	return strings.Count(s, ".") == 3 || strings.Count(s, ":") >= 2
+	return net.ParseIP(s) != nil
 }
 
 // processConfigFileSecrets replaces environment variable references in the config file
