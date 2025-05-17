@@ -143,7 +143,7 @@
               description = "Default DNS record target.";
             };
 
-            update_existing_record = lib.mkOption {
+            record_update_existing = lib.mkOption {
               type = lib.types.nullOr lib.types.bool;
               default = null;
               example = true;
@@ -156,7 +156,7 @@
               description = ''
                 Allow multiple A records for this domain (default: false).
                 When enabled, the system will manage multiple A records for the same hostname.
-                Requires update_existing_record = true. Prevents duplicate IPv4 addresses.
+                Requires record_update_existing = true. Prevents duplicate IPv4 addresses.
               '';
             };
 
@@ -166,7 +166,7 @@
               description = ''
                 Allow multiple AAAA records for this domain (default: false).
                 When enabled, the system will manage multiple AAAA records for the same hostname.
-                Requires update_existing_record = true. Prevents duplicate IPv6 addresses.
+                Requires record_update_existing = true. Prevents duplicate IPv6 addresses.
               '';
             };
 
@@ -280,7 +280,7 @@
               cfg.dns_record_type != null ||
               cfg.dns_record_ttl != null ||
               cfg.dns_record_target != null ||
-              cfg.update_existing_record != null ||
+              cfg.record_update_existing != null ||
               cfg.record_type_a_multiple != null ||
               cfg.record_type_aaaa_multiple != null ||
               cfg.providers != {} ||
@@ -298,7 +298,7 @@
                       dns_record_type = cfg.dns_record_type;
                       dns_record_ttl = cfg.dns_record_ttl;
                       dns_record_target = cfg.dns_record_target;
-                      update_existing_record = cfg.update_existing_record;
+                      record_update_existing = cfg.record_update_existing;
                       record_type_a_multiple = cfg.record_type_a_multiple;
                       record_type_aaaa_multiple = cfg.record_type_aaaa_multiple;
                     };
@@ -362,7 +362,7 @@
                       cfg.dns_record_type != null ||
                       cfg.dns_record_ttl != null ||
                       cfg.dns_record_target != null ||
-                      cfg.update_existing_record != null ||
+                      cfg.record_update_existing != null ||
                       cfg.record_type_a_multiple != null ||
                       cfg.record_type_aaaa_multiple != null ||
                       cfg.providers != {} ||
