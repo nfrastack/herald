@@ -873,6 +873,37 @@ func getContainerName(container types.ContainerJSON) string {
 	return containerName
 }
 
+// Helper for wildcard matching
+func matchesPattern(subdomain string, patterns []string) bool {
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if pattern == "*" {
+			return true
+		}
+		if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+			if strings.Contains(subdomain, pattern[1:len(pattern)-1]) {
+				return true
+			}
+		} else if strings.HasPrefix(pattern, "*") {
+			if strings.HasSuffix(subdomain, pattern[1:]) {
+				return true
+			}
+		} else if strings.HasSuffix(pattern, "*") {
+			if strings.HasPrefix(subdomain, pattern[:len(pattern)-1]) {
+				return true
+			}
+		} else {
+			if subdomain == pattern {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // extractDNSEntriesFromContainer extracts DNS entries from a Docker container
 func (p *DockerProvider) extractDNSEntriesFromContainer(container types.ContainerJSON) []poll.DNSEntry {
 	log.Debug("[poll/docker] domainConfigs map at entry: %v", p.domainConfigs)
@@ -944,6 +975,26 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	hostname := strings.Join(parts[:len(parts)-2], ".")
 	if hostname == "" {
 		hostname = "@"
+	}
+
+	// Apply domain-specific subdomain filtering
+	domainCfg, hasDomainCfg := p.domainConfigs[domain]
+	if hasDomainCfg {
+		subdomain := hostname
+		if idx := strings.Index(hostname, "."); idx != -1 {
+			subdomain = hostname[:idx]
+		}
+		if len(domainCfg.IncludeSubdomains) > 0 {
+			if !matchesPattern(subdomain, domainCfg.IncludeSubdomains) {
+				log.Debug("[poll/docker] Skipping subdomain %s for domain %s (not in include_subdomains)", subdomain, domain)
+				return entries
+			}
+		} else if len(domainCfg.ExcludeSubdomains) > 0 {
+			if matchesPattern(subdomain, domainCfg.ExcludeSubdomains) {
+				log.Debug("[poll/docker] Skipping subdomain %s for domain %s (in exclude_subdomains)", subdomain, domain)
+				return entries
+			}
+		}
 	}
 
 	// 3. Other nfrastack.dns.* labels and config precedence

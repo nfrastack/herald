@@ -67,6 +67,8 @@ type DomainConfig struct {
 	Options                map[string]string `toml:"options"`
 	RecordTypeAMultiple    bool              `toml:"record_type_a_multiple"`
 	RecordTypeAAAAMultiple bool              `toml:"record_type_aaaa_multiple"`
+	ExcludeSubdomains      []string          `toml:"exclude_subdomains"`
+	IncludeSubdomains      []string          `toml:"include_subdomains"`
 }
 
 // ProfileConfig represents a configuration profile
@@ -181,6 +183,19 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 		cfg.Global.PollProfiles = profiles
 	}
 
+	// Parse exclude_subdomains and include_subdomains as comma-separated lists
+	for name, domainCfg := range cfg.Domain {
+		excludeStr := domainCfg.Options["exclude_subdomains"]
+		if excludeStr != "" {
+			domainCfg.ExcludeSubdomains = parseCommaList(excludeStr)
+		}
+		includeStr := domainCfg.Options["include_subdomains"]
+		if includeStr != "" {
+			domainCfg.IncludeSubdomains = parseCommaList(includeStr)
+		}
+		cfg.Domain[name] = domainCfg
+	}
+
 	return &cfg, nil
 }
 
@@ -244,4 +259,17 @@ func processConfigFileSecrets(content string) string {
 	})
 
 	return processedContent
+}
+
+// Helper to parse a comma-separated list into a slice of strings
+func parseCommaList(s string) []string {
+	parts := strings.Split(s, ",")
+	var out []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
