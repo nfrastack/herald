@@ -198,6 +198,42 @@
                 docker = {
                   type = "docker";
                   host = "unix:///var/run/docker.sock";
+                  record_remove_on_stop = false;
+                  docker_tls_verify = lib.mkOption {
+                    type = lib.types.nullOr lib.types.bool;
+                    default = null;
+                    description = ''
+                      Enable TLS verification for Docker API (optional, only used if provided).
+                    '';
+                  };
+                  docker_cert_path = lib.mkOption {
+                    type = lib.types.nullOr lib.types.str;
+                    default = null;
+                    description = ''
+                      Directory containing ca.pem, cert.pem, key.pem for Docker TLS (optional).
+                    '';
+                  };
+                  docker_ca = lib.mkOption {
+                    type = lib.types.nullOr lib.types.str;
+                    default = null;
+                    description = ''
+                      Path to CA certificate (overrides cert_path, optional).
+                    '';
+                  };
+                  docker_cert = lib.mkOption {
+                    type = lib.types.nullOr lib.types.str;
+                    default = null;
+                    description = ''
+                      Path to client certificate (overrides cert_path, optional).
+                    '';
+                  };
+                  docker_key = lib.mkOption {
+                    type = lib.types.nullOr lib.types.str;
+                    default = null;
+                    description = ''
+                      Path to client key (overrides cert_path, optional).
+                    '';
+                  };
                 };
                 traefik = {
                   type = "traefik";
@@ -207,7 +243,7 @@
               description = ''
                 Poll profiles for service/container discovery. Each attribute key is the poller name, and the value is an attribute set of options for that poller.
                 Example:
-                  polls.docker = { type = "docker"; host = "unix:///var/run/docker.sock"; };
+                  polls.docker = { type = "docker"; host = "unix:///var/run/docker.sock"; record_remove_on_stop = false; };
                   polls.traefik = { type = "traefik"; poll_url = "http://traefik:8080/api/http/routers"; };
               '';
             };
