@@ -545,6 +545,20 @@ func (p *DockerProvider) processDNSEntries(containerID string, containerName str
 			recordExists = true
 		}
 
+		// If record exists, fetch its current value and compare
+		if recordExists {
+			currentRecord, err := p.dnsProvider.GetRecordValue(domain, recordType, hostname)
+			if err != nil {
+				log.Warn("[poll/docker] Could not fetch current value for existing DNS record %s.%s: %v", hostname, domain, err)
+			} else {
+				// Compare current record with intended values
+				if currentRecord != nil && currentRecord.Value == target && currentRecord.TTL == ttl {
+					log.Info("[poll/docker] DNS record %s.%s already set to intended value (target: %s, TTL: %d), skipping update", hostname, domain, target, ttl)
+					continue
+				}
+			}
+		}
+
 		// Create or update the DNS record
 		err = p.dnsProvider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, updateExisting)
 		if err != nil {

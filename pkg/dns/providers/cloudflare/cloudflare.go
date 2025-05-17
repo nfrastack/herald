@@ -322,3 +322,37 @@ func (p *Provider) DeleteRecord(domain string, recordType string, hostname strin
 	log.Info("[provider/cloudflare] deleted DNS record %s (%s)", fullHostname, recordType)
 	return nil
 }
+
+// GetRecordValue retrieves the value of a DNS record
+func (p *Provider) GetRecordValue(domain, recordType, hostname string) (*dns.Record, error) {
+	if err := p.lazyInitAPI(); err != nil {
+		return nil, err
+	}
+	zoneID, err := p.getZoneID(domain)
+	if err != nil {
+		return nil, err
+	}
+	fullHostname := dns.JoinHostWithDomain(hostname, domain)
+	ctx := context.Background()
+	rc := cloudflare.ZoneIdentifier(zoneID)
+	params := cloudflare.ListDNSRecordsParams{
+		Type: recordType,
+		Name: fullHostname,
+	}
+	records, _, err := p.api.ListDNSRecords(ctx, rc, params)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, fmt.Errorf("record not found")
+	}
+	cfRec := records[0]
+	return &dns.Record{
+		Name:    cfRec.Name,
+		Type:    cfRec.Type,
+		Value:   cfRec.Content,
+		TTL:     cfRec.TTL,
+		ZoneID:  zoneID,
+		Proxied: cfRec.Proxied != nil && *cfRec.Proxied,
+	}, nil
+}

@@ -22,6 +22,9 @@ type Provider interface {
 
 	// DeleteRecord deletes a DNS record
 	DeleteRecord(domain string, recordType string, hostname string) error
+
+	// GetRecordValue gets the current value of a DNS record (target, TTL, etc.)
+	GetRecordValue(domain string, recordType string, hostname string) (*Record, error)
 }
 
 // ProviderFactory is a function that creates a new DNS provider
