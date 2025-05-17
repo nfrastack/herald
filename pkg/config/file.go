@@ -108,9 +108,8 @@ func (pc *ProviderConfig) setProviderOptions() map[string]string {
 }
 
 // LoadConfigFile loads the configuration from a TOML file
-func LoadConfigFile(path string) (*ConfigFile, error) {
-	log.Debug("[config/file] Loading configuration from %s", path)
-
+// Accepts logLevelOverride and logTimestampsOverride for CLI precedence
+func LoadConfigFile(path string, logLevelOverride string, logTimestampsOverride *bool) (*ConfigFile, error) {
 	var cfg ConfigFile
 
 	// Open and decode the TOML file
@@ -119,7 +118,18 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 		return nil, fmt.Errorf("[config/file] failed to decode TOML file: %w", err)
 	}
 
-	// Application-level defaults for global config
+	// Load environment variable configuration (overrides config file)
+	LoadFromEnvironment(&cfg)
+
+	// Command-line overrides (highest precedence)
+	if logLevelOverride != "" {
+		cfg.Global.LogLevel = logLevelOverride
+	}
+	if logTimestampsOverride != nil {
+		cfg.Global.LogTimestamps = *logTimestampsOverride
+	}
+
+	// Application-level defaults for global config (lowest precedence)
 	if cfg.Global.LogLevel == "" {
 		cfg.Global.LogLevel = "info"
 	}
@@ -129,8 +139,6 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	if cfg.Global.LogType == "" {
 		cfg.Global.LogType = "console"
 	}
-	// No default for LogPath
-	// No default for DNSRecordType
 	if cfg.Global.DNSRecordTTL == 0 {
 		cfg.Global.DNSRecordTTL = 3600
 	}
@@ -141,13 +149,11 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	// PollProfiles logic
 	if len(cfg.Global.PollProfiles) == 0 {
 		if len(cfg.Poll) == 1 {
-			// Only one poll profile defined, use it
 			for k := range cfg.Poll {
 				cfg.Global.PollProfiles = []string{k}
 				break
 			}
 		} else if len(cfg.Poll) > 1 {
-			// Use all defined poll profiles
 			profiles := make([]string, 0, len(cfg.Poll))
 			for k := range cfg.Poll {
 				profiles = append(profiles, k)
@@ -156,7 +162,7 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 		}
 	}
 
-	// Provider logic: if only one provider, domains without provider get it
+	// Provider logic: if only one provider, assign it to domains without provider
 	if len(cfg.Provider) == 1 {
 		var onlyProvider string
 		for k := range cfg.Provider {
@@ -174,7 +180,6 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	// Smart logic for domain record_type based on target
 	for name, domainCfg := range cfg.Domain {
 		if domainCfg.RecordType == "" && domainCfg.Target != "" {
-			// Check if target is an IP address
 			if isIPAddress(domainCfg.Target) {
 				domainCfg.RecordType = "A"
 			} else {
@@ -184,7 +189,7 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 		}
 	}
 
-	// Set Docker poll provider defaults if not set
+	// Set Docker and Traefik poll provider defaults if not set
 	for name, pollCfg := range cfg.Poll {
 		if pollCfg.Type == "docker" {
 			if pollCfg.Options == nil {
@@ -214,7 +219,6 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 			if pollCfg.Options["filter_type"] == "" {
 				pollCfg.Options["filter_type"] = "none"
 			}
-			// poll_url must be set explicitly by the user
 			cfg.Poll[name] = pollCfg
 		}
 	}

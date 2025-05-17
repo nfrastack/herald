@@ -37,24 +37,28 @@ func versionString() string {
 }
 
 var (
-	configFilePath = flag.String("config", "", "Path to configuration file")
-	logLevel       = flag.String("log-level", "", "Log level (info, debug")
-	showVersion    = flag.Bool("version", false, "Show version and exit")
+	configFilePath   = flag.String("config", "", "Path to configuration file")
+	logLevel         = flag.String("log-level", "", "Log level (info, debug)")
+	logTimestamps    = flag.Bool("log-timestamps", false, "Enable log timestamps")
+	logTimestampsSet = false
+	showVersion      = flag.Bool("version", false, "Show version and exit")
 )
 
 func main() {
 	flag.Parse()
+
+	// Detect if log-timestamps was set explicitly
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "log-timestamps" {
+			logTimestampsSet = true
+		}
+	})
 
 	// Show version if requested
 	if *showVersion {
 		fmt.Println(versionString())
 		os.Exit(0)
 	}
-
-	log.Info("Starting Container DNS Companion")
-
-	// Register DNS providers after logging is initialized
-	providers.RegisterProviders()
 
 	// Determine the config file path
 	configFile := "dns-companion.conf"
@@ -65,16 +69,27 @@ func main() {
 	// Find the config file
 	configFilePath, err := config.FindConfigFile(configFile)
 	if err != nil {
-		log.Error("Failed to find configuration file: %v", err)
+		fmt.Printf("Failed to find configuration file: %v\n", err)
 		os.Exit(1)
 	}
 
-	log.Info("[config] Using config file: %s", configFilePath)
-	cfg, err := config.LoadConfigFile(configFilePath)
+	cfg, err := config.LoadConfigFile(configFilePath, *logLevel, func() *bool {
+		if logTimestampsSet {
+			return logTimestamps
+		} else {
+			return nil
+		}
+	}())
 	if err != nil {
-		log.Error("Failed to load configuration: %v", err)
+		fmt.Printf("Failed to load configuration: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Now initialize logging with the config values
+	log.Initialize(cfg.Global.LogLevel, cfg.Global.LogTimestamps)
+
+	log.Info("Starting Container DNS Companion")
+	log.Info("[config] Using config file: %s", configFilePath)
 
 	// Apply logging configuration
 	config.ApplyLoggingConfig(cfg)
@@ -84,6 +99,9 @@ func main() {
 
 	// Load environment variable configuration (overrides config file)
 	config.LoadFromEnvironment(cfg)
+
+	// Register DNS providers after logging is initialized
+	providers.RegisterProviders()
 
 	// Determine DNS provider name (automatic selection if only one, else error if not specified per domain)
 	providerNames := make([]string, 0, len(cfg.Provider))
