@@ -28,16 +28,17 @@ import (
 
 // DockerProvider implements the Provider interface for Docker
 type DockerProvider struct {
-	client           *client.Client
-	config           Config
-	lastContainerIDs map[string]bool
-	options          map[string]string
-	dnsProvider      dns.Provider
-	running          bool
-	exposeContainers bool
-	filterConfig     filter.FilterConfig
-	swarmMode        bool                           // Whether to operate in Docker Swarm mode
-	domainConfigs    map[string]config.DomainConfig // Add this field to hold domain configs
+	client             *client.Client
+	config             Config
+	lastContainerIDs   map[string]bool
+	options            map[string]string
+	dnsProvider        dns.Provider
+	running            bool
+	exposeContainers   bool
+	filterConfig       filter.FilterConfig
+	swarmMode          bool                           // Whether to operate in Docker Swarm mode
+	domainConfigs      map[string]config.DomainConfig // Add this field to hold domain configs
+	recordRemoveOnStop bool                           // Add this field for record removal on stop
 }
 
 // Config defines configuration for the Docker provider
@@ -152,6 +153,11 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	// Store the config and filter config in the provider
 	provider.config = config
 	provider.filterConfig = filterConfig
+
+	// Parse record_remove_on_stop option
+	if val, exists := options["record_remove_on_stop"]; exists {
+		provider.recordRemoveOnStop = strings.ToLower(val) == "true" || val == "1"
+	}
 
 	// Log filter configuration
 	if len(filterConfig.Filters) > 0 && filterConfig.Filters[0].Type != filter.FilterTypeNone {
@@ -304,8 +310,30 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 		//log.Debug("[poll/docker] Container started: %s", containerName)
 		p.processContainer(ctx, containerID)
 	case "stop":
-		// Container stopped - log at DEBUG level only
-		//log.Debug("[poll/docker] Container stopped: %s", containerName)
+		// Container stopped - remove DNS records if enabled
+		if p.recordRemoveOnStop {
+			container, err := p.client.ContainerInspect(ctx, containerID)
+			if err != nil {
+				log.Warn("[poll/docker] Failed to inspect container %s for DNS removal: %v", containerID[:12], err)
+				return
+			}
+			entries := p.extractDNSEntriesFromContainer(container)
+			for _, entry := range entries {
+				if entry.Hostname == "" && entry.Domain == "" {
+					continue
+				}
+				if p.dnsProvider == nil {
+					continue
+				}
+				log.Info("[poll/docker] Removing DNS record for %s.%s (%s)", entry.Hostname, entry.Domain, entry.RecordType)
+				err := p.dnsProvider.DeleteRecord(entry.Domain, entry.RecordType, entry.Hostname)
+				if err != nil {
+					log.Warn("[poll/docker] Failed to remove DNS record for %s.%s: %v", entry.Hostname, entry.Domain, err)
+				} else {
+					log.Info("[poll/docker] Successfully removed DNS record for %s.%s (%s)", entry.Hostname, entry.Domain, entry.RecordType)
+				}
+			}
+		}
 	case "die":
 		// Only log die events at debug level
 		//log.Debug("[poll/docker] Container died: %s", containerName)
