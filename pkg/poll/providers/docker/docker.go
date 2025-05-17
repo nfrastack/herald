@@ -545,6 +545,32 @@ func (p *DockerProvider) processDNSEntries(containerID string, containerName str
 		log.Debug("[poll/docker] Sending DNS entry to Provider: %s.%s (%s) -> %s (TTL: %d, Update: %v)",
 			hostname, domain, recordType, target, ttl, updateExisting)
 
+		// Check for multiple A/AAAA record support in domain config
+		domainCfg, hasDomainCfg := p.domainConfigs[domain]
+		allowMultipleA := hasDomainCfg && domainCfg.RecordTypeAMultiple && recordType == "A"
+		allowMultipleAAAA := hasDomainCfg && domainCfg.RecordTypeAAAAMultiple && recordType == "AAAA"
+		if (allowMultipleA || allowMultipleAAAA) && !updateExisting {
+			log.Error("[poll/docker] Multiple %s records requested for %s.%s but update_existing_record is not enabled. Skipping.", recordType, hostname, domain)
+			continue
+		}
+		if allowMultipleA || allowMultipleAAAA {
+			existingRecords, err := p.dnsProvider.GetRecords(domain, recordType, hostname)
+			if err != nil {
+				log.Warn("[poll/docker] Could not fetch existing %s records for %s.%s: %v", recordType, hostname, domain, err)
+			}
+			alreadyExists := false
+			for _, rec := range existingRecords {
+				if rec.Value == target {
+					alreadyExists = true
+					break
+				}
+			}
+			if alreadyExists {
+				log.Info("[poll/docker] %s record for %s.%s with value %s already exists, skipping.", recordType, hostname, domain, target)
+				continue
+			}
+		}
+
 		// Check if record exists - but don't log this, let the provider do it
 		recordExists := false
 		recordID, err := p.dnsProvider.GetRecordID(domain, recordType, hostname)
@@ -918,6 +944,18 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 		}
 	}
 
+	// Per-container overrides for multiple A/AAAA record support
+	recordTypeAMultiple := false
+	if val, exists := labels["nfrastack.dns.record.type.a.multiple"]; exists && val != "" {
+		recordTypeAMultiple = strings.ToLower(val) == "true" || val == "1"
+		log.Debug("[poll/docker] Found label nfrastack.dns.record.type.a.multiple=%s on container %s", val, containerName)
+	}
+	recordTypeAAAAMultiple := false
+	if val, exists := labels["nfrastack.dns.record.type.aaaa.multiple"]; exists && val != "" {
+		recordTypeAAAAMultiple = strings.ToLower(val) == "true" || val == "1"
+		log.Debug("[poll/docker] Found label nfrastack.dns.record.type.aaaa.multiple=%s on container %s", val, containerName)
+	}
+
 	// Domain config fallback
 	if p.domainConfigs != nil {
 		for _, domainCfg := range p.domainConfigs {
@@ -1008,12 +1046,14 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 
 	log.Debug("[poll/docker] Final values for container %s: hostname=%s, domain=%s, recordType=%s, target=%s, ttl=%d, overwrite=%v", containerName, hostname, domain, recordType, target, ttl, overwrite)
 	entries = append(entries, poll.DNSEntry{
-		Hostname:   hostname,
-		Domain:     domain,
-		RecordType: recordType,
-		Target:     target,
-		TTL:        ttl,
-		Overwrite:  overwrite,
+		Hostname:               hostname,
+		Domain:                 domain,
+		RecordType:             recordType,
+		Target:                 target,
+		TTL:                    ttl,
+		Overwrite:              overwrite,
+		RecordTypeAMultiple:    recordTypeAMultiple,
+		RecordTypeAAAAMultiple: recordTypeAAAAMultiple,
 	})
 	return entries
 }

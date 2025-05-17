@@ -447,6 +447,18 @@ func setNamedDomainConfigFromEnv(domainKey, domainName, configKey string, domain
 		log.Debug("[config/env] Set excluded subdomains for domain '%s' to %s", domainName, excluded)
 	}
 
+	// RecordTypeAMultiple
+	if v := GetEnvVar(prefix+"RECORD_TYPE_A_MULTIPLE", ""); v != "" {
+		domainCfg.RecordTypeAMultiple = EnvToBool(prefix+"RECORD_TYPE_A_MULTIPLE", false)
+		log.Debug("[config/env] Set record type A multiple for domain '%s' to %v", domainName, domainCfg.RecordTypeAMultiple)
+	}
+
+	// RecordTypeAAAAMultiple
+	if v := GetEnvVar(prefix+"RECORD_TYPE_AAAA_MULTIPLE", ""); v != "" {
+		domainCfg.RecordTypeAAAAMultiple = EnvToBool(prefix+"RECORD_TYPE_AAAA_MULTIPLE", false)
+		log.Debug("[config/env] Set record type AAAA multiple for domain '%s' to %v", domainName, domainCfg.RecordTypeAAAAMultiple)
+	}
+
 	// Process any options with prefix DOMAIN_<NAME>_OPTION_
 	optionPrefix := prefix + "OPTION_"
 	for _, envVar := range getAllEnvVars() {

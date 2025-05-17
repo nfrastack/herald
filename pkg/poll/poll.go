@@ -121,12 +121,14 @@ func GetPoller(name string, options map[string]string) (*Poller, error) {
 
 // DNSEntry represents a DNS entry to be created/updated
 type DNSEntry struct {
-	Hostname   string
-	Domain     string
-	RecordType string
-	Target     string
-	TTL        int
-	Overwrite  bool
+	Hostname               string
+	Domain                 string
+	RecordType             string
+	Target                 string
+	TTL                    int
+	Overwrite              bool
+	RecordTypeAMultiple    bool
+	RecordTypeAAAAMultiple bool
 }
 
 // GetFQDN returns the fully qualified domain name

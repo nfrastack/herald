@@ -25,6 +25,9 @@ type Provider interface {
 
 	// GetRecordValue gets the current value of a DNS record (target, TTL, etc.)
 	GetRecordValue(domain string, recordType string, hostname string) (*Record, error)
+
+	// GetRecords gets all DNS records of a type for a specific hostname
+	GetRecords(domain string, recordType string, hostname string) ([]*Record, error)
 }
 
 // ProviderFactory is a function that creates a new DNS provider

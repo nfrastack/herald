@@ -356,3 +356,38 @@ func (p *Provider) GetRecordValue(domain, recordType, hostname string) (*dns.Rec
 		Proxied: cfRec.Proxied != nil && *cfRec.Proxied,
 	}, nil
 }
+
+// GetRecords retrieves all DNS records of a specific type for a hostname
+func (p *Provider) GetRecords(domain, recordType, hostname string) ([]*dns.Record, error) {
+	if err := p.lazyInitAPI(); err != nil {
+		return nil, err
+	}
+	zoneID, err := p.getZoneID(domain)
+	if err != nil {
+		return nil, err
+	}
+	fullHostname := dns.JoinHostWithDomain(hostname, domain)
+	ctx := context.Background()
+	rc := cloudflare.ZoneIdentifier(zoneID)
+	params := cloudflare.ListDNSRecordsParams{
+		Type: recordType,
+		Name: fullHostname,
+	}
+	records, _, err := p.api.ListDNSRecords(ctx, rc, params)
+	if err != nil {
+		return nil, err
+	}
+	var result []*dns.Record
+	for _, cfRec := range records {
+		rec := &dns.Record{
+			Name:    cfRec.Name,
+			Type:    cfRec.Type,
+			Value:   cfRec.Content,
+			TTL:     cfRec.TTL,
+			ZoneID:  zoneID,
+			Proxied: cfRec.Proxied != nil && *cfRec.Proxied,
+		}
+		result = append(result, rec)
+	}
+	return result, nil
+}

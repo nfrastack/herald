@@ -150,6 +150,26 @@
               description = "Whether to update existing DNS records.";
             };
 
+            record_type_a_multiple = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+              description = ''
+                Allow multiple A records for this domain (default: false).
+                When enabled, the system will manage multiple A records for the same hostname.
+                Requires update_existing_record = true. Prevents duplicate IPv4 addresses.
+              '';
+            };
+
+            record_type_aaaa_multiple = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+              description = ''
+                Allow multiple AAAA records for this domain (default: false).
+                When enabled, the system will manage multiple AAAA records for the same hostname.
+                Requires update_existing_record = true. Prevents duplicate IPv6 addresses.
+              '';
+            };
+
             providers = lib.mkOption {
               type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
               default = {};
@@ -225,6 +245,8 @@
               cfg.dns_record_ttl != null ||
               cfg.dns_record_target != null ||
               cfg.update_existing_record != null ||
+              cfg.record_type_a_multiple != null ||
+              cfg.record_type_aaaa_multiple != null ||
               cfg.providers != {} ||
               cfg.polls != {} ||
               cfg.domains != {}
@@ -241,6 +263,8 @@
                       dns_record_ttl = cfg.dns_record_ttl;
                       dns_record_target = cfg.dns_record_target;
                       update_existing_record = cfg.update_existing_record;
+                      record_type_a_multiple = cfg.record_type_a_multiple;
+                      record_type_aaaa_multiple = cfg.record_type_aaaa_multiple;
                     };
                     toConfValue = v:
                       if builtins.isList v then
@@ -303,6 +327,8 @@
                       cfg.dns_record_ttl != null ||
                       cfg.dns_record_target != null ||
                       cfg.update_existing_record != null ||
+                      cfg.record_type_a_multiple != null ||
+                      cfg.record_type_aaaa_multiple != null ||
                       cfg.providers != {} ||
                       cfg.polls != {} ||
                       cfg.domains != {};

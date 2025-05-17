@@ -57,14 +57,16 @@ type ProviderConfig struct {
 
 // DomainConfig represents the configuration for a domain
 type DomainConfig struct {
-	Name                 string            `toml:"name"`
-	Provider             string            `toml:"provider"`
-	ZoneID               string            `toml:"zone_id"`
-	TTL                  int               `toml:"ttl"`
-	RecordType           string            `toml:"record_type"`
-	Target               string            `toml:"target"`
-	UpdateExistingRecord bool              `toml:"update_existing_record"`
-	Options              map[string]string `toml:"options"`
+	Name                   string            `toml:"name"`
+	Provider               string            `toml:"provider"`
+	ZoneID                 string            `toml:"zone_id"`
+	TTL                    int               `toml:"ttl"`
+	RecordType             string            `toml:"record_type"`
+	Target                 string            `toml:"target"`
+	UpdateExistingRecord   bool              `toml:"update_existing_record"`
+	Options                map[string]string `toml:"options"`
+	RecordTypeAMultiple    bool              `toml:"record_type_a_multiple"`
+	RecordTypeAAAAMultiple bool              `toml:"record_type_aaaa_multiple"`
 }
 
 // ProfileConfig represents a configuration profile
