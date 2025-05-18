@@ -32,8 +32,20 @@ var (
 )
 
 // String returns a string representation of the version information
-func versionString() string {
-	return fmt.Sprintf("%s (built on %s)", Version, BuildTime)
+func versionString(showBuild bool) string {
+	if showBuild {
+		return fmt.Sprintf("%s (built: %s)", Version, BuildTime)
+	}
+	return Version
+}
+
+func IsRunningUnderSystemd() (system, user bool) {
+	invocation := os.Getenv("INVOCATION_ID") != ""
+	journal := os.Getenv("JOURNAL_STREAM") != ""
+	if invocation || journal {
+		return true, false
+	}
+	return false, false
 }
 
 var (
@@ -46,7 +58,7 @@ func main() {
 
 	// Show version if requested
 	if *showVersion {
-		fmt.Println(versionString())
+		fmt.Println(versionString(true))
 		os.Exit(0)
 	}
 
@@ -62,26 +74,43 @@ func main() {
 	// Find the config file
 	configFilePath, err := config.FindConfigFile(configFile)
 	if err != nil {
-		fmt.Printf("Failed to find configuration file: %v\n", err)
+		fmt.Printf("[config] Failed to find configuration file: %v\n", err)
 		os.Exit(1)
 	}
 
 	cfg, err := config.LoadConfigFile(configFilePath)
 	if err != nil {
-		fmt.Printf("Failed to load configuration: %v\n", err)
+		fmt.Printf("[config] Failed to load configuration: %v\n", err)
 		os.Exit(1)
 	}
+
+	system, user := IsRunningUnderSystemd()
+	if !system && !user {
+		fmt.Println()
+		fmt.Println("             .o88o.                                 .                       oooo")
+		fmt.Println("             888 \"\"                                .o8                       888")
+		fmt.Println("ooo. .oo.   o888oo  oooo d8b  .oooo.    .oooo.o .o888oo  .oooo.    .ooooo.   888  oooo")
+		fmt.Println("`888P\"Y88b   888    `888\"\"8P `P  )88b  d88(  \"8   888   `P  )88b  d88' \"Y8  888 .8P'")
+		fmt.Println(" 888   888   888     888      .oP\"888  \"\"Y88b.    888    .oP\"888  888        888888.")
+		fmt.Println(" 888   888   888     888     d8(  888  o.  )88b   888 . d8(  888  888   .o8  888 `88b.")
+		fmt.Println("o888o o888o o888o   d888b    `Y888\"\"8o 8\"\"888P'   \"888\" `Y888\"\"8o `Y8bod8P' o888o o888o")
+		fmt.Println()
+	}
+
+	fmt.Printf("Starting Container DNS Companion version: %s \n", versionString(false))
+	fmt.Printf("© 2025 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
+	fmt.Println()
 
 	// After loading config, update logger level and timestamps
 	log.GetLogger().SetLevel(cfg.Global.LogLevel)
 	log.GetLogger().SetShowTimestamps(cfg.Global.LogTimestamps)
-	log.Debug("Logger reconfigured with level: %s", cfg.Global.LogLevel)
 
-	log.Info("Starting Container DNS Companion")
+	log.Trace("Built: %s", BuildTime)
 	log.Info("[config] Using config file: %s", configFilePath)
 
 	// Apply logging configuration
 	config.ApplyLoggingConfig(cfg)
+	log.Debug("[config] Logger configured with level: %s", cfg.Global.LogLevel)
 
 	// Apply configuration to environment variables
 	config.ApplyConfigToEnv(cfg, "")
@@ -163,7 +192,8 @@ func main() {
 		// Store normalized domain name as key (domain keys are already normalized in the config)
 		domainConfigs[domainKey] = domainMap
 
-		log.Debug("[domain] Loaded domain config for %s with settings: %v", domainCfg.Name, domainMap)
+		log.Debug("[domain] Loaded domain config for '%s'", domainCfg.Name)
+		log.Trace("[domain] Settings: %v", domainMap)
 	}
 
 	// Store domain configs in a global config location
@@ -190,7 +220,7 @@ func main() {
 			pollProviderType = pollProfileName
 		}
 
-		log.Info("[poll] Initializing poll provider: %s", pollProfileName)
+		log.Info("[poll] Initializing poll provider: '%s'", pollProfileName)
 
 		// Create options map for the provider
 		providerOptions := make(map[string]string)
@@ -206,7 +236,7 @@ func main() {
 			providerOptions[k] = v
 		}
 
-		log.Debug("[poll] Provider %s options: %v", pollProfileName, providerOptions)
+		log.Trace("[poll] Provider %s options: %v", pollProfileName, providerOptions)
 
 		pollProvider, err := poll.NewPollProvider(pollProviderType, providerOptions)
 		if err != nil {

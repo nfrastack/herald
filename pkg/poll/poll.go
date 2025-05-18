@@ -79,10 +79,10 @@ func RegisterProvider(name string, factory ProviderFactory) {
 	providersMu.Lock()
 	defer providersMu.Unlock()
 	if factory == nil {
-		panic("poll: RegisterProvider factory is nil")
+		panic("[poll] RegisterProvider factory is nil")
 	}
 	if _, dup := providers[name]; dup {
-		panic("poll: RegisterProvider called twice for provider " + name)
+		panic("[poll] RegisterProvider called twice for provider " + name)
 	}
 	providers[name] = factory
 }

@@ -65,12 +65,12 @@ func RegisterProvider(name string, factory ProviderFactory) {
 	providersMu.Lock()
 	defer providersMu.Unlock()
 	if factory == nil {
-		log.Fatal("dns: RegisterProvider factory is nil")
+		log.Fatal("[dns] RegisterProvider factory is nil")
 	}
 	if _, dup := providers[name]; dup {
-		log.Fatal("dns: RegisterProvider called twice for provider %s", name)
+		log.Fatal("[dns] RegisterProvider called twice for provider %s", name)
 	}
-	log.Debug("Registering DNS provider: %s", name)
+	log.Debug("[dns] Registering DNS provider: '%s'", name)
 	providers[name] = factory
 }
 
@@ -80,7 +80,7 @@ func GetProvider(name string, options map[string]string) (Provider, error) {
 	factory, ok := providers[name]
 	providersMu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("DNS provider not found: %s", name)
+		return nil, fmt.Errorf("[dns] DNS provider not found: %s", name)
 	}
 	return factory(options)
 }

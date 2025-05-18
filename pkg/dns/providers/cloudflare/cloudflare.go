@@ -40,14 +40,14 @@ func NewProvider(config map[string]string) (dns.Provider, error) {
 	}
 
 	// Log available configuration keys for debugging
-	log.Debug("[provider/cloudflare] Cloudflare provider config keys: %v", maps.Keys(config))
+	log.Trace("[provider/cloudflare] Cloudflare provider config keys: %v", maps.Keys(config))
 
 	// Log values received (excluding sensitive ones)
 	for k, v := range config {
 		if !strings.Contains(k, "token") && !strings.Contains(k, "key") && !strings.Contains(k, "secret") && !strings.Contains(k, "password") {
-			log.Debug("[provider/cloudflare] Cloudflare config: %s = %s", k, v)
+			log.Trace("[provider/cloudflare] Cloudflare config: %s = %s", k, v)
 		} else {
-			log.Debug("[provider/cloudflare] Cloudflare config: %s = ****", k)
+			log.Trace("[provider/cloudflare] Cloudflare config: %s = ****", k)
 		}
 	}
 
