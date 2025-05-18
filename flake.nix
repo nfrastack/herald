@@ -42,7 +42,7 @@
               "-X main.Version=${version}"
             ];
 
-            vendorHash = "sha256-G8WP9nEKwNaRGHjWBlfSZboxw2qSsHcZHjazlMsR2vU=";
+            vendorHash = "sha256-q5CpK45fLww6X1npKFNePxI+YmQRsFOLUBYTN6BwVxQ=";
           };
         });
 
@@ -82,6 +82,12 @@
               description = "Enable the systemd service for Container DNS Companion.";
             };
 
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${pkgs.system}.container-dns-companion;
+              description = "Container DNS Companion package to use.";
+            };
+
             configFile = lib.mkOption {
               type = lib.types.str;
               default = "/etc/dns-companion.conf";
@@ -89,16 +95,10 @@
             };
 
             log_level = lib.mkOption {
-              type = lib.types.nullOr lib.types.str;
+              type = lib.types.enum [ "trace" "debug" "info" ];
               default = null;
-              example = "debug";
-              description = "Set the logging level (e.g., debug, info).";
-            };
-
-            package = lib.mkOption {
-              type = lib.types.package;
-              default = self.packages.${pkgs.system}.container-dns-companion;
-              description = "Container DNS Companion package to use.";
+              example = "info";
+              description = "Log level for the application (trace, debug, info).";
             };
 
             log_timestamps = lib.mkOption {
@@ -106,20 +106,6 @@
               default = null;
               example = true;
               description = "Enable or disable log timestamps.";
-            };
-
-            poll_profiles = lib.mkOption {
-              type = lib.types.nullOr (lib.types.listOf lib.types.str);
-              default = null;
-              example = [ "docker" ];
-              description = "List of poll profiles to use.";
-            };
-
-            dns_provider = lib.mkOption {
-              type = lib.types.nullOr lib.types.str;
-              default = null;
-              example = "cloudflare";
-              description = "Default DNS provider profile to use.";
             };
 
             dns_record_type = lib.mkOption {
@@ -170,13 +156,51 @@
               '';
             };
 
+            poll_profiles = lib.mkOption {
+              type = lib.types.nullOr (lib.types.listOf lib.types.str);
+              default = null;
+              example = [ "docker" ];
+              description = "List of poll profiles to use.";
+            };
+
+            polls = lib.mkOption {
+              type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
+              default = {};
+              example = {
+                docker = {
+                  type = "docker";
+                  host = "unix:///var/run/docker.sock";
+                  swarm_mode = false;
+                  docker_tls_verify = false;
+                  docker_cert_path = null;
+                  docker_ca = null;
+                  docker_cert = null;
+                  docker_key = null;
+                  record_remove_on_stop = false;
+                  filter_type = "none";
+                  filter_value = null;
+                };
+                traefik = {
+                  type = "traefik";
+                  poll_url = "http://traefik:8080/api/http/routers";
+                  poll_inverval = 60;
+                };
+              };
+              description = ''
+                Poll profiles for service/container discovery. Each attribute key is the poller name, and the value is an attribute set of options for that poller.
+                Example:
+                  polls.docker = { type = "docker"; host = "unix:///var/run/docker.sock"; record_remove_on_stop = false; swarm_mode = false; docker_tls_verify = false; filter_type = "none"; filter_value = null; };
+                  polls.traefik = { type = "traefik"; poll_url = "http://traefik:8080/api/http/routers"; };
+              '';
+            };
+
             providers = lib.mkOption {
               type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
               default = {};
               example = {
                 cloudflare = {
                   type = "cloudflare";
-                  api_token = "EXAMPLE_TOKEN";
+                  api_token = "EXAMPLE_TOKEN"; # This is insecure, you can use file://location_of_file_value_secret
                 };
                 route53 = {
                   type = "route53";
@@ -191,63 +215,6 @@
               '';
             };
 
-            polls = lib.mkOption {
-              type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
-              default = { };
-              example = {
-                docker = {
-                  type = "docker";
-                  host = "unix:///var/run/docker.sock";
-                  record_remove_on_stop = false;
-                  docker_tls_verify = lib.mkOption {
-                    type = lib.types.nullOr lib.types.bool;
-                    default = null;
-                    description = ''
-                      Enable TLS verification for Docker API (optional, only used if provided).
-                    '';
-                  };
-                  docker_cert_path = lib.mkOption {
-                    type = lib.types.nullOr lib.types.str;
-                    default = null;
-                    description = ''
-                      Directory containing ca.pem, cert.pem, key.pem for Docker TLS (optional).
-                    '';
-                  };
-                  docker_ca = lib.mkOption {
-                    type = lib.types.nullOr lib.types.str;
-                    default = null;
-                    description = ''
-                      Path to CA certificate (overrides cert_path, optional).
-                    '';
-                  };
-                  docker_cert = lib.mkOption {
-                    type = lib.types.nullOr lib.types.str;
-                    default = null;
-                    description = ''
-                      Path to client certificate (overrides cert_path, optional).
-                    '';
-                  };
-                  docker_key = lib.mkOption {
-                    type = lib.types.nullOr lib.types.str;
-                    default = null;
-                    description = ''
-                      Path to client key (overrides cert_path, optional).
-                    '';
-                  };
-                };
-                traefik = {
-                  type = "traefik";
-                  poll_url = "http://traefik:8080/api/http/routers";
-                };
-              };
-              description = ''
-                Poll profiles for service/container discovery. Each attribute key is the poller name, and the value is an attribute set of options for that poller.
-                Example:
-                  polls.docker = { type = "docker"; host = "unix:///var/run/docker.sock"; record_remove_on_stop = false; };
-                  polls.traefik = { type = "traefik"; poll_url = "http://traefik:8080/api/http/routers"; };
-              '';
-            };
-
             domains = lib.mkOption {
               type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
               default = {};
@@ -258,12 +225,14 @@
                   ttl = 120;
                   record_type = "CNAME";
                   target = "test.example.com";
+                  include_subdomains = "api,internal";
+                  exclude_subdomains = "dev,staging";
                 };
               };
               description = ''
                 Domain profiles. Each attribute key is the domain profile name, and the value is an attribute set of options for that domain.
                 Example:
-                  domains.example_com = { name = "example.com"; provider = "cloudflare"; ... };
+                  domains.example_com = { name = "example.com"; provider = "cloudflare"; include_subdomains = "api,internal"; exclude_subdomains = "dev,staging"; ... };
               '';
             };
           };
