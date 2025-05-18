@@ -7,6 +7,7 @@ package docker
 import (
 	"container-dns-companion/pkg/config"
 	"container-dns-companion/pkg/dns"
+	"container-dns-companion/pkg/dns/providers"
 	"container-dns-companion/pkg/log"
 	"container-dns-companion/pkg/poll"
 	"container-dns-companion/pkg/poll/providers/docker/filter"
@@ -14,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -87,28 +87,17 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		clientOpts = append(clientOpts, client.WithHost(dockerHost))
 	}
 
-	// Check for TLS options
+	// Check for TLS options (nested under tls.*)
 	var tlsVerifySet, tlsVerify bool
-	if val, exists := options["docker_tls_verify"]; exists {
+	if val, exists := options["tls.verify"]; exists {
 		tlsVerifySet = true
 		tlsVerify = strings.ToLower(val) == "true" || val == "1"
 	}
-	certPath := options["docker_cert_path"]
-	caPath := options["docker_ca"]
-	certFile := options["docker_cert"]
-	keyFile := options["docker_key"]
+	caPath := options["tls.ca"]
+	certFile := options["tls.cert"]
+	keyFile := options["tls.key"]
 
-	if certPath != "" || caPath != "" || certFile != "" || keyFile != "" || tlsVerifySet {
-		// Determine actual file paths if certPath is set
-		if caPath == "" && certPath != "" {
-			caPath = filepath.Join(certPath, "ca.pem")
-		}
-		if certFile == "" && certPath != "" {
-			certFile = filepath.Join(certPath, "cert.pem")
-		}
-		if keyFile == "" && certPath != "" {
-			keyFile = filepath.Join(certPath, "key.pem")
-		}
+	if caPath != "" || certFile != "" || keyFile != "" || tlsVerifySet {
 		// Only add CA if path exists
 		if caPath != "" {
 			clientOpts = append(clientOpts, client.WithTLSClientConfig(caPath, certFile, keyFile))
@@ -552,82 +541,60 @@ func (p *DockerProvider) processDNSEntries(containerID string, containerName str
 		hostname := entry.Hostname
 		domain := entry.Domain
 
-		// Set defaults from the entry initially
-		recordType := entry.RecordType
-		ttl := entry.TTL
-		target := entry.Target
-		updateExisting := entry.Overwrite
-
-		// If no record type specified yet, use global default
-		if recordType == "" {
-			recordType = "A" // Global default
-			log.Debug("[poll/docker] Using global default record type: %s", recordType)
+		// Determine the effective record config
+		domainCfg := p.domainConfigs[domain]
+		recordCfg := domainCfg.Record
+		if recordCfg.Type == "" {
+			recordCfg.Type = entry.RecordType
+		}
+		if recordCfg.TTL == 0 {
+			recordCfg.TTL = entry.TTL
+		}
+		if recordCfg.Target == "" {
+			recordCfg.Target = entry.Target
+		}
+		if !recordCfg.UpdateExisting {
+			recordCfg.UpdateExisting = entry.Overwrite
+		}
+		if !recordCfg.AllowMultiple {
+			recordCfg.AllowMultiple = entry.RecordTypeAMultiple || entry.RecordTypeAAAAMultiple
 		}
 
 		// Validate that target is appropriate for record type
-		if recordType == "A" && target != "" {
+		if recordCfg.Type == "A" && recordCfg.Target != "" {
 			// Validate target is an IP address for A records
-			if net.ParseIP(target) == nil {
+			if net.ParseIP(recordCfg.Target) == nil {
 				log.Error("[poll/docker] Invalid target for A record: %s is not an IP address. Skipping DNS entry %s.%s",
-					target, hostname, domain)
+					recordCfg.Target, hostname, domain)
 				continue
 			}
 		}
 
-		if recordType == "AAAA" && target != "" {
+		if recordCfg.Type == "AAAA" && recordCfg.Target != "" {
 			// Validate target is an IPv6 address for AAAA records
-			if ip := net.ParseIP(target); ip == nil || ip.To16() == nil || ip.To4() != nil {
+			if ip := net.ParseIP(recordCfg.Target); ip == nil || ip.To16() == nil || ip.To4() != nil {
 				log.Error("[poll/docker] Invalid target for AAAA record: %s is not an IPv6 address. Skipping DNS entry %s.%s",
-					target, hostname, domain)
+					recordCfg.Target, hostname, domain)
 				continue
 			}
 		}
 
 		// If target is still missing, this is a fatal error - we require an explicit target
-		if target == "" {
+		if recordCfg.Target == "" {
 			log.Fatal("[poll/docker] No target specified for DNS entry %s.%s and no valid target found in container, domain, or global configuration",
 				hostname, domain)
 			return // This will never execute due to Fatal, but kept for clarity
 		}
 
-		// Set TTL from global default if still not set
-		if ttl <= 0 {
-			ttl = 60 // Global default
-			log.Debug("[poll/docker] Using global default TTL: %d", ttl)
-		}
+		// Check if multiple records are allowed
+		allowMultiple := providers.AllowMultipleRecords(recordCfg.Type, recordCfg.AllowMultiple)
 
-		log.Debug("[poll/docker] Sending DNS entry to Provider: %s.%s (%s) -> %s (TTL: %d, Update: %v)",
-			hostname, domain, recordType, target, ttl, updateExisting)
-
-		// Check for multiple A/AAAA record support in domain config
-		domainCfg, hasDomainCfg := p.domainConfigs[domain]
-		allowMultipleA := hasDomainCfg && domainCfg.RecordTypeAMultiple && recordType == "A"
-		allowMultipleAAAA := hasDomainCfg && domainCfg.RecordTypeAAAAMultiple && recordType == "AAAA"
-		if (allowMultipleA || allowMultipleAAAA) && !updateExisting {
-			log.Error("[poll/docker] Multiple %s records requested for %s.%s but update_existing_record is not enabled. Skipping.", recordType, hostname, domain)
-			continue
-		}
-		if allowMultipleA || allowMultipleAAAA {
-			existingRecords, err := p.dnsProvider.GetRecords(domain, recordType, hostname)
-			if err != nil {
-				log.Warn("[poll/docker] Could not fetch existing %s records for %s.%s: %v", recordType, hostname, domain, err)
-			}
-			alreadyExists := false
-			for _, rec := range existingRecords {
-				if rec.Value == target {
-					alreadyExists = true
-					break
-				}
-			}
-			if alreadyExists {
-				log.Info("[poll/docker] %s record for %s.%s with value %s already exists, skipping.", recordType, hostname, domain, target)
-				continue
-			}
-		}
+		log.Debug("[poll/docker] Sending DNS entry to Provider: %s.%s (%s) -> %s (TTL: %d, Update: %v, AllowMultiple: %v)",
+			hostname, domain, recordCfg.Type, recordCfg.Target, recordCfg.TTL, recordCfg.UpdateExisting, allowMultiple)
 
 		// Check if record exists - but don't log this, let the provider do it
 		recordExists := false
-		recordID, err := p.dnsProvider.GetRecordID(domain, recordType, hostname)
+		recordID, err := p.dnsProvider.GetRecordID(domain, recordCfg.Type, hostname)
 		if err != nil {
 			log.Debug("[poll/docker] Error checking if record exists: %v", err)
 		} else if recordID != "" {
@@ -636,23 +603,23 @@ func (p *DockerProvider) processDNSEntries(containerID string, containerName str
 
 		// If record exists, fetch its current value and compare
 		if recordExists {
-			currentRecord, err := p.dnsProvider.GetRecordValue(domain, recordType, hostname)
+			currentRecord, err := p.dnsProvider.GetRecordValue(domain, recordCfg.Type, hostname)
 			if err != nil {
 				log.Warn("[poll/docker] Could not fetch current value for existing DNS record %s.%s: %v", hostname, domain, err)
 			} else {
 				// Compare current record with intended values
-				if currentRecord != nil && currentRecord.Value == target && currentRecord.TTL == ttl {
-					log.Info("[poll/docker] DNS record %s.%s already set to intended value (target: %s, TTL: %d), skipping update", hostname, domain, target, ttl)
+				if currentRecord != nil && currentRecord.Value == recordCfg.Target && currentRecord.TTL == recordCfg.TTL {
+					log.Info("[poll/docker] DNS record %s.%s already set to intended value (target: %s, TTL: %d), skipping update", hostname, domain, recordCfg.Target, recordCfg.TTL)
 					continue
 				}
 			}
 		}
 
 		// Create or update the DNS record
-		err = p.dnsProvider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, updateExisting)
+		err = p.dnsProvider.CreateOrUpdateRecord(domain, recordCfg.Type, hostname, recordCfg.Target, recordCfg.TTL, recordCfg.UpdateExisting)
 		if err != nil {
 			if recordExists && strings.Contains(err.Error(), "already exists") {
-				if updateExisting {
+				if recordCfg.UpdateExisting {
 					log.Error("[poll/docker] Failed to update existing DNS record for container '%s': %v", containerName, err)
 				} else {
 					log.Debug("[poll/docker] Skipping update for existing DNS record %s.%s", hostname, domain)
@@ -663,10 +630,10 @@ func (p *DockerProvider) processDNSEntries(containerID string, containerName str
 		} else {
 			if recordExists {
 				log.Info("[poll/docker] Successfully updated DNS record %s.%s (%s) -> %s (TTL: %d)",
-					hostname, domain, recordType, target, ttl)
+					hostname, domain, recordCfg.Type, recordCfg.Target, recordCfg.TTL)
 			} else {
 				log.Info("[poll/docker] Successfully created DNS record %s.%s (%s) -> %s (TTL: %d)",
-					hostname, domain, recordType, target, ttl)
+					hostname, domain, recordCfg.Type, recordCfg.Target, recordCfg.TTL)
 			}
 		}
 	}
@@ -1004,22 +971,20 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	}
 
 	// Apply domain-specific subdomain filtering
-	domainCfg, hasDomainCfg := p.domainConfigs[domain]
-	if hasDomainCfg {
-		subdomain := hostname
-		if idx := strings.Index(hostname, "."); idx != -1 {
-			subdomain = hostname[:idx]
+	domainCfg := p.domainConfigs[domain]
+	subdomain := hostname
+	if idx := strings.Index(hostname, "."); idx != -1 {
+		subdomain = hostname[:idx]
+	}
+	if len(domainCfg.IncludeSubdomains) > 0 {
+		if !matchesPattern(subdomain, domainCfg.IncludeSubdomains) {
+			log.Debug("[poll/docker] Skipping subdomain '%s' for domain '%s' (not in include_subdomains)", subdomain, domain)
+			return entries
 		}
-		if len(domainCfg.IncludeSubdomains) > 0 {
-			if !matchesPattern(subdomain, domainCfg.IncludeSubdomains) {
-				log.Debug("[poll/docker] Skipping subdomain '%s' for domain '%s' (not in include_subdomains)", subdomain, domain)
-				return entries
-			}
-		} else if len(domainCfg.ExcludeSubdomains) > 0 {
-			if matchesPattern(subdomain, domainCfg.ExcludeSubdomains) {
-				log.Debug("[poll/docker] Skipping subdomain '%s' for domain '%s' (in exclude_subdomains)", subdomain, domain)
-				return entries
-			}
+	} else if len(domainCfg.ExcludeSubdomains) > 0 {
+		if matchesPattern(subdomain, domainCfg.ExcludeSubdomains) {
+			log.Debug("[poll/docker] Skipping subdomain '%s' for domain '%s' (in exclude_subdomains)", subdomain, domain)
+			return entries
 		}
 	}
 
@@ -1065,19 +1030,19 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	if p.domainConfigs != nil {
 		for _, domainCfg := range p.domainConfigs {
 			if domainCfg.Name == domain {
-				if target == "" && domainCfg.Target != "" {
-					log.Debug("[poll/docker] Using domain config for '%s': value: 'target=%s'", domain, domainCfg.Target)
-					target = domainCfg.Target
+				if target == "" && domainCfg.Record.Target != "" {
+					log.Debug("[poll/docker] Using domain config for '%s': value: 'target=%s'", domain, domainCfg.Record.Target)
+					target = domainCfg.Record.Target
 				}
-				if recordType == "" && domainCfg.RecordType != "" {
-					log.Debug("[poll/docker] Using domain config for '%s': value: 'record_type=%s'", domain, domainCfg.RecordType)
-					recordType = domainCfg.RecordType
+				if recordType == "" && domainCfg.Record.Type != "" {
+					log.Debug("[poll/docker] Using domain config for '%s': value: 'record_type=%s'", domain, domainCfg.Record.Type)
+					recordType = domainCfg.Record.Type
 				}
-				if ttl == 0 && domainCfg.TTL > 0 {
-					log.Debug("[poll/docker] Using domain config for '%s': value: 'ttl=%d'", domain, domainCfg.TTL)
-					ttl = domainCfg.TTL
+				if ttl == 0 && domainCfg.Record.TTL > 0 {
+					log.Debug("[poll/docker] Using domain config for '%s': value: 'ttl=%d'", domain, domainCfg.Record.TTL)
+					ttl = domainCfg.Record.TTL
 				}
-				if !overwrite && domainCfg.RecordUpdateExisting {
+				if !overwrite && domainCfg.Record.UpdateExisting {
 					log.Debug("[poll/docker] Using domain config for '%s': value: 'record_update_existing=true'", domain)
 					overwrite = true
 				}
@@ -1185,7 +1150,7 @@ func (p *DockerProvider) extractDNSEntriesFromService(service swarm.Service) []p
 			dnsEnabled = true
 		} else if explicitValue == "false" || explicitValue == "0" {
 			dnsEnabled = false
-			log.Debug("[poll/docker] Service %s has nfrastack.dns.enable=false label, skipping", serviceName)
+			log.Debug("[poll/docker] Service '%s' has 'nfrastack.dns.enable=false' label, skipping", serviceName)
 			return entries // Return empty entries list
 		}
 	}

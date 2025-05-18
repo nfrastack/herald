@@ -90,77 +90,43 @@
 
             configFile = lib.mkOption {
               type = lib.types.str;
-              default = "/etc/dns-companion.conf";
-              description = "Path to the configuration file for Container DNS Companion.";
+              default = "/etc/dns-companion.yaml";
+              description = "Path to the YAML configuration file for Container DNS Companion.";
             };
 
-            log_level = lib.mkOption {
-              type = lib.types.enum [ "trace" "debug" "info" ];
-              default = null;
-              example = "info";
-              description = "Log level for the application (trace, debug, info).";
+            defaults = lib.mkOption {
+              type = lib.types.attrsOf lib.types.anything;
+              default = {
+                record = {
+                  type = "A";
+                  ttl = 300;
+                  update_existing = true;
+                  allow_multiple = false;
+                };
+              };
+              description = "Default DNS record settings.";
             };
 
-            log_timestamps = lib.mkOption {
-              type = lib.types.nullOr lib.types.bool;
-              default = null;
-              example = true;
-              description = "Enable or disable log timestamps.";
+            general = lib.mkOption {
+              type = lib.types.attrsOf lib.types.anything;
+              default = {
+                log_level = "info";
+                log_timestamps = true;
+                poll_profiles = [ "docker" ];
+              };
+              description = "General application settings.";
             };
 
-            dns_record_type = lib.mkOption {
-              type = lib.types.nullOr lib.types.str;
-              default = null;
-              example = "A";
-              description = "Default DNS record type (e.g., A, AAAA, CNAME).";
-            };
-
-            dns_record_ttl = lib.mkOption {
-              type = lib.types.nullOr lib.types.int;
-              default = null;
-              example = 300;
-              description = "Default DNS record TTL.";
-            };
-
-            dns_record_target = lib.mkOption {
-              type = lib.types.nullOr lib.types.str;
-              default = null;
-              example = "";
-              description = "Default DNS record target.";
-            };
-
-            record_update_existing = lib.mkOption {
-              type = lib.types.nullOr lib.types.bool;
-              default = null;
-              example = true;
-              description = "Whether to update existing DNS records.";
-            };
-
-            record_type_a_multiple = lib.mkOption {
-              type = lib.types.bool;
-              default = false;
-              description = ''
-                Allow multiple A records for this domain (default: false).
-                When enabled, the system will manage multiple A records for the same hostname.
-                Requires record_update_existing = true. Prevents duplicate IPv4 addresses.
-              '';
-            };
-
-            record_type_aaaa_multiple = lib.mkOption {
-              type = lib.types.bool;
-              default = false;
-              description = ''
-                Allow multiple AAAA records for this domain (default: false).
-                When enabled, the system will manage multiple AAAA records for the same hostname.
-                Requires record_update_existing = true. Prevents duplicate IPv6 addresses.
-              '';
-            };
-
-            poll_profiles = lib.mkOption {
-              type = lib.types.nullOr (lib.types.listOf lib.types.str);
-              default = null;
-              example = [ "docker" ];
-              description = "List of poll profiles to use.";
+            providers = lib.mkOption {
+              type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
+              default = {};
+              example = {
+                cloudflare = {
+                  type = "cloudflare";
+                  api_token = "EXAMPLE_TOKEN";
+                };
+              };
+              description = "DNS provider profiles.";
             };
 
             polls = lib.mkOption {
@@ -170,49 +136,24 @@
                 docker = {
                   type = "docker";
                   host = "unix:///var/run/docker.sock";
-                  swarm_mode = false;
-                  docker_tls_verify = false;
-                  docker_cert_path = null;
-                  docker_ca = null;
-                  docker_cert = null;
-                  docker_key = null;
-                  record_remove_on_stop = false;
+                  expose_containers = true;
                   filter_type = "none";
-                  filter_value = null;
+                  process_existing_containers = false;
+                  record_remove_on_stop = true;
+                  tls = {
+                    verify = true;
+                    ca = "/etc/docker/certs/ca.pem";
+                    cert = "/etc/docker/certs/cert.pem";
+                    key = "/etc/docker/certs/key.pem";
+                  };
                 };
                 traefik = {
                   type = "traefik";
                   poll_url = "http://traefik:8080/api/http/routers";
-                  poll_inverval = 60;
+                  poll_interval = 60;
                 };
               };
-              description = ''
-                Poll profiles for service/container discovery. Each attribute key is the poller name, and the value is an attribute set of options for that poller.
-                Example:
-                  polls.docker = { type = "docker"; host = "unix:///var/run/docker.sock"; record_remove_on_stop = false; swarm_mode = false; docker_tls_verify = false; filter_type = "none"; filter_value = null; };
-                  polls.traefik = { type = "traefik"; poll_url = "http://traefik:8080/api/http/routers"; };
-              '';
-            };
-
-            providers = lib.mkOption {
-              type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
-              default = {};
-              example = {
-                cloudflare = {
-                  type = "cloudflare";
-                  api_token = "EXAMPLE_TOKEN"; # This is insecure, you can use file://location_of_file_value_secret
-                };
-                route53 = {
-                  type = "route53";
-                  region = "us-west-2";
-                };
-              };
-              description = ''
-                DNS provider profiles. Each attribute key is the provider name, and the value is an attribute set of options for that provider.
-                Example:
-                  providers.cloudflare = { type = "cloudflare"; api_token = "..."; };
-                  providers.route53 = { type = "route53"; region = "us-west-2"; };
-              '';
+              description = "Poll profiles for service/container discovery. Each key is the poller name, and the value is an attribute set of options for that poller. TLS options for Docker are nested under 'tls'.";
             };
 
             domains = lib.mkOption {
@@ -222,36 +163,29 @@
                 example_com = {
                   name = "example.com";
                   provider = "cloudflare";
-                  ttl = 120;
-                  record_type = "CNAME";
-                  target = "test.example.com";
-                  include_subdomains = "api,internal";
-                  exclude_subdomains = "dev,staging";
+                  zone_id = "your_zone_id_here";
+                  record = {
+                    type = "A";
+                    ttl = 60;
+                    target = "192.0.2.1";
+                    update_existing = true;
+                    allow_multiple = true;
+                  };
+                  include_subdomains = [ ];
+                  exclude_subdomains = [ "dev" "staging" ];
                 };
               };
-              description = ''
-                Domain profiles. Each attribute key is the domain profile name, and the value is an attribute set of options for that domain.
-                Example:
-                  domains.example_com = { name = "example.com"; provider = "cloudflare"; include_subdomains = "api,internal"; exclude_subdomains = "dev,staging"; ... };
-              '';
+              description = "Domain profiles. Each key is the domain profile name, and the value is an attribute set of options for that domain.";
             };
           };
 
           config = lib.mkIf cfg.enable {
             environment.systemPackages = [ cfg.package ];
 
-            # Only write config if user set any global option or has any profiles
+            # Only write config if user set any general option or has any profiles
             system.activationScripts = lib.mkIf (
-              cfg.log_level != null ||
-              cfg.log_timestamps != null ||
-              cfg.poll_profiles != null ||
-              cfg.dns_provider != null ||
-              cfg.dns_record_type != null ||
-              cfg.dns_record_ttl != null ||
-              cfg.dns_record_target != null ||
-              cfg.record_update_existing != null ||
-              cfg.record_type_a_multiple != null ||
-              cfg.record_type_aaaa_multiple != null ||
+              cfg.general != {} ||
+              cfg.defaults != {} ||
               cfg.providers != {} ||
               cfg.polls != {} ||
               cfg.domains != {}
@@ -259,50 +193,15 @@
               container-dns-companion-config = {
                 text =
                   let
-                    globalOpts = lib.filterAttrs (k: v: v != null) {
-                      log_level = cfg.log_level;
-                      log_timestamps = cfg.log_timestamps;
-                      poll_profiles = cfg.poll_profiles;
-                      dns_provider = cfg.dns_provider;
-                      dns_record_type = cfg.dns_record_type;
-                      dns_record_ttl = cfg.dns_record_ttl;
-                      dns_record_target = cfg.dns_record_target;
-                      record_update_existing = cfg.record_update_existing;
-                      record_type_a_multiple = cfg.record_type_a_multiple;
-                      record_type_aaaa_multiple = cfg.record_type_aaaa_multiple;
+                    yaml = pkgs.formats.yaml { };
+                    configData = {
+                      defaults = cfg.defaults;
+                      general = cfg.general;
+                      providers = cfg.providers;
+                      polls = cfg.polls;
+                      domains = cfg.domains;
                     };
-                    toConfValue = v:
-                      if builtins.isList v then
-                        "[" + (lib.concatStringsSep ", " (map (x: toConfValue x) v)) + "]"
-                      else if builtins.isBool v then
-                        (if v then "true" else "false")
-                      else if builtins.isInt v then
-                        builtins.toString v
-                      else
-                        "\"${builtins.toString v}\"";
-                    renderSection = name: attrs:
-                      if attrs == {} then ""
-                      else
-                        "[${name}]\n" +
-                        (lib.concatStringsSep "\n" (
-                          lib.mapAttrsToList (k: v: "${k} = ${toConfValue v}") attrs
-                        )) + "\n";
-                    globalSection = renderSection "global" globalOpts;
-                    providerSections = lib.concatStringsSep "\n" (
-                      lib.mapAttrsToList (name: opts: renderSection "provider.${name}" opts) cfg.providers
-                    );
-                    pollSections = lib.concatStringsSep "\n" (
-                      lib.mapAttrsToList (name: opts: renderSection "poll.${name}" opts) cfg.polls
-                    );
-                    domainSections = lib.concatStringsSep "\n" (
-                      lib.mapAttrsToList (name: opts: renderSection "domain.${name}" opts) cfg.domains
-                    );
-                    configText = lib.concatStringsSep "\n" [
-                      globalSection
-                      providerSections
-                      pollSections
-                      domainSections
-                    ];
+                    configText = builtins.readFile (yaml.generate "dns-companion.yaml" configData);
                   in
                     ''
                       if [ ! -e "${getDir cfg.configFile}" ]; then
@@ -323,21 +222,7 @@
               serviceConfig = {
                 ExecStart =
                   let
-                    needsConfigFile =
-                      cfg.log_level != null ||
-                      cfg.log_timestamps != null ||
-                      cfg.poll_profiles != null ||
-                      cfg.dns_provider != null ||
-                      cfg.dns_record_type != null ||
-                      cfg.dns_record_ttl != null ||
-                      cfg.dns_record_target != null ||
-                      cfg.record_update_existing != null ||
-                      cfg.record_type_a_multiple != null ||
-                      cfg.record_type_aaaa_multiple != null ||
-                      cfg.providers != {} ||
-                      cfg.polls != {} ||
-                      cfg.domains != {};
-                    configFileArg = if needsConfigFile then "-config ${cfg.configFile}" else "";
+                    configFileArg = "-config ${cfg.configFile}";
                     args = lib.strings.concatStringsSep " " (lib.lists.filter (s: s != "") [
                       "${cfg.package}/bin/container-dns-companion"
                       configFileArg

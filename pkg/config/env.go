@@ -69,9 +69,9 @@ func LoadFromEnvironment(cfg *ConfigFile) {
 			logTimestamps = true
 		}
 	} else {
-		logTimestamps = cfg.Global.LogTimestamps
+		logTimestamps = cfg.General.LogTimestamps
 	}
-	cfg.Global.LogTimestamps = logTimestamps
+	cfg.General.LogTimestamps = logTimestamps
 
 	// Process poll environment variables
 	processPollsFromEnv(cfg)
@@ -322,17 +322,17 @@ func setLogLevelFromEnv(cfg *ConfigFile) {
 		// Logger will be initialized later with the final value
 		switch upperLevel {
 		case "DEBUG":
-			cfg.Global.LogLevel = "debug"
+			cfg.General.LogLevel = "debug"
 		case "INFO":
-			cfg.Global.LogLevel = "info"
+			cfg.General.LogLevel = "info"
 		case "WARN", "WARNING":
-			cfg.Global.LogLevel = "warn"
+			cfg.General.LogLevel = "warn"
 		case "ERROR":
-			cfg.Global.LogLevel = "error"
+			cfg.General.LogLevel = "error"
 		default:
 			log.Warn("[config/env] Unknown log level '%s', using current level", level)
 		}
-		log.Debug("[config/env] Set log level to '%s' from environment", cfg.Global.LogLevel)
+		log.Debug("[config/env] Set log level to '%s' from environment", cfg.General.LogLevel)
 	}
 }
 
@@ -380,9 +380,6 @@ func setDomainSettingsFromEnv(cfg *ConfigFile) {
 		// Save the domain config
 		cfg.Domain[configKey] = domainCfg
 	}
-
-	// Process global domain settings if available
-	processDNSDefaultSettingsFromEnv(cfg)
 }
 
 // setNamedDomainConfigFromEnv configures a specific domain from environment variables using named format
@@ -404,7 +401,7 @@ func setNamedDomainConfigFromEnv(domainKey, domainName, configKey string, domain
 	// TTL
 	if ttlStr := GetEnvVar(prefix+"TTL", ""); ttlStr != "" {
 		if ttl, err := strconv.Atoi(ttlStr); err == nil {
-			domainCfg.TTL = ttl
+			domainCfg.Record.TTL = ttl
 			log.Debug("[config/env] Set TTL for domain '%s' to %d", domainName, ttl)
 		} else {
 			log.Warn("[config/env] Invalid TTL value '%s' for domain '%s'", ttlStr, domainName)
@@ -413,13 +410,13 @@ func setNamedDomainConfigFromEnv(domainKey, domainName, configKey string, domain
 
 	// Target domain
 	if target := GetEnvVar(prefix+"TARGET", ""); target != "" {
-		domainCfg.Target = target
+		domainCfg.Record.Target = target
 		log.Debug("[config/env] Set target for domain '%s' to '%s'", domainName, target)
 	}
 
 	// Record type
 	if recordType := GetEnvVar(prefix+"RECORD_TYPE", ""); recordType != "" {
-		domainCfg.RecordType = recordType
+		domainCfg.Record.Type = recordType
 		log.Debug("[config/env] Set record type for domain '%s' to '%s'", domainName, recordType)
 	}
 
@@ -433,9 +430,9 @@ func setNamedDomainConfigFromEnv(domainKey, domainName, configKey string, domain
 	}
 
 	// Update existing records
-	if updateStr := GetEnvVar(prefix+"RECORD_UPDATE_EXISTING", ""); updateStr != "" {
-		domainCfg.RecordUpdateExisting = EnvToBool(prefix+"RECORD_UPDATE_EXISTING", domainCfg.RecordUpdateExisting)
-		log.Debug("[config/env] Set record update existing for domain '%s' to %v", domainName, domainCfg.RecordUpdateExisting)
+	if updateStr := GetEnvVar(prefix+"UPDATE_EXISTING", ""); updateStr != "" {
+		domainCfg.Record.UpdateExisting = EnvToBool(prefix+"UPDATE_EXISTING", domainCfg.Record.UpdateExisting)
+		log.Debug("[config/env] Set record update existing for domain '%s' to %v", domainName, domainCfg.Record.UpdateExisting)
 	}
 
 	// Excluded subdomains - Add to Options map since ExcludedSubdomains field doesn't exist
@@ -449,14 +446,17 @@ func setNamedDomainConfigFromEnv(domainKey, domainName, configKey string, domain
 
 	// RecordTypeAMultiple
 	if v := GetEnvVar(prefix+"RECORD_TYPE_A_MULTIPLE", ""); v != "" {
-		domainCfg.RecordTypeAMultiple = EnvToBool(prefix+"RECORD_TYPE_A_MULTIPLE", false)
-		log.Debug("[config/env] Set record type A multiple for domain '%s' to %v", domainName, domainCfg.RecordTypeAMultiple)
+		domainCfg.Record.AllowMultiple = EnvToBool(prefix+"RECORD_TYPE_A_MULTIPLE", false)
+		log.Debug("[config/env] Set record type A multiple for domain '%s' to %v", domainName, domainCfg.Record.AllowMultiple)
 	}
 
-	// RecordTypeAAAAMultiple
+	// RecordTypeAAAAMultiple (not directly supported in struct, but can be added to Options if needed)
 	if v := GetEnvVar(prefix+"RECORD_TYPE_AAAA_MULTIPLE", ""); v != "" {
-		domainCfg.RecordTypeAAAAMultiple = EnvToBool(prefix+"RECORD_TYPE_AAAA_MULTIPLE", false)
-		log.Debug("[config/env] Set record type AAAA multiple for domain '%s' to %v", domainName, domainCfg.RecordTypeAAAAMultiple)
+		if domainCfg.Options == nil {
+			domainCfg.Options = make(map[string]string)
+		}
+		domainCfg.Options["record_type_aaaa_multiple"] = v
+		log.Debug("[config/env] Set record type AAAA multiple for domain '%s' to %v", domainName, v)
 	}
 
 	// Process any options with prefix DOMAIN_<NAME>_OPTION_
@@ -474,37 +474,6 @@ func setNamedDomainConfigFromEnv(domainKey, domainName, configKey string, domain
 				log.Debug("[config/env] Set custom option '%s' for domain '%s' to '%s'", optionName, domainName, value)
 			}
 		}
-	}
-}
-
-// processDNSDefaultSettingsFromEnv processes global DNS settings
-func processDNSDefaultSettingsFromEnv(cfg *ConfigFile) {
-	// Default TTL
-	if ttlStr := GetEnvVar("GLOBAL_TTL", ""); ttlStr != "" {
-		if ttl, err := strconv.Atoi(ttlStr); err == nil {
-			cfg.Global.DNSRecordTTL = ttl
-			log.Debug("[config/env] Set default TTL to %d", ttl)
-		} else {
-			log.Warn("[config/env] Invalid default TTL value '%s'", ttlStr)
-		}
-	}
-
-	// Default record type
-	if recordType := GetEnvVar("GLOBAL_RECORD_TYPE", ""); recordType != "" {
-		cfg.Global.DNSRecordType = recordType
-		log.Debug("[config/env] Set default record type to '%s'", recordType)
-	}
-
-	// Default target
-	if target := GetEnvVar("GLOBAL_TARGET", ""); target != "" {
-		cfg.Global.DNSRecordTarget = target
-		log.Debug("[config/env] Set default target to '%s'", target)
-	}
-
-	// Default update existing record setting
-	if updateStr := GetEnvVar("GLOBAL_UPDATE_EXISTING", ""); updateStr != "" {
-		cfg.Global.UpdateExistingRecord = EnvToBool("GLOBAL_UPDATE_EXISTING", cfg.Global.UpdateExistingRecord)
-		log.Debug("[config/env] Set global update existing record to %v", cfg.Global.UpdateExistingRecord)
 	}
 }
 
@@ -546,23 +515,23 @@ func ApplyConfigToEnv(cfg *ConfigFile, prefix string) {
 	}
 
 	// Set up basic global settings as environment variables
-	if cfg.Global.LogLevel != "" {
-		setIfPresent("LOG_LEVEL", cfg.Global.LogLevel)
+	if cfg.General.LogLevel != "" {
+		setIfPresent("LOG_LEVEL", cfg.General.LogLevel)
 	}
 
-	if cfg.Global.DNSRecordType != "" {
-		setIfPresent("GLOBAL_RECORD_TYPE", cfg.Global.DNSRecordType)
+	if cfg.Defaults.Record.Type != "" {
+		setIfPresent("GLOBAL_RECORD_TYPE", cfg.Defaults.Record.Type)
 	}
 
-	if cfg.Global.DNSRecordTarget != "" {
-		setIfPresent("GLOBAL_TARGET", cfg.Global.DNSRecordTarget)
+	if cfg.Defaults.Record.Target != "" {
+		setIfPresent("GLOBAL_TARGET", cfg.Defaults.Record.Target)
 	}
 
-	if cfg.Global.DNSRecordTTL > 0 {
-		setIfPresent("GLOBAL_TTL", strconv.Itoa(cfg.Global.DNSRecordTTL))
+	if cfg.Defaults.Record.TTL > 0 {
+		setIfPresent("GLOBAL_TTL", strconv.Itoa(cfg.Defaults.Record.TTL))
 	}
 
-	setIfPresent("GLOBAL_UPDATE_EXISTING", strconv.FormatBool(cfg.Global.UpdateExistingRecord))
+	setIfPresent("GLOBAL_UPDATE_EXISTING", strconv.FormatBool(cfg.Defaults.Record.UpdateExisting))
 
 	for providerName, provider := range cfg.Provider {
 		prefix := fmt.Sprintf("PROVIDER_%s_", strings.ToUpper(providerName))
@@ -713,10 +682,10 @@ func GetEnvVarInt(key string, defaultValue int) int {
 
 // ApplyLoggingConfig initializes the logger using the effective log level and log_timestamps from config
 func ApplyLoggingConfig(cfg *ConfigFile) {
-	level := cfg.Global.LogLevel
+	level := cfg.General.LogLevel
 	if level == "" {
 		level = "info"
 	}
-	showTimestamps := cfg.Global.LogTimestamps
+	showTimestamps := cfg.General.LogTimestamps
 	log.Initialize(level, showTimestamps)
 }

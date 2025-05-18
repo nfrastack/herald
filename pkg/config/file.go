@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	"gopkg.in/yaml.v3"
 )
 
 // SecretRegex matches environment variable references like ${ENV_VAR}
@@ -21,65 +21,79 @@ var SecretRegex = regexp.MustCompile(`\${([^}]+)}`)
 
 // ConfigFile represents the structure of the configuration file
 type ConfigFile struct {
-	Global   GlobalConfig              `toml:"global"`
-	Provider map[string]ProviderConfig `toml:"provider"`
-	Poll     map[string]ProviderConfig `toml:"poll"`
-	Domain   map[string]DomainConfig   `toml:"domain"`
-	Profile  map[string]ProfileConfig  `toml:"profile"`
+	General  GeneralConfig             `yaml:"general"`
+	Defaults DefaultsConfig            `yaml:"defaults"`
+	Provider map[string]ProviderConfig `yaml:"provider"`
+	Poll     map[string]ProviderConfig `yaml:"poll"`
+	Domain   map[string]DomainConfig   `yaml:"domain"`
+	Profile  map[string]ProfileConfig  `yaml:"profile"`
 }
 
-// GlobalConfig represents global configuration settings
-type GlobalConfig struct {
-	LogLevel             string   `toml:"log_level"`
-	LogTimestamps        bool     `toml:"log_timestamps"`
-	LogType              string   `toml:"log_type"`
-	LogPath              string   `toml:"log_path"`
-	DNSProvider          string   `toml:"dns_provider"`
-	PollProfiles         []string `toml:"poll_profiles"`
-	DNSRecordType        string   `toml:"dns_record_type"`
-	DNSRecordTTL         int      `toml:"dns_record_ttl"`
-	DNSRecordTarget      string   `toml:"dns_record_target"`
-	UpdateExistingRecord bool     `toml:"update_existing_record"`
+// DefaultsConfig holds default DNS record settings
+type DefaultsConfig struct {
+	Record DefaultsRecordConfig `yaml:"record"`
+}
+
+type DefaultsRecordConfig struct {
+	Type           string `yaml:"type"`
+	TTL            int    `yaml:"ttl"`
+	Target         string `yaml:"target"`
+	UpdateExisting bool   `yaml:"update_existing"`
+	AllowMultiple  bool   `yaml:"allow_multiple"`
+}
+
+// GeneralConfig represents general configuration settings
+type GeneralConfig struct {
+	LogLevel      string   `yaml:"log_level"`
+	LogTimestamps bool     `yaml:"log_timestamps"`
+	LogType       string   `yaml:"log_type"`
+	LogPath       string   `yaml:"log_path"`
+	DNSProvider   string   `yaml:"dns_provider"`
+	PollProfiles  []string `yaml:"poll_profiles"`
 	// Additional options as a map
-	Options map[string]interface{} `toml:"options"`
+	Options map[string]interface{} `yaml:"options"`
 }
 
 // ProviderConfig represents configuration for a provider
 type ProviderConfig struct {
-	Type             string            `toml:"type"`
-	APIToken         string            `toml:"api_token"`
-	APIKey           string            `toml:"api_key"`
-	APIEmail         string            `toml:"api_email"`
-	DefaultTTL       int               `toml:"default_ttl"`
-	ExposeContainers bool              `toml:"expose_containers"`
-	Options          map[string]string `toml:"options"`
+	Type             string            `yaml:"type"`
+	APIToken         string            `yaml:"api_token"`
+	APIKey           string            `yaml:"api_key"`
+	APIEmail         string            `yaml:"api_email"`
+	DefaultTTL       int               `yaml:"default_ttl"`
+	ExposeContainers bool              `yaml:"expose_containers"`
+	Options          map[string]string `yaml:"options"`
 }
 
 // DomainConfig represents the configuration for a domain
+// For YAML: use a list (dash format)
 type DomainConfig struct {
-	Name                   string            `toml:"name"`
-	Provider               string            `toml:"provider"`
-	ZoneID                 string            `toml:"zone_id"`
-	TTL                    int               `toml:"ttl"`
-	RecordType             string            `toml:"record_type"`
-	Target                 string            `toml:"target"`
-	RecordUpdateExisting   bool              `toml:"record_update_existing"`
-	Options                map[string]string `toml:"options"`
-	RecordTypeAMultiple    bool              `toml:"record_type_a_multiple"`
-	RecordTypeAAAAMultiple bool              `toml:"record_type_aaaa_multiple"`
-	ExcludeSubdomains      []string          `toml:"exclude_subdomains"`
-	IncludeSubdomains      []string          `toml:"include_subdomains"`
+	Name              string             `yaml:"name"`
+	Provider          string             `yaml:"provider"`
+	ZoneID            string             `yaml:"zone_id"`
+	Record            DomainRecordConfig `yaml:"record"`
+	Options           map[string]string  `yaml:"options"`
+	ExcludeSubdomains []string           `yaml:"exclude_subdomains"`
+	IncludeSubdomains []string           `yaml:"include_subdomains"`
+}
+
+type DomainRecordConfig struct {
+	Type           string `yaml:"type"`
+	TTL            int    `yaml:"ttl"`
+	Target         string `yaml:"target"`
+	UpdateExisting bool   `yaml:"update_existing"`
+	AllowMultiple  bool   `yaml:"allow_multiple"`
 }
 
 // ProfileConfig represents a configuration profile
 type ProfileConfig struct {
-	LogLevel      string   `toml:"log_level"`
-	LogTimestamps bool     `toml:"log_timestamps"`
-	LogType       string   `toml:"log_type"`
-	LogPath       string   `toml:"log_path"`
-	DryRun        bool     `toml:"dry_run"`
-	PollProfiles  []string `toml:"poll_profiles"`
-	Domains       []string `toml:"domains"`
+	LogLevel      string   `yaml:"log_level"`
+	LogTimestamps bool     `yaml:"log_timestamps"`
+	LogType       string   `yaml:"log_type"`
+	LogPath       string   `yaml:"log_path"`
+	DryRun        bool     `yaml:"dry_run"`
+	PollProfiles  []string `yaml:"poll_profiles"`
+	Domains       []string `yaml:"domains"`
 }
 
 // GetOptions returns the options map as strings for the provider
@@ -113,38 +127,42 @@ func (pc *ProviderConfig) setProviderOptions() map[string]string {
 	return options
 }
 
-// LoadConfigFile loads the configuration from a TOML file
+// LoadConfigFile loads the configuration from a YAML file (any extension)
 func LoadConfigFile(path string) (*ConfigFile, error) {
 	log.Debug("[config/file] Loading configuration from %s", path)
 
 	var cfg ConfigFile
 
-	// 1. Load config file
-	_, err := toml.DecodeFile(path, &cfg)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("[config/file] failed to decode TOML file: %w", err)
+		return nil, fmt.Errorf("[config/file] failed to read config file: %w", err)
+	}
+	err = yaml.Unmarshal(data, &cfg)
+	if err != nil {
+		return nil, fmt.Errorf("[config/file] failed to decode YAML: %w", err)
 	}
 
 	// 2. Load environment variable configuration (overrides config file)
 	LoadFromEnvironment(&cfg)
 
 	// 3. Set application-level defaults ONLY if still unset after config and env
-	if cfg.Global.LogLevel == "" {
-		cfg.Global.LogLevel = "info"
+	if cfg.General.LogLevel == "" {
+		cfg.General.LogLevel = "info"
 	}
 	// Only set to true if still unset (default bool is false, so check for explicit false)
 	if os.Getenv("LOG_TIMESTAMPS") == "" && !fieldSetInConfigFile(path, "log_timestamps") {
-		cfg.Global.LogTimestamps = true
+		cfg.General.LogTimestamps = true
 	}
-	if cfg.Global.LogType == "" {
-		cfg.Global.LogType = "console"
+	if cfg.General.LogType == "" {
+		cfg.General.LogType = "console"
 	}
-	if cfg.Global.DNSRecordTTL == 0 {
-		cfg.Global.DNSRecordTTL = 3600
+
+	if cfg.Defaults.Record.TTL == 0 {
+		cfg.Defaults.Record.TTL = 3600
 	}
 	// Only set to false if still unset (default bool is false, so check for explicit false)
 	if os.Getenv("UPDATE_EXISTING_RECORD") == "" && !fieldSetInConfigFile(path, "update_existing_record") {
-		cfg.Global.UpdateExistingRecord = false
+		cfg.Defaults.Record.UpdateExisting = false
 	}
 
 	// Provider logic: if only one provider, assign it to domains without provider
@@ -164,23 +182,23 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 
 	// Smart logic for domain record_type based on target (domain-level only)
 	for name, domainCfg := range cfg.Domain {
-		if domainCfg.RecordType == "" && domainCfg.Target != "" {
-			if isIPAddress(domainCfg.Target) {
-				domainCfg.RecordType = "A"
+		if domainCfg.Record.Type == "" && domainCfg.Record.Target != "" {
+			if isIPAddress(domainCfg.Record.Target) {
+				domainCfg.Record.Type = "A"
 			} else {
-				domainCfg.RecordType = "CNAME"
+				domainCfg.Record.Type = "CNAME"
 			}
 			cfg.Domain[name] = domainCfg
 		}
 	}
 
 	// If poll_profiles is not set, use all defined poll profiles
-	if len(cfg.Global.PollProfiles) == 0 && len(cfg.Poll) > 0 {
+	if len(cfg.General.PollProfiles) == 0 && len(cfg.Poll) > 0 {
 		profiles := make([]string, 0, len(cfg.Poll))
 		for k := range cfg.Poll {
 			profiles = append(profiles, k)
 		}
-		cfg.Global.PollProfiles = profiles
+		cfg.General.PollProfiles = profiles
 	}
 
 	// Parse exclude_subdomains and include_subdomains as comma-separated lists

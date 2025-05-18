@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Default configuration paths to check
@@ -99,17 +101,47 @@ func fileExists(path string) bool {
 
 // LoadConfig loads the configuration from a file
 func LoadConfig(configPath string) (*ConfigFile, error) {
-	// If no path provided, try to find a config file
-	if configPath == "" {
-		var err error
-		configPath, err = FindConfigFile("")
-		if err != nil {
-			return nil, err
+	candidateFiles := []string{}
+	if configPath != "" {
+		candidateFiles = append(candidateFiles, configPath)
+	} else {
+		candidateFiles = append(candidateFiles,
+			"./dns-companion.conf",
+			"./dns-companion.yaml",
+			"./dns-companion.yml",
+			"/etc/dns-companion.conf",
+			"/etc/dns-companion.yaml",
+			"/etc/dns-companion.yml",
+		)
+	}
+	var lastErr error
+	for _, file := range candidateFiles {
+		if _, err := os.Stat(file); err == nil {
+			cfg, err := loadYAMLConfig(file)
+			if err == nil {
+				return cfg, nil
+			}
+			lastErr = err
 		}
 	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("[config/file] failed to load config: %w", lastErr)
+	}
+	return nil, fmt.Errorf("[config/file] no config file found in candidates: %v", candidateFiles)
+}
 
-	// Load the configuration file
-	return LoadConfigFile(configPath)
+func loadYAMLConfig(path string) (*ConfigFile, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	var cfg ConfigFile
+	decoder := yaml.NewDecoder(file)
+	if err := decoder.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("[config/file] failed to parse YAML: %w", err)
+	}
+	return &cfg, nil
 }
 
 // GetConfig retrieves a configuration key, handling file references

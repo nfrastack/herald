@@ -102,15 +102,15 @@ func main() {
 	fmt.Println()
 
 	// After loading config, update logger level and timestamps
-	log.GetLogger().SetLevel(cfg.Global.LogLevel)
-	log.GetLogger().SetShowTimestamps(cfg.Global.LogTimestamps)
+	log.GetLogger().SetLevel(cfg.General.LogLevel)
+	log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
 
 	log.Trace("Built: %s", BuildTime)
 	log.Info("[config] Using config file: %s", configFilePath)
 
 	// Apply logging configuration
 	config.ApplyLoggingConfig(cfg)
-	log.Debug("[config] Logger configured with level: %s", cfg.Global.LogLevel)
+	log.Debug("[config] Logger configured with level: %s", cfg.General.LogLevel)
 
 	// Apply configuration to environment variables
 	config.ApplyConfigToEnv(cfg, "")
@@ -177,12 +177,12 @@ func main() {
 		domainMap["name"] = domainCfg.Name
 		domainMap["provider"] = domainCfg.Provider
 		domainMap["zone_id"] = domainCfg.ZoneID
-		if domainCfg.TTL > 0 {
-			domainMap["ttl"] = fmt.Sprintf("%d", domainCfg.TTL)
+		if domainCfg.Record.TTL > 0 {
+			domainMap["ttl"] = fmt.Sprintf("%d", domainCfg.Record.TTL)
 		}
-		domainMap["record_type"] = domainCfg.RecordType
-		domainMap["target"] = domainCfg.Target
-		domainMap["update_existing_record"] = fmt.Sprintf("%t", domainCfg.RecordUpdateExisting)
+		domainMap["record_type"] = domainCfg.Record.Type
+		domainMap["target"] = domainCfg.Record.Target
+		domainMap["update_existing_record"] = fmt.Sprintf("%t", domainCfg.Record.UpdateExisting)
 
 		// Add additional options
 		for k, v := range domainCfg.Options {
@@ -200,7 +200,7 @@ func main() {
 	config.SetDomainConfigs(domainConfigs)
 
 	// Get poll profiles from config
-	pollProfiles := cfg.Global.PollProfiles
+	pollProfiles := cfg.General.PollProfiles
 	if len(pollProfiles) == 0 {
 		log.Fatal("[poll] No poll profiles specified in configuration")
 	}
