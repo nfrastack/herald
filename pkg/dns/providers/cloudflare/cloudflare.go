@@ -30,6 +30,7 @@ type Provider struct {
 	config     map[string]string
 	zoneID     string
 	defaultTTL int
+	DryRun     bool // Add DryRun field
 }
 
 // NewProvider creates a new Cloudflare DNS provider
@@ -37,6 +38,11 @@ func NewProvider(config map[string]string) (dns.Provider, error) {
 	p := &Provider{
 		config: config,
 		zoneID: config["zone_id"],
+	}
+
+	// Set DryRun if present in config
+	if v, ok := config["dry_run"]; ok && (v == "true" || v == "1") {
+		p.DryRun = true
 	}
 
 	// Log available configuration keys for debugging
@@ -138,6 +144,11 @@ func (p *Provider) getZoneID(domain string) (string, error) {
 
 // CreateOrUpdateRecord creates or updates a DNS record
 func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostname string, target string, ttl int, overwrite bool) error {
+	if p.DryRun {
+		log.Info("[provider/cloudflare] [dry-run] Would create or update DNS record: %s.%s (%s) -> %s (TTL: %d, Overwrite: %v)", hostname, domain, recordType, target, ttl, overwrite)
+		return nil
+	}
+
 	// Initialize API if needed
 	if err := p.lazyInitAPI(); err != nil {
 		return err
@@ -283,6 +294,11 @@ func (p *Provider) GetRecordID(domain string, recordType string, hostname string
 
 // DeleteRecord deletes a DNS record
 func (p *Provider) DeleteRecord(domain string, recordType string, hostname string) error {
+	if p.DryRun {
+		log.Info("[provider/cloudflare] [dry-run] Would delete DNS record: %s.%s (%s)", hostname, domain, recordType)
+		return nil
+	}
+
 	// Initialize API if needed
 	if err := p.lazyInitAPI(); err != nil {
 		return err

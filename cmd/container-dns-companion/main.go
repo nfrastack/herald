@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -51,6 +52,8 @@ func IsRunningUnderSystemd() (system, user bool) {
 var (
 	configFilePath = flag.String("config", "", "Path to configuration file")
 	showVersion    = flag.Bool("version", false, "Show version and exit")
+	logLevelFlag   = flag.String("log-level", "", "Set log level (overrides config/env)")
+	dryRunFlag     = flag.Bool("dry-run", false, "Simulate DNS record changes without applying them")
 )
 
 func main() {
@@ -62,8 +65,18 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Load DRY_RUN and LOG_LEVEL from env if not set by flag
+	dryRun := *dryRunFlag || strings.ToLower(os.Getenv("DRY_RUN")) == "true"
+	logLevel := *logLevelFlag
+	if logLevel == "" {
+		logLevel = os.Getenv("LOG_LEVEL")
+	}
+	if logLevel == "" {
+		logLevel = "info"
+	}
+
 	// Initialize logger early to avoid singleton lock-in at wrong level
-	log.Initialize("info", true)
+	log.Initialize(logLevel, true)
 
 	// Determine the config file path
 	configFile := "container-dns-companion.yml"
@@ -83,6 +96,12 @@ func main() {
 		fmt.Printf("[config] Failed to load configuration: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Override config with env and flags
+	if logLevel != "" {
+		cfg.General.LogLevel = logLevel
+	}
+	cfg.General.DryRun = dryRun
 
 	system, user := IsRunningUnderSystemd()
 	if !system && !user {

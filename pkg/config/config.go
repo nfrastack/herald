@@ -24,6 +24,7 @@ type GeneralConfig struct {
 	LogTimestamps bool     `yaml:"log_timestamps"`
 	LogType       string   `yaml:"log_type"`
 	PollProfiles  []string `yaml:"poll_profiles"`
+	DryRun        bool     `yaml:"dry_run"`
 }
 
 type DefaultsConfig struct {
