@@ -204,15 +204,11 @@
               let
                 yaml = pkgs.formats.yaml { };
                 configData =
-                  let
-                    base = {};
-                    withGeneral = if cfg.general != {} then base // { general = cfg.general; } else base;
-                    withDefaults = if cfg.defaults != {} then withGeneral // { defaults = cfg.defaults; } else withGeneral;
-                    withPolls = if cfg.polls != {} then withDefaults // { polls = reorderSection cfg.polls; } else withDefaults;
-                    withProviders = if cfg.providers != {} then withPolls // { providers = reorderSection cfg.providers; } else withPolls;
-                    withDomains = if cfg.domains != {} then withProviders // { domains = cfg.domains; } else withProviders;
-                  in
-                    withDomains;
+                  (if cfg.general != {} then { general = cfg.general; } else {})
+                  // (if cfg.defaults != {} then { defaults = cfg.defaults; } else {})
+                  // (if cfg.polls != {} then { polls = reorderSection cfg.polls; } else {})
+                  // (if cfg.providers != {} then { providers = reorderSection cfg.providers; } else {})
+                  // (if cfg.domains != {} then { domains = cfg.domains; } else {});
               in yaml.generate "container-dns-companion.yml" configData;
 
             systemd.services.container-dns-companion = lib.mkIf cfg.service.enable {
