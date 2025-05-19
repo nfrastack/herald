@@ -899,7 +899,7 @@ func matchesPattern(subdomain string, patterns []string) bool {
 
 // extractDNSEntriesFromContainer extracts DNS entries from a Docker container
 func (p *DockerProvider) extractDNSEntriesFromContainer(container types.ContainerJSON) []poll.DNSEntry {
-	log.Debug("[poll/docker] domainConfigs map at entry: %v", p.domainConfigs)
+	log.Trace("[poll/docker] domainConfigs map at entry: %v", p.domainConfigs)
 
 	var entries []poll.DNSEntry
 	containerName := getContainerName(container)
