@@ -36,11 +36,16 @@
               ];
             };
 
-            ldflags = [
-              "-s"
-              "-w"
-              "-X main.Version=${version}"
-            ];
+            preBuild = ''
+              export BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            '';
+
+           ldflags = [
+             "-s"
+             "-w"
+             "-X main.Version=${version}"
+             "-X main.BuildTime=$BUILD_DATE"
+           ];
 
             vendorHash = "sha256-nN0lt1FLx4KeRKlAEzIDv5ejcQWaIcu/myOtaGwtj0I=";
           };
