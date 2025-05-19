@@ -129,6 +129,7 @@
               example = {
                 log_level = "info";
                 log_timestamps = true;
+                dry_run = false;
                 poll_profiles = [ "docker" ];
               };
               description = "General application settings.";
