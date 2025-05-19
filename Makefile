@@ -3,12 +3,13 @@ BUILD_DIR := ./cmd/container-dns-companion
 GO := go
 LDFLAGS := "-s -w"
 VERSION := $(shell git describe --tags --exact-match 2>/dev/null || git describe --always --dirty || echo "dev")
-BUILD_FLAGS := "-X main.Version=$(VERSION)"
+BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILD_FLAGS := "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
 
 all: build
 
 build:
-	$(GO) build -ldflags "-X main.Version=$(VERSION)" -o $(BINARY_NAME) $(BUILD_DIR)
+	$(GO) build -ldflags $(BUILD_FLAGS) -o $(BINARY_NAME) $(BUILD_DIR)
 
 build-release:
 	$(GO) build -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME) $(BUILD_DIR)
