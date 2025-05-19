@@ -74,6 +74,13 @@
               components = builtins.match "(.*)/.*" path;
             in
               if components == null then "." else builtins.head components;
+
+          # Helper to reorder 'type' to the top of each profile
+          reorderTypeFirst = profileAttrs: (
+            if profileAttrs ? type then { type = profileAttrs.type; } // (builtins.removeAttrs profileAttrs ["type"]) else profileAttrs
+          );
+
+          reorderSection = section: builtins.mapAttrs (_: reorderTypeFirst) section;
         in {
           options.services.container-dns-companion = {
             enable = lib.mkEnableOption {
@@ -95,7 +102,7 @@
 
             configFile = lib.mkOption {
               type = lib.types.str;
-              default = "/etc/dns-companion.yaml";
+              default = "container-dns-companion.yml";
               description = "Path to the YAML configuration file for Container DNS Companion.";
             };
 
@@ -115,7 +122,10 @@
 
             general = lib.mkOption {
               type = lib.types.attrsOf lib.types.anything;
-              default = {};
+              default = {
+                log_level = "info";
+                log_timestamps = false;
+              };
               example = {
                 log_level = "info";
                 log_timestamps = true;
@@ -189,39 +199,21 @@
           config = lib.mkIf cfg.enable {
             environment.systemPackages = [ cfg.package ];
 
-            # Only write config if user set any general option or has any profiles
-            system.activationScripts = lib.mkIf (
-              cfg.general != {} ||
-              cfg.defaults != {} ||
-              cfg.providers != {} ||
-              cfg.polls != {} ||
-              cfg.domains != {}
-            ) {
-              container-dns-companion-config = {
-                text =
+            # Generate the config file in the Nix store and link it to the user-specified configFile path under /etc
+            environment.etc."${lib.removePrefix "/etc/" cfg.configFile}".source =
+              let
+                yaml = pkgs.formats.yaml { };
+                configData =
                   let
-                    yaml = pkgs.formats.yaml { };
-                    configData = {
-                      defaults = cfg.defaults;
-                      general = cfg.general;
-                      providers = cfg.providers;
-                      polls = cfg.polls;
-                      domains = cfg.domains;
-                    };
-                    configText = builtins.readFile (yaml.generate "dns-companion.yaml" configData);
+                    base = {};
+                    withGeneral = if cfg.general != {} then base // { general = cfg.general; } else base;
+                    withDefaults = if cfg.defaults != {} then withGeneral // { defaults = cfg.defaults; } else withGeneral;
+                    withPolls = if cfg.polls != {} then withDefaults // { polls = reorderSection cfg.polls; } else withDefaults;
+                    withProviders = if cfg.providers != {} then withPolls // { providers = reorderSection cfg.providers; } else withPolls;
+                    withDomains = if cfg.domains != {} then withProviders // { domains = cfg.domains; } else withProviders;
                   in
-                    ''
-                      if [ ! -e "${getDir cfg.configFile}" ]; then
-                        mkdir -p "${getDir cfg.configFile}"
-                      fi
-                      cat > ${cfg.configFile} <<'EOC'
-                      ${configText}
-                      EOC
-                      chmod 0600 ${cfg.configFile}
-                    '';
-                deps = [];
-              };
-            };
+                    withDomains;
+              in yaml.generate "container-dns-companion.yml" configData;
 
             systemd.services.container-dns-companion = lib.mkIf cfg.service.enable {
               description = "Container DNS Companion";
