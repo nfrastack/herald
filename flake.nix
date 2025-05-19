@@ -101,7 +101,8 @@
 
             defaults = lib.mkOption {
               type = lib.types.attrsOf lib.types.anything;
-              default = {
+              default = {};
+              example = {
                 record = {
                   type = "A";
                   ttl = 300;
@@ -114,7 +115,8 @@
 
             general = lib.mkOption {
               type = lib.types.attrsOf lib.types.anything;
-              default = {
+              default = {};
+              example = {
                 log_level = "info";
                 log_timestamps = true;
                 poll_profiles = [ "docker" ];
