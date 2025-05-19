@@ -65,10 +65,10 @@ type DomainConfig struct {
 
 // Default configuration paths to check
 var DefaultConfigPaths = []string{
-	"dns-companion.conf",           // Current directory
-	"./config/dns-companion.conf",  // Config subdirectory
-	"/etc/dns-companion.conf",      // System config
-	"~/.config/dns-companion.conf", // User config
+	"container-dns-companion.yml",       // Current directory
+	"container-dns-companion.yaml",      // Current directory (alt ext)
+	"/etc/container-dns-companion.yml",  // System config
+	"/etc/container-dns-companion.yaml", // System config (alt ext)
 }
 
 // Global domain configuration storage
