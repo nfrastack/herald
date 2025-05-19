@@ -66,12 +66,12 @@ func main() {
 	log.Initialize("info", true)
 
 	// Determine the config file path
-	configFile := "dns-companion.conf"
+	configFile := "container-dns-companion.yml"
 	if *configFilePath != "" {
 		configFile = *configFilePath
 	}
 
-	// Find the config file
+	// Find the config file using pkg/config logic
 	configFilePath, err := config.FindConfigFile(configFile)
 	if err != nil {
 		fmt.Printf("[config] Failed to find configuration file: %v\n", err)
@@ -145,18 +145,10 @@ func main() {
 		}
 	}
 
-	// Create providerOptions map if needed
+	// Use ProviderConfig.GetOptions() to get providerOptions
 	providerOptions := make(map[string]string)
 	if dnsProviderName != "" {
-		if providerConfig.APIToken != "" {
-			providerOptions["api_token"] = providerConfig.APIToken
-		}
-		if providerConfig.DefaultTTL > 0 {
-			providerOptions["default_ttl"] = fmt.Sprintf("%d", providerConfig.DefaultTTL)
-		}
-		for k, v := range providerConfig.Options {
-			providerOptions[k] = v
-		}
+		providerOptions = providerConfig.GetOptions()
 	}
 
 	// Initialize DNS provider if only one is defined
@@ -176,13 +168,20 @@ func main() {
 		// Convert domain config to string map for easier access
 		domainMap["name"] = domainCfg.Name
 		domainMap["provider"] = domainCfg.Provider
-		domainMap["zone_id"] = domainCfg.ZoneID
+		if domainCfg.ZoneID != "" {
+			domainMap["zone_id"] = domainCfg.ZoneID
+		}
+
+		// Map all fields from RecordConfig
+		domainMap["type"] = domainCfg.Record.Type
 		if domainCfg.Record.TTL > 0 {
 			domainMap["ttl"] = fmt.Sprintf("%d", domainCfg.Record.TTL)
 		}
-		domainMap["record_type"] = domainCfg.Record.Type
-		domainMap["target"] = domainCfg.Record.Target
-		domainMap["update_existing_record"] = fmt.Sprintf("%t", domainCfg.Record.UpdateExisting)
+		if domainCfg.Record.Target != "" {
+			domainMap["target"] = domainCfg.Record.Target
+		}
+		domainMap["update_existing"] = fmt.Sprintf("%t", domainCfg.Record.UpdateExisting)
+		domainMap["allow_multiple"] = fmt.Sprintf("%t", domainCfg.Record.AllowMultiple)
 
 		// Add additional options
 		for k, v := range domainCfg.Options {

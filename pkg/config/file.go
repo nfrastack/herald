@@ -58,6 +58,29 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	return &cfg, nil
 }
 
+// FindConfigFile searches for the config file in the current directory and common variants
+func FindConfigFile(requested string) (string, error) {
+	candidates := []string{}
+	if requested != "" {
+		candidates = append(candidates, requested)
+	}
+	// Always prefer container-dns-companion.yml, then .yaml, then .conf
+	candidates = append(candidates,
+		"container-dns-companion.yml",
+		"container-dns-companion.yaml",
+		"container-dns-companion.conf",
+		"dns-companion.yml",
+		"dns-companion.yaml",
+		"dns-companion.conf",
+	)
+	for _, name := range candidates {
+		if _, err := os.Stat(name); err == nil {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no configuration file found (tried: %v)", candidates)
+}
+
 // Helper to check if a field is set in the config file (for booleans)
 func fieldSetInConfigFile(path, field string) bool {
 	f, err := os.Open(path)

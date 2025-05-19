@@ -6,14 +6,9 @@ package config
 
 import (
 	"container-dns-companion/pkg/log"
-
-	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
-
-	"gopkg.in/yaml.v3"
 )
 
 type ConfigFile struct {
@@ -63,14 +58,6 @@ type DomainConfig struct {
 	IncludeSubdomains []string          `yaml:"include_subdomains"`
 }
 
-// Default configuration paths to check
-var DefaultConfigPaths = []string{
-	"container-dns-companion.yml",       // Current directory
-	"container-dns-companion.yaml",      // Current directory (alt ext)
-	"/etc/container-dns-companion.yml",  // System config
-	"/etc/container-dns-companion.yaml", // System config (alt ext)
-}
-
 // Global domain configuration storage
 var (
 	domainConfigsMu sync.RWMutex
@@ -108,92 +95,6 @@ func GetDomainConfig(domain string) map[string]string {
 	}
 
 	return nil
-}
-
-// FindConfigFile locates a configuration file by checking common locations
-// If explicitPath is provided, it only checks that path
-func FindConfigFile(explicitPath string) (string, error) {
-	// If an explicit path is provided, use that
-	if explicitPath != "" {
-		if fileExists(explicitPath) {
-			return explicitPath, nil
-		}
-		return "", fmt.Errorf("[config] configuration file not found: %s", explicitPath)
-	}
-
-	// Check default paths
-	for _, path := range DefaultConfigPaths {
-		// Expand home directory if needed
-		if strings.HasPrefix(path, "~/") {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				continue
-			}
-			path = filepath.Join(home, path[2:])
-		}
-
-		if fileExists(path) {
-			return path, nil
-		}
-	}
-
-	return "", fmt.Errorf("[config] no configuration file found")
-}
-
-// fileExists checks if a file exists and can be read
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-// LoadConfig loads the configuration from a file
-func LoadConfig(configPath string) (*ConfigFile, error) {
-	candidateFiles := []string{}
-	if configPath != "" {
-		candidateFiles = append(candidateFiles, configPath)
-	} else {
-		candidateFiles = append(candidateFiles,
-			"./dns-companion.conf",
-			"./dns-companion.yaml",
-			"./dns-companion.yml",
-			"/etc/dns-companion.conf",
-			"/etc/dns-companion.yaml",
-			"/etc/dns-companion.yml",
-		)
-	}
-	var lastErr error
-	for _, file := range candidateFiles {
-		if _, err := os.Stat(file); err == nil {
-			cfg, err := loadYAMLConfig(file)
-			if err == nil {
-				if cfg != nil && len(cfg.Polls) == 1 && (len(cfg.General.PollProfiles) == 0 || cfg.General.PollProfiles == nil) {
-					for k := range cfg.Polls {
-						cfg.General.PollProfiles = []string{k}
-					}
-				}
-				return cfg, nil
-			}
-			lastErr = err
-		}
-	}
-	if lastErr != nil {
-		return nil, fmt.Errorf("[config/file] failed to load config: %w", lastErr)
-	}
-	return nil, fmt.Errorf("[config/file] no config file found in candidates: %v", candidateFiles)
-}
-
-func loadYAMLConfig(path string) (*ConfigFile, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	var cfg ConfigFile
-	decoder := yaml.NewDecoder(file)
-	if err := decoder.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("[config/file] failed to parse YAML: %w", err)
-	}
-	return &cfg, nil
 }
 
 // GetConfig retrieves a configuration key, handling file references
