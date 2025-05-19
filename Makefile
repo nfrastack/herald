@@ -21,7 +21,8 @@ clean:
 	rm -f $(BINARY_NAME) $(BINARY_NAME)_x86_64 $(BINARY_NAME)_aarch64
 
 install:
-	$(GO) install $(BUILD_DIR)
+	mkdir -p /usr/local/bin
+	cp $(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
 
 release: clean build-all
 	@echo "Binaries built with version: $(VERSION) and ready for release: $(BINARY_NAME)_x86_64, $(BINARY_NAME)_aarch64"
