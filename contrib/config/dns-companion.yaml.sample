@@ -1,0 +1,54 @@
+general:
+  log_level: "info"
+  log_timestamps: true
+  dry_run: false
+  poll_profiles:
+    - docker
+
+defaults:
+  record:
+    type: "A"
+    ttl: 300
+    # target: "target.example.com"  # (Optional) Set a default target
+    update_existing: true
+    allow_multiple: false
+
+providers:
+  cloudflare:
+    type: "cloudflare"
+    api_token: "your_api_token_here"
+
+polls:
+  docker:
+    type: "docker"
+    host: "unix:///var/run/docker.sock"   #Unix socket
+    #host: "tcp://docker.example.com:2376" #TLS
+    expose_containers: true
+    filter_type: "none"
+    process_existing_containers: false
+    record_remove_on_stop: true
+    #tls:
+    #  verify: true
+    #  ca: "/etc/docker/certs/ca.pem"
+    #  cert: "/etc/docker/certs/cert.pem"
+    #  key: "/etc/docker/certs/key.pem"
+
+  traefik:
+    type: "traefik"
+    poll_url: "http://traefik:8080/api/http/routers"
+    poll_interval: 60
+
+domains:
+  example_com:
+    name: "example.com"
+    provider: "cloudflare"
+    zone_id: "your_zone_id_here"
+    record:
+      type: "A"
+      ttl: 60
+      target: "192.0.2.1"
+      update_existing: true
+      allow_multiple: true
+    exclude_subdomains:
+      - dev
+      - staging

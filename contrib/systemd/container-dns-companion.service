@@ -1,0 +1,10 @@
+[Unit]
+Description=Manage DNS entries from containers
+Requires=.service
+After=.service
+
+[Service]
+ExecStart=/usr/bin/container-dns-companion
+
+[Install]
+WantedBy=multi-user.target

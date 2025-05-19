@@ -1,0 +1,49 @@
+services:
+  container-dns-companion:
+    image: nfrastack/traefik-container-dns-companion
+    container_name: container-dns-companion
+    volumes:
+      - ./logs:/logs
+      #- ./config:/config
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TIMEZONE=America/Vancouver
+
+      - LOG_TYPE=BOTH
+      - LOG_LEVEL=info
+      - LOG_PATH=/logs
+      - LOG_FILE=cdc.log
+      - LOG_TIMESTAMPS=TRUE
+
+      # Provider example (Cloudflare)
+      - PROVIDER_01_TYPE=cloudflare
+      - PROVIDER_01_CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
+
+      # Poll provider example (Docker)
+      - POLL_01_TYPE=docker
+      - POLL_01_DOCKER_HOST=unix:///var/run/docker.sock
+      - POLL_01_DOCKER_EXPOSE_CONTAINERS=TRUE
+      - POLL_01_DOCKER_FILTER_TYPE=none
+      - POLL_01_DOCKER_PROCESS_EXISTING=TRUE
+      - POLL_01_DOCKER_RECORD_REMOVE_ON_STOP=FALSE
+      - POLL_01_DOCKER_SWARM_MODE=FALSE
+
+      # Domain example
+      - DOMAIN_01_NAME=example.com
+      - DOMAIN_01_PROVIDER=provider_01
+      - DOMAIN_01_ZONE_ID=your_zone_id_here
+      - DOMAIN_01_RECORD_TYPE=A
+      - DOMAIN_01_TTL=300
+      - DOMAIN_01_TARGET=192.0.2.1
+      - DOMAIN_01_UPDATE_EXISTING_RECORD=TRUE
+      - DOMAIN_01_ALLOW_MULTIPLE=TRUE
+      #- DOMAIN_01_INCLUDE_SUBDOMAINS=api,internal
+      - DOMAIN_01_EXCLUDE_SUBDOMAINS=dev,staging
+
+    networks:
+      - services
+    restart: always
+
+networks:
+  services:
+    external: true
