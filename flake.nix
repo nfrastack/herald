@@ -221,7 +221,7 @@
               serviceConfig = {
                 ExecStart =
                   let
-                    configFileArg = "-config ${cfg.configFile}";
+                    configFileArg = "-config /etc/${cfg.configFile}";
                     args = lib.strings.concatStringsSep " " (lib.lists.filter (s: s != "") [
                       "${cfg.package}/bin/container-dns-companion"
                       configFileArg
