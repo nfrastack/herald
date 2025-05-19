@@ -39,24 +39,35 @@ set -x
             export POLL_PROVIDER="docker01"
         fi
 
-        _configGlobal="$(cat <<EOF
-[global]
-log_level = "${LOG_LEVEL}"
-log_timestamps = ${LOG_TIMESTAMPS,,}
-log_type = "${LOG_TYPE,,}"
-log_file = "${LOG_PATH}/${LOG_FILE}"
-poll_profiles = ["${POLL_PROVIDER,,}"]
-${DEFAULT_RECORD_TYPE:+dns_record_type = "${DEFAULT_RECORD_TYPE^^}"}
-${DEFAULT_TTL:+dns_record_ttl = ${DEFAULT_TTL}}
-${DEFAULT_TARGET:+dns_record_target = "${DEFAULT_TARGET}"}
-${DEFAULT_UPDATE_EXISTING:+update_existing_record = ${DEFAULT_UPDATE_EXISTING,,}}
+        _configGeneral="$(cat <<EOF
+general:
+log_level: "${LOG_LEVEL}"
+log_timestamps: ${LOG_TIMESTAMPS,,}
+log_type: "${LOG_TYPE,,}"
+log_file: "${LOG_PATH}/${LOG_FILE}"
+${POLL_PROVIDER:+poll_profiles: ["${POLL_PROVIDER,,}"]}
 
 EOF
                         )"
 
-        echo "$_configGlobal" | sed '/^$/d'  | silent sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
+        echo "$_configGeneral" | sed '/^$/d'  | silent sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
         echo "" | silent sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
 
+        if [ -n "${DEFAULT_RECORD_TYPE}" ] || [ -n "${DEFAULT_TTL}" ] || [ -n "${DEFAULT_TARGET}" ] || [ -n "${DEFAULT_UPDATE_EXISTING}" ] || [ -n "${DEFAULT_ALLOW_MULTIPLE}" ]; then
+            _configDefaults="$(cat <<EOF            _configDefaultHeader="[default]"
+defaults:
+  record:
+${DEFAULT_RECORD_TYPE:+    type: "${DEFAULT_RECORD_TYPE^^}"}
+${DEFAULT_TTL:+    ttl: ${DEFAULT_TTL}}
+${DEFAULT_TARGET:+    target: "${DEFAULT_TARGET}"}
+${DEFAULT_UPDATE_EXISTING:+    update_existing: ${DEFAULT_UPDATE_EXISTING,,}}
+${DEFAULT_ALLOW_MULTIPLE:+    allow_multiple: ${DEFAULT_ALLOW_MULTIPLE,,}}
+
+            echo "$_configDefaults" | sed '/^$/d'  | silent sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
+            echo "" | silent sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
+        fi
+
+        echo "polls:" | sed '/^$/d'  | silent sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
         pollnum=$(printenv | sort | grep -cE '^POLL_([0-9].)_TYPE')
         for (( i = 01; i <= pollnum; i++ )) ; do
             i=$(printf "%02d" $i)
@@ -85,17 +96,32 @@ EOF
                     if [ -z "${!POLL_DOCKER_SWARM_MODE}" ] ; then
                         POLL_DOCKER_SWARM_MODE="${DEFAULT_POLL_DOCKER_SWARM_MODE}"
                     fi
-                    _configPoll+="$(cat <<EOF
 
-[poll.${!POLL_TYPE,,}${i}]
-type = "${!POLL_TYPE,,}"
-host = "${POLL_DOCKER_HOST}"
-expose_containers = ${POLL_DOCKER_EXPOSE_CONTAINERS,,}
-process_existing_containers = ${POLL_DOCKER_PROCESS_EXISTING,,}
-filter_type = "${POLL_DOCKER_FILTER_TYPE,,}"
-${POLL_DOCKER_SWARM_MODE:+swarm_mode = ${POLL_DOCKER_SWARM_MODE,,}}
-${POLL_DOCKER_TLS_VERIFY:+tls_verify = ${POLL_DOCKER_TLS_VERIFY,,}}
-${POLL_DOCKER_CERT_PATH:+cert_path = ${POLL_DOCKER_CERT_PATH}}
+                    POLL_DOCKER_TLS_CA_PATH=POLL_${i}_DOCKER_TLS_CA_PATH
+                    POLL_DOCKER_TLS_CERT_PATH=POLL_${i}_DOCKER_TLS_CERT_PATH
+                    POLL_DOCKER_TLS_KEY_PATH=POLL_${i}_DOCKER_TLS_KEY_PATH
+                    POLL_DOCKER_TLS_VERIFY=POLL_${i}_DOCKER_TLS_VERIFY
+
+                    if [ -n "${POLL_DOCKER_TLS_CA_PATH}" ] || [ -n "${POLL_DOCKER_TLS_CERT_PATH}" ] || [ -n "${POLL_DOCKER_TLS_KEY_PATH}" ] || [ -n "${POLL_DOCKER_TLS_VERIFY}" ]; then
+                        _configPollDocker_TLS="$(cat <<EOF
+    tls:
+${POLL_DOCKER_TLS_CA_PATH:+      ca: ${POLL_DOCKER_TLS_CA_PATH}}
+${POLL_DOCKER_TLS_CERT_PATH:+      cert: ${POLL_DOCKER_TLS_CERT_PATH}}
+${POLL_DOCKER_TLS_KEY_PATH:+      key: ${POLL_DOCKER_TLS_KEY_PATH}}
+${POLL_DOCKER_TLS_VERIFY:+      verify: ${POLL_DOCKER_TLS_VERIFY,,}}
+                                              )"
+EOF
+                    fi
+                    _configPoll+="$(cat <<EOF
+  ${!POLL_TYPE,,}${i}:
+    type: "${!POLL_TYPE,,}"
+    host: "${POLL_DOCKER_HOST}"
+    expose_containers: ${POLL_DOCKER_EXPOSE_CONTAINERS,,}
+    filter_type: "${POLL_DOCKER_FILTER_TYPE,,}"
+    process_existing_containers: ${POLL_DOCKER_PROCESS_EXISTING,,}
+    record_remove_on_stop: ${POLL_DOCKER_RECORD_REMOVE_ON_STOP,,}
+${POLL_DOCKER_SWARM_MODE:+    swarm_mode: ${POLL_DOCKER_SWARM_MODE,,}}
+${_configPollDocker_TLS:+${_configPollDockerTLS}
 EOF
                                         )"
                 ;;
@@ -120,11 +146,11 @@ EOF
                     fi
                     _configPoll+="$(cat <<EOF
 
-[poll.${!POLL_TYPE,,}${i}]
-type = "${!POLL_TYPE,,}"
-poll_url = "${POLL_TRAEFIK_POLL_URL}"
-poll_inverval = ${POLL_TRAEFIK_POLL_INTERVAL}
-filter_type = "${POLL_TRAEFIK_FILTER_TYPE}"
+  ${!POLL_TYPE,,}${i}:
+    type: "${!POLL_TYPE,,}"
+    poll_url: "${POLL_TRAEFIK_POLL_URL}"
+    poll_inverval: ${POLL_TRAEFIK_POLL_INTERVAL}
+    filter_type: "${POLL_TRAEFIK_FILTER_TYPE}"
 EOF
                                         )"
                 ;;
@@ -134,6 +160,7 @@ EOF
         echo "$_configPoll" | sed '/^$/d'  | silent sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
         echo "" | silent sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
 
+        echo "providers:" | sed '/^$/d'  | silent sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
         if [ -n "${PROVIDER_TYPE}" ] && [ -z "${PROVIDER_01_TYPE}" ] ; then export PROVIDER_01_TYPE="${PROVIDER_TYPE}" ; unset PROVIDER_TYPE ; fi
         if [ -z "${PROVIDER_01_TYPE}" ] ; then
             print_info "Automatically setting provider type type to Cloudflare"
@@ -164,11 +191,11 @@ EOF
 
                     _configProvider+="$(cat <<EOF
 
-[provider.${!PROVIDER_TYPE,,}${i}]
-type = "${!PROVIDER_TYPE,,}"
-${!POLL_CLOUDFLARE_API_TOKEN:+api_token = ${!POLL_CLOUDFLARE_API_TOKEN}}
-${!POLL_CLOUDFLARE_API_EMAIL:+api_email = ${!POLL_CLOUDFLARE_API_EMAIL}}
-${!POLL_CLOUDFLARE_API_KEY:+api_key = ${!POLL_CLOUDFLARE_API_KEY}}
+  ${!PROVIDER_TYPE,,}${i}:
+    type: "${!PROVIDER_TYPE,,}"
+${!POLL_CLOUDFLARE_API_TOKEN:+    api_token: "${!POLL_CLOUDFLARE_API_TOKEN}}"
+${!POLL_CLOUDFLARE_API_EMAIL:+    api_email: "${!POLL_CLOUDFLARE_API_EMAIL}}"
+${!POLL_CLOUDFLARE_API_KEY:+    api_key: "${!POLL_CLOUDFLARE_API_KEY}}"
 EOF
                                         )"
 
@@ -185,6 +212,7 @@ EOF
             exit 1
         fi
 
+        echo "domains:" | sed '/^$/d'  | silent sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
         domainnum=$(printenv | sort | grep -cE '^DOMAIN_([0-9].)_NAME')
 
         for (( i = 01; i <= domainnum; i++ )) ; do
@@ -207,21 +235,51 @@ EOF
             DOMAIN_RECORD_TYPE=DOMAIN_${i}_RECORD_TYPE
             DOMAIN_TARGET=DOMAIN_${i}_TARGET
             DOMAIN_UPDATE_EXISTING_RECORD=DOMAIN_${i}_UPDATE_EXISTING_RECORD
+            DOMAIN_ALLOW_MULTIPLE=DOMAIN_${i}_ALLOW_MULTIPLE
+            DOMAIN_EXCLUDE_SUBDOMAINS=DOMAIN_${i}_EXCLUDE_SUBDOMAINS
+            DOMAIN_INCLUDE_SUBDOMAINS=DOMAIN_${i}_INCLUDE_SUBDOMAINS
 
             _configDomain+="$(cat <<EOF
 
-[domain.${i}]
-name = "${!DOMAIN_NAME,,}"
-provider = "${DOMAIN_PROVIDER,,}"
-${!DOMAIN_ZONE_ID:+zone_id = ${!DOMAIN_ZONE_ID}}
-${!DOMAIN_PROXIED:+proxied = ${!DOMAIN_PROXIED,,}}
-${!DOMAIN_TTL:+ttl = ${!DOMAIN_TTL}}
-${!DOMAIN_TARGET:+target = ${!DOMAIN_TARGET,,}}
-${!DOMAIN_RECORD_TYPE:+record_type = ${!DOMAIN_RECORD_TYPE^^}}
-${!DOMAIN_UPDATE_EXISTING_RECORD:+update_existing_record = ${!DOMAIN_UPDATE_EXISTING_RECORD,,}}
+  domain_${1}:
+    name: "${!DOMAIN_NAME,,}"
+    provider: "${DOMAIN_PROVIDER,,}"
+${!DOMAIN_ZONE_ID:+    zone_id: "${!DOMAIN_ZONE_ID}"}
+    record:
+${!DOMAIN_PROXIED:+    proxied: ${!DOMAIN_PROXIED,,}}
+${!DOMAIN_TTL:+      ttl: ${!DOMAIN_TTL}}
+${!DOMAIN_TARGET:+      target: "${!DOMAIN_TARGET,,}"}
+${!DOMAIN_RECORD_TYPE:+      type: "${!DOMAIN_RECORD_TYPE^^}"}
+${!DOMAIN_UPDATE_EXISTING_RECORD:+      update_existing: ${!DOMAIN_UPDATE_EXISTING_RECORD,,}}
+${!DOMAIN_ALLOW_MULTIPLE:+      allow_multiple: ${!DOMAIN_UPDATE_EXISTING_RECORD,,}}
 EOF
                             )"
-        done
+
+            if [ -n "${!DOMAIN_EXCLUDE_SUBDOMAINS}" ]; then
+                _configDomain+="$(cat <<EOF
+    exclude_subdomains:
+                                )"
+                _configDomainexcludeSubdomains="$(echo "${!DOMAIN_EXCLUDE_SUBDOMAINS}" | tr "," "\n" | uniq)"
+                for exclude in _configDomainexcludeSubdomains ; do
+                    _configDomain+="$(cat <<EOF
+      - "${exclude}"
+EOF
+                                )"
+                done
+            fi
+
+            if [ -n "${!DOMAIN_INCLUDE_SUBDOMAINS}" ]; then
+                _configDomain+="$(cat <<EOF
+    include_subdomains:
+                                )"
+                _configDomainincludeSubdomains="$(echo "${!DOMAIN_INCLUDE_SUBDOMAINS}" | tr "," "\n" | uniq)"
+                for include in _configDomainincludeSubdomains ; do
+                    _configDomain+="$(cat <<EOF
+      - "${include}"
+EOF
+                                )"
+                done
+            fi
 
         echo "$_configDomain" | sed '/^$/d' | sudo -u "${CDC_USER}" tee -a "${CONFIG_PATH}/${CONFIG_FILE}"
     else

@@ -7,14 +7,15 @@ ARG DISTRO_VARIANT=3.21
 
 FROM docker.io/nfrastack/container-base:${DISTRO}_${DISTRO_VARIANT}
 
-LABEL org.opencontainers.image.title         "Container DNS Companion"
-LABEL org.opencontainers.image.description   "Dockerized web server with many customizable options"
-LABEL org.opencontainers.image.url           "https://hub.docker.com/r/tiredofit/nginx"
-LABEL org.opencontainers.image.documentation "https://github.com/nfrastack/container-dns-companion/blob/main/README.md"
-LABEL org.opencontainers.image.source        "https://github.com/nfrastack/container-dns-companion.git"
-LABEL org.opencontainers.image.authors       "Nfrastack <code@nfrastack.com>"
-LABEL org.opencontainers.image.vendor        "Nfrastack <https://www.nfrastack.com>"
-LABEL org.opencontainers.image.licenses      "BSD-3"
+LABEL \
+  org.opencontainers.image.title="Container DNS Companion" \
+  org.opencontainers.image.description="Manage DNS records based on DNS servers based on events from Docker or Traefik" \
+  org.opencontainers.image.url="https://hub.docker.com/r/nfrastack/container-dns-companion" \
+  org.opencontainers.image.documentation="https://github.com/nfrastack/container-dns-companion/blob/main/README.md" \
+  org.opencontainers.image.source="https://github.com/nfrastack/container-dns-companion.git" \
+  org.opencontainers.image.authors="Nfrastack <code@nfrastack.com>" \
+  org.opencontainers.image.vendor="Nfrastack <https://www.nfrastack.com>" \
+  org.opencontainers.image.licenses="BSD-3-Clause"
 
 ARG CDC_VERSION
 ARG GOLANG_VERSION
@@ -84,16 +85,9 @@ RUN echo "" && \
             exit 1 ; \
         ;; \
     esac ; \
-    go \
-        build \
-            -ldflags " \
-                        -s \
-                        -w \
-                        -X main.Version=${CDC_VERSION:-"$(head -n1 /usr/src/container-dns-companion/CHANGELOG.md | awk '{print $1}')"} \
-                     " \
-            -o /usr/local/bin/container-dns-companion \
-            ./cmd/container-dns-companion \
-            && \
+    \
+    make && \
+    make install && \
     \
     cp -aR \
                 /usr/src/container-dns-companion/docker/rootfs/*  \

@@ -84,14 +84,14 @@ jobs:
           asset_name: container-dns-companion_arm64
           asset_content_type: application/octet-stream
 
-  docker:
-    name: Build and Push Docker Image
+  container:
+    name: Build and Push Container Image
     needs: release
     runs-on: ubuntu-latest
     env:
       DISTRO: "alpine"
       DISTRO_VARIANT: "3.21"
-      build_file: ./docker/Dockerfile
+      build_file: ./container/Containerfile
     steps:
       - name: Prepare
         id: prep
@@ -132,11 +132,14 @@ jobs:
         run: |
           image_name=${GITHUB_REPOSITORY/docker-/}
           if [ -f "${{ env.build_file }}" ] ; then
-              sed -i "/FROM .*/a LABEL nfrastack.${image_name}.git_repository=\"https://github.com/${GITHUB_REPOSITORY}\"" ${{ env.build_file }}
-              sed -i "/FROM .*/a LABEL nfrastack.${image_name}.git_commit=\"${GITHUB_SHA}\"" ${{ env.build_file }}
-              sed -i "/FROM .*/a LABEL nfrastack.${image_name}.git_committed_by=\"${GITHUB_ACTOR}\"" ${{ env.build_file }}
-              sed -i "/FROM .*/a LABEL nfrastack.${image_name}.image_build_date=\"$(date +'%Y-%m-%d %H:%M:%S')\"" ${{ env.build_file }}
-              sed -i "/FROM .*/a LABEL org.opencontainers.image.source https://github.com/${GITHUB_REPOSITORY}"  ${{ env.build_file }}
+              sed \
+                    -i \
+                    -e "/FROM .*/a LABEL nfrastack.${image_name}.git_repository=\"https://github.com/${GITHUB_REPOSITORY}\"" \
+                    -e "/FROM .*/a LABEL nfrastack.${image_name}.git_commit=\"${GITHUB_SHA}\"" \
+                    -e "/FROM .*/a LABEL nfrastack.${image_name}.git_committed_by=\"${GITHUB_ACTOR}\"" \
+                    -e "/FROM .*/a LABEL nfrastack.${image_name}.image_build_date=\"$(date +'%Y-%m-%d %H:%M:%S')\"" \
+                    -e "/FROM .*/a LABEL org.opencontainers.image.source https://github.com/${GITHUB_REPOSITORY}"  \
+                    ${{ env.build_file }}
 
               if [ -f "CHANGELOG.md" ] ; then
                   sed -i "/FROM .*/a LABEL nfrastack.${image_name}.git_changelog_version=\"$(head -n1 ./CHANGELOG.md | awk '{print $2}')\"" ${{ env.build_file }}
@@ -150,6 +153,7 @@ jobs:
                   sed -i "/FROM .*/a LABEL nfrastack.${image_name}.git_branch=\"${GITHUB_REF#refs/heads/}\"" ${{ env.build_file }}
               fi
           fi
+
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v3
