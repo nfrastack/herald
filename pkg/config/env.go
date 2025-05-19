@@ -82,7 +82,7 @@ func LoadFromEnvironment(cfg *ConfigFile) {
 	// Domain configurations
 	setDomainSettingsFromEnv(cfg)
 
-	// Ensure cfg.Domain, cfg.Poll, and cfg.Provider are fully merged and ready for use
+	// Ensure cfg.Domains, cfg.Polls, and cfg.Providers are fully merged and ready for use
 	mergeEnvironmentOverrides(cfg)
 
 	// Log what we've loaded
@@ -103,15 +103,15 @@ func processPollsFromEnv(cfg *ConfigFile) {
 				if value != "" {
 					pollTypes[profileName] = value
 					log.Debug("[config/env] Found poll profile '%s' with type '%s'", profileName, value)
-					if _, exists := cfg.Poll[profileName]; !exists {
-						cfg.Poll[profileName] = ProviderConfig{
+					if _, exists := cfg.Polls[profileName]; !exists {
+						cfg.Polls[profileName] = ProviderConfig{
 							Type:    value,
 							Options: make(map[string]string),
 						}
 					} else {
-						poll := cfg.Poll[profileName]
+						poll := cfg.Polls[profileName]
 						poll.Type = value
-						cfg.Poll[profileName] = poll
+						cfg.Polls[profileName] = poll
 					}
 				}
 			}
@@ -143,28 +143,28 @@ func processPollsFromEnv(cfg *ConfigFile) {
 		if providerType != pollType {
 			continue // only apply options for the correct provider type
 		}
-		if _, exists := cfg.Poll[profileName]; !exists {
-			cfg.Poll[profileName] = ProviderConfig{
+		if _, exists := cfg.Polls[profileName]; !exists {
+			cfg.Polls[profileName] = ProviderConfig{
 				Type:    pollType,
 				Options: make(map[string]string),
 			}
 		}
 		// Special case for expose_containers
 		if option == "expose_containers" {
-			poll := cfg.Poll[profileName]
+			poll := cfg.Polls[profileName]
 			poll.ExposeContainers = EnvToBool(envVar, false)
-			cfg.Poll[profileName] = poll
-			log.Debug("[config/env] Set poll profile '%s' option 'expose_containers' to '%v'", profileName, cfg.Poll[profileName].ExposeContainers)
+			cfg.Polls[profileName] = poll
+			log.Debug("[config/env] Set poll profile '%s' option 'expose_containers' to '%v'", profileName, cfg.Polls[profileName].ExposeContainers)
 			continue
 		}
-		if cfg.Poll[profileName].Options == nil {
-			poll := cfg.Poll[profileName]
+		if cfg.Polls[profileName].Options == nil {
+			poll := cfg.Polls[profileName]
 			poll.Options = make(map[string]string)
-			cfg.Poll[profileName] = poll
+			cfg.Polls[profileName] = poll
 		}
-		poll := cfg.Poll[profileName]
+		poll := cfg.Polls[profileName]
 		poll.Options[option] = value
-		cfg.Poll[profileName] = poll
+		cfg.Polls[profileName] = poll
 		log.Debug("[config/env] Set poll profile '%s' option '%s' to '%s'", profileName, option, value)
 	}
 }
@@ -190,16 +190,16 @@ func processProvidersFromEnv(cfg *ConfigFile) {
 					log.Debug("[config/env] Found provider '%s' with type '%s'", providerName, value)
 
 					// Create provider if it doesn't exist
-					if _, exists := cfg.Provider[providerName]; !exists {
-						cfg.Provider[providerName] = ProviderConfig{
+					if _, exists := cfg.Providers[providerName]; !exists {
+						cfg.Providers[providerName] = ProviderConfig{
 							Type:    value,
 							Options: make(map[string]string),
 						}
 					} else {
 						// Update the type of existing provider
-						provider := cfg.Provider[providerName]
+						provider := cfg.Providers[providerName]
 						provider.Type = value
-						cfg.Provider[providerName] = provider
+						cfg.Providers[providerName] = provider
 					}
 				}
 			}
@@ -226,14 +226,14 @@ func processProvidersFromEnv(cfg *ConfigFile) {
 		log.Debug("[config/env] Processing provider env var: %s=%s", envVar, value)
 
 		// Create provider if it doesn't exist
-		if _, exists := cfg.Provider[providerName]; !exists {
+		if _, exists := cfg.Providers[providerName]; !exists {
 			// If we don't know the type yet, default to the provider name
 			providerType := providerTypes[providerName]
 			if providerType == "" {
 				providerType = providerName
 			}
 
-			cfg.Provider[providerName] = ProviderConfig{
+			cfg.Providers[providerName] = ProviderConfig{
 				Type:    providerType,
 				Options: make(map[string]string),
 			}
@@ -252,7 +252,7 @@ func processProvidersFromEnv(cfg *ConfigFile) {
 			option = parts[1]
 
 			// Check if this option should be processed based on the provider's type
-			providerType := strings.ToLower(cfg.Provider[providerName].Type)
+			providerType := strings.ToLower(cfg.Providers[providerName].Type)
 
 			// Only process if the provider prefix matches the provider type
 			// or if this is a generic option
@@ -264,36 +264,36 @@ func processProvidersFromEnv(cfg *ConfigFile) {
 		// Handle direct fields based on option name
 		switch option {
 		case "api_token":
-			provider := cfg.Provider[providerName]
+			provider := cfg.Providers[providerName]
 			provider.APIToken = value
-			cfg.Provider[providerName] = provider
+			cfg.Providers[providerName] = provider
 		case "api_key":
-			provider := cfg.Provider[providerName]
+			provider := cfg.Providers[providerName]
 			provider.APIKey = value
-			cfg.Provider[providerName] = provider
+			cfg.Providers[providerName] = provider
 		case "api_email", "email":
-			provider := cfg.Provider[providerName]
+			provider := cfg.Providers[providerName]
 			provider.APIEmail = value
-			cfg.Provider[providerName] = provider
+			cfg.Providers[providerName] = provider
 		case "default_ttl", "ttl":
 			ttl, err := strconv.Atoi(value)
 			if err == nil {
-				provider := cfg.Provider[providerName]
+				provider := cfg.Providers[providerName]
 				provider.DefaultTTL = ttl
-				cfg.Provider[providerName] = provider
+				cfg.Providers[providerName] = provider
 			} else {
 				log.Warn("[config/env] Invalid TTL value for provider %s: %s", providerName, value)
 			}
 		default:
 			// For any other option, store it in the options map
-			if cfg.Provider[providerName].Options == nil {
-				provider := cfg.Provider[providerName]
+			if cfg.Providers[providerName].Options == nil {
+				provider := cfg.Providers[providerName]
 				provider.Options = make(map[string]string)
-				cfg.Provider[providerName] = provider
+				cfg.Providers[providerName] = provider
 			}
-			provider := cfg.Provider[providerName]
+			provider := cfg.Providers[providerName]
 			provider.Options[option] = value
-			cfg.Provider[providerName] = provider
+			cfg.Providers[providerName] = provider
 		}
 
 		log.Debug("[config/env] Set provider '%s' option '%s'", providerName, option)
@@ -359,15 +359,15 @@ func setDomainSettingsFromEnv(cfg *ConfigFile) {
 	// Now process all domain settings
 	for domainKey, domainName := range domainNames {
 		// Create domain mapping if it doesn't exist
-		if cfg.Domain == nil {
-			cfg.Domain = make(map[string]DomainConfig)
+		if cfg.Domains == nil {
+			cfg.Domains = make(map[string]DomainConfig)
 		}
 
 		// Convert dots to underscores for the config key
 		configKey := strings.ReplaceAll(domainName, ".", "_")
 
 		// Create or update domain config
-		domainCfg, exists := cfg.Domain[configKey]
+		domainCfg, exists := cfg.Domains[configKey]
 		if !exists {
 			domainCfg = DomainConfig{
 				Name: domainName,
@@ -378,7 +378,7 @@ func setDomainSettingsFromEnv(cfg *ConfigFile) {
 		setNamedDomainConfigFromEnv(domainKey, domainName, configKey, &domainCfg)
 
 		// Save the domain config
-		cfg.Domain[configKey] = domainCfg
+		cfg.Domains[configKey] = domainCfg
 	}
 }
 
@@ -477,30 +477,30 @@ func setNamedDomainConfigFromEnv(domainKey, domainName, configKey string, domain
 	}
 }
 
-// mergeEnvironmentOverrides ensures cfg.Domain, cfg.Poll, and cfg.Provider are fully merged and ready for use
+// mergeEnvironmentOverrides ensures cfg.Domains, cfg.Polls, and cfg.Providers are fully merged and ready for use
 func mergeEnvironmentOverrides(cfg *ConfigFile) {
 	// Merge domains
-	for domainKey, domainCfg := range cfg.Domain {
+	for domainKey, domainCfg := range cfg.Domains {
 		if domainCfg.Options == nil {
 			domainCfg.Options = make(map[string]string)
 		}
-		cfg.Domain[domainKey] = domainCfg
+		cfg.Domains[domainKey] = domainCfg
 	}
 
 	// Merge polls
-	for pollKey, pollCfg := range cfg.Poll {
+	for pollKey, pollCfg := range cfg.Polls {
 		if pollCfg.Options == nil {
 			pollCfg.Options = make(map[string]string)
 		}
-		cfg.Poll[pollKey] = pollCfg
+		cfg.Polls[pollKey] = pollCfg
 	}
 
 	// Merge providers
-	for providerKey, providerCfg := range cfg.Provider {
+	for providerKey, providerCfg := range cfg.Providers {
 		if providerCfg.Options == nil {
 			providerCfg.Options = make(map[string]string)
 		}
-		cfg.Provider[providerKey] = providerCfg
+		cfg.Providers[providerKey] = providerCfg
 	}
 }
 
@@ -533,7 +533,7 @@ func ApplyConfigToEnv(cfg *ConfigFile, prefix string) {
 
 	setIfPresent("GLOBAL_UPDATE_EXISTING", strconv.FormatBool(cfg.Defaults.Record.UpdateExisting))
 
-	for providerName, provider := range cfg.Provider {
+	for providerName, provider := range cfg.Providers {
 		prefix := fmt.Sprintf("PROVIDER_%s_", strings.ToUpper(providerName))
 		setIfPresent(prefix+"TYPE", provider.Type)
 		providerTypePrefix := fmt.Sprintf("PROVIDER_%s_%s_", strings.ToUpper(providerName), strings.ToUpper(provider.Type))

@@ -122,8 +122,8 @@ func main() {
 	providers.RegisterProviders()
 
 	// Determine DNS provider name (automatic selection if only one, else error if not specified per domain)
-	providerNames := make([]string, 0, len(cfg.Provider))
-	for name := range cfg.Provider {
+	providerNames := make([]string, 0, len(cfg.Providers))
+	for name := range cfg.Providers {
 		providerNames = append(providerNames, name)
 	}
 	var dnsProviderName string
@@ -139,7 +139,7 @@ func main() {
 	var providerConfig config.ProviderConfig
 	if dnsProviderName != "" {
 		var ok bool
-		providerConfig, ok = cfg.Provider[dnsProviderName]
+		providerConfig, ok = cfg.Providers[dnsProviderName]
 		if !ok {
 			log.Fatal("[provider] Provider configuration not found for: %s", dnsProviderName)
 		}
@@ -170,7 +170,7 @@ func main() {
 
 	// Load domain configurations into a shared data structure
 	domainConfigs := make(map[string]map[string]string)
-	for domainKey, domainCfg := range cfg.Domain {
+	for domainKey, domainCfg := range cfg.Domains {
 		domainMap := make(map[string]string)
 
 		// Convert domain config to string map for easier access
@@ -210,7 +210,7 @@ func main() {
 	// Initialize poll providers
 	pollProviders := []poll.Provider{}
 	for _, pollProfileName := range pollProfiles {
-		pollProviderConfig, ok := cfg.Poll[pollProfileName]
+		pollProviderConfig, ok := cfg.Polls[pollProfileName]
 		if !ok {
 			log.Fatal("[poll] Poll profile not found in configuration: %s", pollProfileName)
 		}
@@ -250,7 +250,7 @@ func main() {
 
 		// If the poll provider supports domain configs, set them
 		if withDomainConfigs, ok := pollProvider.(poll.ProviderWithDomainConfigs); ok {
-			withDomainConfigs.SetDomainConfigs(cfg.Domain)
+			withDomainConfigs.SetDomainConfigs(cfg.Domains)
 		}
 
 		// Start polling

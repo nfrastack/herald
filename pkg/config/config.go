@@ -16,6 +16,53 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type ConfigFile struct {
+	General   GeneralConfig             `yaml:"general"`
+	Defaults  DefaultsConfig            `yaml:"defaults"`
+	Providers map[string]ProviderConfig `yaml:"providers"`
+	Polls     map[string]ProviderConfig `yaml:"polls"`
+	Domains   map[string]DomainConfig   `yaml:"domains"`
+}
+
+type GeneralConfig struct {
+	LogLevel      string   `yaml:"log_level"`
+	LogTimestamps bool     `yaml:"log_timestamps"`
+	LogType       string   `yaml:"log_type"`
+	PollProfiles  []string `yaml:"poll_profiles"`
+}
+
+type DefaultsConfig struct {
+	Record RecordConfig `yaml:"record"`
+}
+
+type RecordConfig struct {
+	Type           string `yaml:"type"`
+	TTL            int    `yaml:"ttl"`
+	Target         string `yaml:"target"`
+	UpdateExisting bool   `yaml:"update_existing"`
+	AllowMultiple  bool   `yaml:"allow_multiple"`
+}
+
+type ProviderConfig struct {
+	Type             string            `yaml:"type"`
+	APIToken         string            `yaml:"api_token"`
+	APIKey           string            `yaml:"api_key"`
+	APIEmail         string            `yaml:"api_email"`
+	DefaultTTL       int               `yaml:"default_ttl"`
+	ExposeContainers bool              `yaml:"expose_containers"`
+	Options          map[string]string `yaml:"options"`
+}
+
+type DomainConfig struct {
+	Name              string            `yaml:"name"`
+	Provider          string            `yaml:"provider"`
+	ZoneID            string            `yaml:"zone_id"`
+	Record            RecordConfig      `yaml:"record"`
+	Options           map[string]string `yaml:"options"`
+	ExcludeSubdomains []string          `yaml:"exclude_subdomains"`
+	IncludeSubdomains []string          `yaml:"include_subdomains"`
+}
+
 // Default configuration paths to check
 var DefaultConfigPaths = []string{
 	"dns-companion.conf",           // Current directory
@@ -119,6 +166,11 @@ func LoadConfig(configPath string) (*ConfigFile, error) {
 		if _, err := os.Stat(file); err == nil {
 			cfg, err := loadYAMLConfig(file)
 			if err == nil {
+				if cfg != nil && len(cfg.Polls) == 1 && (len(cfg.General.PollProfiles) == 0 || cfg.General.PollProfiles == nil) {
+					for k := range cfg.Polls {
+						cfg.General.PollProfiles = []string{k}
+					}
+				}
 				return cfg, nil
 			}
 			lastErr = err
@@ -201,4 +253,26 @@ func GetGlobalPollers() []string {
 	}
 
 	return pollers
+}
+
+// Add ProviderConfig methods here since struct is defined in this file
+func (pc *ProviderConfig) GetOptions() map[string]string {
+	return pc.setProviderOptions()
+}
+
+func (pc *ProviderConfig) setProviderOptions() map[string]string {
+	options := make(map[string]string)
+	if pc.ExposeContainers {
+		options["expose_containers"] = "true"
+		log.Debug("[config/file] Setting provider option expose_containers = true")
+	} else {
+		options["expose_containers"] = "false"
+		log.Debug("[config/file] Setting provider option expose_containers = false")
+	}
+	for k, v := range pc.Options {
+		log.Debug("[config/file] Setting provider option %s = %s", k, v)
+		options[k] = v
+	}
+	log.Debug("[config/file] Provider options: %v", options)
+	return options
 }
