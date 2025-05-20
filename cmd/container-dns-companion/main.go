@@ -59,12 +59,41 @@ var (
 func main() {
 	flag.Parse()
 
+	// Determine initial log level from CLI or env
+	initialLogLevel := "info"
+	if *logLevelFlag != "" {
+		initialLogLevel = *logLevelFlag
+	} else if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
+		initialLogLevel = lvl
+	}
+
 	// Show version if requested
 	if *showVersion {
 		fmt.Println(versionString(true))
 		os.Exit(0)
 	}
 
+	system, user := IsRunningUnderSystemd()
+	if !system && !user {
+		fmt.Println()
+		fmt.Println("             .o88o.                                 .                       oooo")
+		fmt.Println("             888 \"\"                                .o8                       888")
+		fmt.Println("ooo. .oo.   o888oo  oooo d8b  .oooo.    .oooo.o .o888oo  .oooo.    .ooooo.   888  oooo")
+		fmt.Println("`888P\"Y88b   888    `888\"\"8P `P  )88b  d88(  \"8   888   `P  )88b  d88' \"Y8  888 .8P'")
+		fmt.Println(" 888   888   888     888      .oP\"888  \"\"Y88b.    888    .oP\"888  888        888888.")
+		fmt.Println(" 888   888   888     888     d8(  888  o.  )88b   888 . d8(  888  888   .o8  888 `88b.")
+		fmt.Println("o888o o888o o888o   d888b    `Y888\"\"8o 8\"\"888P'   \"888\" `Y888\"\"8o `Y8bod8P' o888o o888o")
+		fmt.Println()
+	}
+
+	fmt.Printf("Starting Container DNS Companion version: %s \n", versionString(false))
+	fmt.Printf("© 2025 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
+	fmt.Println()
+
+	// Initialize logger with detected log level before config loading
+	log.Initialize(initialLogLevel, true)
+
+	log.Trace("Built: %s", BuildTime)
 	// Determine the config file path
 	configFile := "container-dns-companion.yml"
 	if *configFilePath != "" {
@@ -84,6 +113,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Clean up config sections to remove invalid keys after merging includes
+	config.CleanConfigSections(cfg)
+
 	// Override config with env and flags (only if set)
 	if *logLevelFlag != "" {
 		cfg.General.LogLevel = *logLevelFlag
@@ -92,31 +124,9 @@ func main() {
 	}
 	cfg.General.DryRun = *dryRunFlag || strings.ToLower(os.Getenv("DRY_RUN")) == "true"
 
-	// Initialize logger with the final config value
+	// Re-initialize logger with the final config value
 	log.Initialize(cfg.General.LogLevel, cfg.General.LogTimestamps)
 
-	system, user := IsRunningUnderSystemd()
-	if !system && !user {
-		fmt.Println()
-		fmt.Println("             .o88o.                                 .                       oooo")
-		fmt.Println("             888 \"\"                                .o8                       888")
-		fmt.Println("ooo. .oo.   o888oo  oooo d8b  .oooo.    .oooo.o .o888oo  .oooo.    .ooooo.   888  oooo")
-		fmt.Println("`888P\"Y88b   888    `888\"\"8P `P  )88b  d88(  \"8   888   `P  )88b  d88' \"Y8  888 .8P'")
-		fmt.Println(" 888   888   888     888      .oP\"888  \"\"Y88b.    888    .oP\"888  888        888888.")
-		fmt.Println(" 888   888   888     888     d8(  888  o.  )88b   888 . d8(  888  888   .o8  888 `88b.")
-		fmt.Println("o888o o888o o888o   d888b    `Y888\"\"8o 8\"\"888P'   \"888\" `Y888\"\"8o `Y8bod8P' o888o o888o")
-		fmt.Println()
-	}
-
-	fmt.Printf("Starting Container DNS Companion version: %s \n", versionString(false))
-	fmt.Printf("© 2025 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
-	fmt.Println()
-
-	// After loading config, update logger level and timestamps
-	log.GetLogger().SetLevel(cfg.General.LogLevel)
-	log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
-
-	log.Trace("Built: %s", BuildTime)
 	log.Info("[config] Using config file: %s", configFilePath)
 
 	// Apply logging configuration
@@ -140,14 +150,14 @@ func main() {
 	var dnsProviderName string
 	if len(providerNames) == 1 {
 		dnsProviderName = providerNames[0]
-		log.Info("[provider] Only one DNS provider defined, using: %s", dnsProviderName)
+		log.Debug("[provider] Only one DNS provider defined, using: %s", dnsProviderName)
 	} else {
 		// If more than one provider, require explicit provider selection per domain
-		log.Info("[provider] Multiple DNS providers defined. Each domain must specify its provider explicitly.")
+		log.Debug("[provider] Multiple DNS providers defined. Each domain must specify its provider explicitly.")
 	}
 
 	// Get the provider configuration (if only one provider, or for each domain as needed)
-	var providerConfig config.ProviderConfig
+	var providerConfig config.DNSProviderConfig
 	if dnsProviderName != "" {
 		var ok bool
 		providerConfig, ok = cfg.Providers[dnsProviderName]
@@ -156,10 +166,30 @@ func main() {
 		}
 	}
 
-	// Use ProviderConfig.GetOptions() to get providerOptions
+	// Use DNSProviderConfig fields and Options
 	providerOptions := make(map[string]string)
 	if dnsProviderName != "" {
-		providerOptions = providerConfig.GetOptions()
+		for k, v := range providerConfig.Options {
+			if strVal, ok := v.(string); ok {
+				providerOptions[k] = strVal
+			}
+		}
+		// Add known fields
+		if providerConfig.APIToken != "" {
+			providerOptions["api_token"] = providerConfig.APIToken
+		}
+		if providerConfig.APIKey != "" {
+			providerOptions["api_key"] = providerConfig.APIKey
+		}
+		if providerConfig.APIEmail != "" {
+			providerOptions["api_email"] = providerConfig.APIEmail
+		}
+		if providerConfig.ZoneID != "" {
+			providerOptions["zone_id"] = providerConfig.ZoneID
+		}
+		if providerConfig.Type != "" {
+			providerOptions["type"] = providerConfig.Type
+		}
 	}
 
 	// Initialize DNS provider if only one is defined
@@ -243,7 +273,9 @@ func main() {
 
 		// Add any additional options from the options map
 		for k, v := range pollProviderConfig.Options {
-			providerOptions[k] = v
+			if strVal, ok := v.(string); ok {
+				providerOptions[k] = strVal
+			}
 		}
 
 		log.Trace("[poll] Provider %s options: %v", pollProfileName, providerOptions)

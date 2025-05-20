@@ -70,7 +70,7 @@ func RegisterProvider(name string, factory ProviderFactory) {
 	if _, dup := providers[name]; dup {
 		log.Fatal("[dns] RegisterProvider called twice for provider %s", name)
 	}
-	log.Debug("[dns] Registering DNS provider: '%s'", name)
+	log.Info("[dns] Registering DNS provider: '%s'", name)
 	providers[name] = factory
 }
 

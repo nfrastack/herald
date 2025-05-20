@@ -104,9 +104,9 @@ func processPollsFromEnv(cfg *ConfigFile) {
 					pollTypes[profileName] = value
 					log.Debug("[config/env] Found poll profile '%s' with type '%s'", profileName, value)
 					if _, exists := cfg.Polls[profileName]; !exists {
-						cfg.Polls[profileName] = ProviderConfig{
+						cfg.Polls[profileName] = PollProviderConfig{
 							Type:    value,
-							Options: make(map[string]string),
+							Options: make(map[string]interface{}),
 						}
 					} else {
 						poll := cfg.Polls[profileName]
@@ -144,9 +144,9 @@ func processPollsFromEnv(cfg *ConfigFile) {
 			continue // only apply options for the correct provider type
 		}
 		if _, exists := cfg.Polls[profileName]; !exists {
-			cfg.Polls[profileName] = ProviderConfig{
+			cfg.Polls[profileName] = PollProviderConfig{
 				Type:    pollType,
-				Options: make(map[string]string),
+				Options: make(map[string]interface{}),
 			}
 		}
 		// Special case for expose_containers
@@ -159,7 +159,7 @@ func processPollsFromEnv(cfg *ConfigFile) {
 		}
 		if cfg.Polls[profileName].Options == nil {
 			poll := cfg.Polls[profileName]
-			poll.Options = make(map[string]string)
+			poll.Options = make(map[string]interface{})
 			cfg.Polls[profileName] = poll
 		}
 		poll := cfg.Polls[profileName]
@@ -191,9 +191,9 @@ func processProvidersFromEnv(cfg *ConfigFile) {
 
 					// Create provider if it doesn't exist
 					if _, exists := cfg.Providers[providerName]; !exists {
-						cfg.Providers[providerName] = ProviderConfig{
+						cfg.Providers[providerName] = DNSProviderConfig{
 							Type:    value,
-							Options: make(map[string]string),
+							Options: make(map[string]interface{}),
 						}
 					} else {
 						// Update the type of existing provider
@@ -233,9 +233,9 @@ func processProvidersFromEnv(cfg *ConfigFile) {
 				providerType = providerName
 			}
 
-			cfg.Providers[providerName] = ProviderConfig{
+			cfg.Providers[providerName] = DNSProviderConfig{
 				Type:    providerType,
-				Options: make(map[string]string),
+				Options: make(map[string]interface{}),
 			}
 		}
 
@@ -276,11 +276,9 @@ func processProvidersFromEnv(cfg *ConfigFile) {
 			provider.APIEmail = value
 			cfg.Providers[providerName] = provider
 		case "default_ttl", "ttl":
-			ttl, err := strconv.Atoi(value)
+			_, err := strconv.Atoi(value)
 			if err == nil {
-				provider := cfg.Providers[providerName]
-				provider.DefaultTTL = ttl
-				cfg.Providers[providerName] = provider
+				log.Warn("[config/env] Default TTL is no longer supported in provider configuration. Use cfg.Defaults.Record.TTL instead.")
 			} else {
 				log.Warn("[config/env] Invalid TTL value for provider %s: %s", providerName, value)
 			}
@@ -288,7 +286,7 @@ func processProvidersFromEnv(cfg *ConfigFile) {
 			// For any other option, store it in the options map
 			if cfg.Providers[providerName].Options == nil {
 				provider := cfg.Providers[providerName]
-				provider.Options = make(map[string]string)
+				provider.Options = make(map[string]interface{})
 				cfg.Providers[providerName] = provider
 			}
 			provider := cfg.Providers[providerName]
@@ -490,7 +488,7 @@ func mergeEnvironmentOverrides(cfg *ConfigFile) {
 	// Merge polls
 	for pollKey, pollCfg := range cfg.Polls {
 		if pollCfg.Options == nil {
-			pollCfg.Options = make(map[string]string)
+			pollCfg.Options = make(map[string]interface{})
 		}
 		cfg.Polls[pollKey] = pollCfg
 	}
@@ -498,7 +496,7 @@ func mergeEnvironmentOverrides(cfg *ConfigFile) {
 	// Merge providers
 	for providerKey, providerCfg := range cfg.Providers {
 		if providerCfg.Options == nil {
-			providerCfg.Options = make(map[string]string)
+			providerCfg.Options = make(map[string]interface{})
 		}
 		cfg.Providers[providerKey] = providerCfg
 	}
@@ -549,11 +547,6 @@ func ApplyConfigToEnv(cfg *ConfigFile, prefix string) {
 			setIfPresent(prefix+"API_EMAIL", provider.APIEmail)
 			setIfPresent(providerTypePrefix+"API_EMAIL", provider.APIEmail)
 		}
-		if provider.DefaultTTL > 0 {
-			ttlStr := strconv.Itoa(provider.DefaultTTL)
-			setIfPresent(prefix+"DEFAULT_TTL", ttlStr)
-			setIfPresent(providerTypePrefix+"DEFAULT_TTL", ttlStr)
-		}
 		if providerName == "cloudflare" || provider.Type == "cloudflare" {
 			if provider.APIEmail != "" {
 				setIfPresent("CF_EMAIL", provider.APIEmail)
@@ -563,8 +556,8 @@ func ApplyConfigToEnv(cfg *ConfigFile, prefix string) {
 			}
 		}
 		for option, value := range provider.Options {
-			setIfPresent(prefix+strings.ToUpper(option), value)
-			setIfPresent(providerTypePrefix+strings.ToUpper(option), value)
+			setIfPresent(prefix+strings.ToUpper(option), fmt.Sprintf("%v", value))
+			setIfPresent(providerTypePrefix+strings.ToUpper(option), fmt.Sprintf("%v", value))
 		}
 	}
 }

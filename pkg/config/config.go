@@ -6,17 +6,18 @@ package config
 
 import (
 	"container-dns-companion/pkg/log"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
 )
 
 type ConfigFile struct {
-	General   GeneralConfig             `yaml:"general"`
-	Defaults  DefaultsConfig            `yaml:"defaults"`
-	Providers map[string]ProviderConfig `yaml:"providers"`
-	Polls     map[string]ProviderConfig `yaml:"polls"`
-	Domains   map[string]DomainConfig   `yaml:"domains"`
+	General   GeneralConfig                 `yaml:"general"`
+	Defaults  DefaultsConfig                `yaml:"defaults"`
+	Providers map[string]DNSProviderConfig  `yaml:"providers"`
+	Polls     map[string]PollProviderConfig `yaml:"polls"`
+	Domains   map[string]DomainConfig       `yaml:"domains"`
 }
 
 type GeneralConfig struct {
@@ -39,14 +40,20 @@ type RecordConfig struct {
 	AllowMultiple  bool   `yaml:"allow_multiple"`
 }
 
-type ProviderConfig struct {
-	Type             string            `yaml:"type"`
-	APIToken         string            `yaml:"api_token"`
-	APIKey           string            `yaml:"api_key"`
-	APIEmail         string            `yaml:"api_email"`
-	DefaultTTL       int               `yaml:"default_ttl"`
-	ExposeContainers bool              `yaml:"expose_containers"`
-	Options          map[string]string `yaml:"options"`
+type DNSProviderConfig struct {
+	Type     string                 `yaml:"type"`
+	APIToken string                 `yaml:"api_token"`
+	APIKey   string                 `yaml:"api_key"`
+	APIEmail string                 `yaml:"api_email"`
+	ZoneID   string                 `yaml:"zone_id"`
+	Options  map[string]interface{} `yaml:",inline"`
+}
+
+type PollProviderConfig struct {
+	Type             string                 `yaml:"type"`
+	ExposeContainers bool                   `yaml:"expose_containers"`
+	DefaultTTL       int                    `yaml:"default_ttl"`
+	Options          map[string]interface{} `yaml:",inline"`
 }
 
 type DomainConfig struct {
@@ -157,24 +164,52 @@ func GetGlobalPollers() []string {
 	return pollers
 }
 
-// Add ProviderConfig methods here since struct is defined in this file
-func (pc *ProviderConfig) GetOptions() map[string]string {
-	return pc.setProviderOptions()
+// Add DNSProviderConfig methods here since struct is defined in this file
+func (dpc *DNSProviderConfig) GetOptions() map[string]string {
+	options := make(map[string]string)
+	for k, v := range dpc.Options {
+		if strVal, ok := v.(string); ok {
+			options[k] = strVal
+		}
+	}
+	if dpc.APIToken != "" {
+		options["api_token"] = dpc.APIToken
+	}
+	if dpc.APIKey != "" {
+		options["api_key"] = dpc.APIKey
+	}
+	if dpc.APIEmail != "" {
+		options["api_email"] = dpc.APIEmail
+	}
+	if dpc.ZoneID != "" {
+		options["zone_id"] = dpc.ZoneID
+	}
+	if dpc.Type != "" {
+		options["type"] = dpc.Type
+	}
+	log.Debug("[config/file] DNS provider options: %v", options)
+	return options
 }
 
-func (pc *ProviderConfig) setProviderOptions() map[string]string {
+// Add PollProviderConfig methods here since struct is defined in this file
+func (ppc *PollProviderConfig) GetOptions() map[string]string {
+	return ppc.setPollProviderOptions()
+}
+
+func (ppc *PollProviderConfig) setPollProviderOptions() map[string]string {
 	options := make(map[string]string)
-	if pc.ExposeContainers {
+	if ppc.ExposeContainers {
 		options["expose_containers"] = "true"
-		log.Debug("[config/file] Setting provider option expose_containers = true")
+		log.Debug("[config/file] Setting poll provider option expose_containers = true")
 	} else {
 		options["expose_containers"] = "false"
-		log.Debug("[config/file] Setting provider option expose_containers = false")
+		log.Debug("[config/file] Setting poll provider option expose_containers = false")
 	}
-	for k, v := range pc.Options {
-		log.Debug("[config/file] Setting provider option %s = %s", k, v)
-		options[k] = v
+	for k, v := range ppc.Options {
+		// Convert interface{} to string
+		options[k] = fmt.Sprintf("%v", v)
+		log.Debug("[config/file] Setting poll provider option %s = %v", k, v)
 	}
-	log.Debug("[config/file] Provider options: %v", options)
+	log.Debug("[config/file] Poll provider options: %v", options)
 	return options
 }
