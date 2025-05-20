@@ -7,6 +7,6 @@
 Containerfile
 Dockerfile
 bin/
+container-dns-companion.conf
 devenv*
-dns-companion.conf
 flake.*
