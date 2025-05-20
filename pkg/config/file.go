@@ -77,6 +77,25 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	return &cfg, nil
 }
 
+// deepMergeMap recursively merges src into dst (both map[string]interface{}), combining nested maps
+func deepMergeMap(dst, src map[string]interface{}) map[string]interface{} {
+	if dst == nil {
+		dst = map[string]interface{}{}
+	}
+	for k, v := range src {
+		if vMap, ok := v.(map[string]interface{}); ok {
+			if dstMap, ok := dst[k].(map[string]interface{}); ok {
+				dst[k] = deepMergeMap(dstMap, vMap)
+			} else {
+				dst[k] = deepMergeMap(nil, vMap)
+			}
+		} else {
+			dst[k] = v
+		}
+	}
+	return dst
+}
+
 // preprocessIncludes recursively processes 'include' keys in YAML files
 func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]byte, error) {
 	// Prevent circular includes
@@ -114,6 +133,7 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 			if !strings.HasPrefix(incFile, "/") && basePath != "" {
 				incPath = getIncludePath(basePath, incFile)
 			}
+			log.Debug("[config/file] Including file: %s", incPath)
 			incData, err := os.ReadFile(incPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read included file %s: %w", incPath, err)
@@ -124,13 +144,8 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 			}
 			var incRaw map[string]interface{}
 			yaml.Unmarshal(incProcessed, &incRaw)
-			// Merge incRaw into raw (shallow merge, top-level keys)
-			for k, v := range incRaw {
-				if k == "include" {
-					continue // don't re-merge includes
-				}
-				raw[k] = v
-			}
+			// Deep merge incRaw into raw
+			raw = deepMergeMap(raw, incRaw)
 		}
 		delete(raw, "include")
 	}
@@ -159,13 +174,23 @@ func FindConfigFile(requested string) (string, error) {
 		"container-dns-companion.yml",
 		"container-dns-companion.yaml",
 		"container-dns-companion.conf",
-		"dns-companion.yml",
-		"dns-companion.yaml",
-		"dns-companion.conf",
 	)
 	for _, name := range candidates {
+		// Check current directory
 		if _, err := os.Stat(name); err == nil {
 			return name, nil
+		}
+		// Check /etc directory
+		etcPath := "/etc/" + name
+		if _, err := os.Stat(etcPath); err == nil {
+			return etcPath, nil
+		}
+		// Check root directory if not absolute path
+		if !strings.HasPrefix(name, "/") {
+			rootPath := "/" + name
+			if _, err := os.Stat(rootPath); err == nil {
+				return rootPath, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("no configuration file found (tried: %v)", candidates)

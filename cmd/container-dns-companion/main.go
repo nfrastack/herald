@@ -65,19 +65,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Load DRY_RUN and LOG_LEVEL from env if not set by flag
-	dryRun := *dryRunFlag || strings.ToLower(os.Getenv("DRY_RUN")) == "true"
-	logLevel := *logLevelFlag
-	if logLevel == "" {
-		logLevel = os.Getenv("LOG_LEVEL")
-	}
-	if logLevel == "" {
-		logLevel = "info"
-	}
-
-	// Initialize logger early to avoid singleton lock-in at wrong level
-	log.Initialize(logLevel, true)
-
 	// Determine the config file path
 	configFile := "container-dns-companion.yml"
 	if *configFilePath != "" {
@@ -97,11 +84,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Override config with env and flags
-	if logLevel != "" {
-		cfg.General.LogLevel = logLevel
+	// Override config with env and flags (only if set)
+	if *logLevelFlag != "" {
+		cfg.General.LogLevel = *logLevelFlag
+	} else if os.Getenv("LOG_LEVEL") != "" {
+		cfg.General.LogLevel = os.Getenv("LOG_LEVEL")
 	}
-	cfg.General.DryRun = dryRun
+	cfg.General.DryRun = *dryRunFlag || strings.ToLower(os.Getenv("DRY_RUN")) == "true"
+
+	// Initialize logger with the final config value
+	log.Initialize(cfg.General.LogLevel, cfg.General.LogTimestamps)
 
 	system, user := IsRunningUnderSystemd()
 	if !system && !user {
