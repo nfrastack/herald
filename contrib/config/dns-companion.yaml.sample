@@ -1,3 +1,6 @@
+# Example: Including another YAML file
+include: dns-extra.yaml
+
 general:
   log_level: "info"
   log_timestamps: true
