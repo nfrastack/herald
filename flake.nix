@@ -195,6 +195,20 @@
               };
               description = "Domain profiles. Each key is the domain profile name, and the value is an attribute set of options for that domain.";
             };
+
+            include = lib.mkOption {
+              type = with lib.types; either str (listOf str);
+              default = null;
+              example = [ "/etc/container-dns-companion/extra1.yml" "/etc/container-dns-companion/extra2.yml" ];
+              description = ''
+                One or more YAML files to include into the main configuration. Can be a string (single file) or a list of file paths.
+                Example:
+                include = "/etc/container-dns-companion/extra.yml";
+                or
+                include = [ "/etc/container-dns-companion/extra1.yml" "/etc/container-dns-companion/extra2.yml" ];
+                Included files are merged into the main config. Later files override earlier ones.
+              '';
+            };
           };
 
           config = lib.mkIf cfg.enable {
@@ -209,7 +223,8 @@
                   // (if cfg.defaults != {} then { defaults = cfg.defaults; } else {})
                   // (if cfg.polls != {} then { polls = reorderSection cfg.polls; } else {})
                   // (if cfg.providers != {} then { providers = reorderSection cfg.providers; } else {})
-                  // (if cfg.domains != {} then { domains = cfg.domains; } else {});
+                  // (if cfg.domains != {} then { domains = cfg.domains; } else {})
+                  // (if cfg.include != null then { include = cfg.include; } else {});
               in yaml.generate "container-dns-companion.yml" configData;
 
             systemd.services.container-dns-companion = lib.mkIf cfg.service.enable {

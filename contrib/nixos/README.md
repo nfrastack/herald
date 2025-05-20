@@ -79,6 +79,10 @@ This flake provides a NixOS module that allows you to configure and run the Cont
         exclude_subdomains = [ "dev" "staging" ];
       };
     };
+    include = [
+      "/etc/container-dns-companion/extra1.yml"
+      "/etc/container-dns-companion/extra2.yml"
+    ];
   };
 }
 ```
@@ -131,5 +135,6 @@ Here are the available options for the NixOS module (services.container-dns-comp
       * `allow_multiple` (bool): Allow multiple records.
     * `include_subdomains` (list of str): Subdomains to include.
     * `exclude_subdomains` (list of str): Subdomains to exclude.
+* `include` (str or list of str): One or more YAML files to include into the main configuration.
 
 This setup allows you to fully configure and manage the Container DNS Companion service declaratively using NixOS.
