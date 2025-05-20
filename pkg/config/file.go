@@ -29,7 +29,14 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("[config/file] failed to read config file: %w", err)
 	}
-	err = yaml.Unmarshal(data, &cfg)
+
+	// Preprocess for includes
+	processed, err := preprocessIncludes(data, path, map[string]bool{})
+	if err != nil {
+		return nil, fmt.Errorf("[config/file] failed to process includes: %w", err)
+	}
+
+	err = yaml.Unmarshal(processed, &cfg)
 	if err != nil {
 		return nil, fmt.Errorf("[config/file] failed to decode YAML: %w", err)
 	}
@@ -56,6 +63,77 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	}
 
 	return &cfg, nil
+}
+
+// preprocessIncludes recursively processes 'include' keys in YAML files
+func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]byte, error) {
+	// Prevent circular includes
+	absPath, _ := os.Getwd()
+	if !strings.HasPrefix(basePath, "/") && absPath != "" {
+		basePath = absPath + "/" + basePath
+	}
+	if seen[basePath] {
+		return nil, fmt.Errorf("circular include detected for %s", basePath)
+	}
+	seen[basePath] = true
+
+	var raw map[string]interface{}
+	err := yaml.Unmarshal(data, &raw)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for 'include' key (can be string or list)
+	if inc, ok := raw["include"]; ok {
+		var includeFiles []string
+		switch v := inc.(type) {
+		case string:
+			includeFiles = []string{v}
+		case []interface{}:
+			for _, f := range v {
+				if s, ok := f.(string); ok {
+					includeFiles = append(includeFiles, s)
+				}
+			}
+		}
+		for _, incFile := range includeFiles {
+			// Resolve relative to basePath
+			incPath := incFile
+			if !strings.HasPrefix(incFile, "/") && basePath != "" {
+				incPath = getIncludePath(basePath, incFile)
+			}
+			incData, err := os.ReadFile(incPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read included file %s: %w", incPath, err)
+			}
+			incProcessed, err := preprocessIncludes(incData, incPath, seen)
+			if err != nil {
+				return nil, err
+			}
+			var incRaw map[string]interface{}
+			yaml.Unmarshal(incProcessed, &incRaw)
+			// Merge incRaw into raw (shallow merge, top-level keys)
+			for k, v := range incRaw {
+				if k == "include" {
+					continue // don't re-merge includes
+				}
+				raw[k] = v
+			}
+		}
+		delete(raw, "include")
+	}
+
+	// Marshal back to YAML
+	return yaml.Marshal(raw)
+}
+
+// getIncludePath resolves incFile relative to basePath
+func getIncludePath(basePath, incFile string) string {
+	dir := basePath
+	if idx := strings.LastIndex(basePath, "/"); idx != -1 {
+		dir = basePath[:idx]
+	}
+	return dir + "/" + incFile
 }
 
 // FindConfigFile searches for the config file in the current directory and common variants
