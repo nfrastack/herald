@@ -60,7 +60,7 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	if cfg.General.LogLevel == "" {
 		cfg.General.LogLevel = "info"
 	}
-	if os.Getenv("LOG_TIMESTAMPS") == "" && !fieldSetInConfigFile(path, "log_timestamps") {
+	if os.Getenv("LOG_TIMESTAMPS") == "" && !FieldSetInConfigFile(path, "log_timestamps") {
 		cfg.General.LogTimestamps = true
 	}
 	if cfg.General.LogType == "" {
@@ -250,26 +250,22 @@ func FindConfigFile(requested string) (string, error) {
 	return "", fmt.Errorf("no configuration file found (tried: %v)", candidates)
 }
 
-// Helper to check if a field is set in the config file (for booleans)
-func fieldSetInConfigFile(path, field string) bool {
-	f, err := os.Open(path)
+// FieldSetInConfigFile checks if a field is explicitly set in the config file (top-level only)
+func FieldSetInConfigFile(configFilePath, field string) bool {
+	data, err := os.ReadFile(configFilePath)
 	if err != nil {
 		return false
 	}
-	defer f.Close()
-	buf := make([]byte, 4096)
-	for {
-		n, err := f.Read(buf)
-		if n > 0 {
-			if strings.Contains(string(buf[:n]), field+" = ") {
-				return true
-			}
-		}
-		if err != nil {
-			break
-		}
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return false
 	}
-	return false
+	general, ok := raw["general"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	_, exists := general[field]
+	return exists
 }
 
 // Helper to check if a string is an IP address

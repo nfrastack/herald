@@ -59,6 +59,15 @@ var (
 func main() {
 	flag.Parse()
 
+	// Detect if running under systemd as early as possible
+	system, user := IsRunningUnderSystemd()
+
+	// Set default log_timestamps based on systemd detection
+	defaultLogTimestamps := true
+	if system {
+		defaultLogTimestamps = false
+	}
+
 	// Determine initial log level from CLI or env
 	initialLogLevel := "info"
 	if *logLevelFlag != "" {
@@ -73,7 +82,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	system, user := IsRunningUnderSystemd()
 	if !system && !user {
 		fmt.Println()
 		fmt.Println("             .o88o.                                 .                       oooo")
@@ -90,8 +98,8 @@ func main() {
 	fmt.Printf("© 2025 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
 	fmt.Println()
 
-	// Initialize logger with detected log level before config loading
-	log.Initialize(initialLogLevel, true)
+	// Initialize logger with detected log level and default timestamps before config loading
+	log.Initialize(initialLogLevel, defaultLogTimestamps)
 
 	log.Trace("Built: %s", BuildTime)
 	// Determine the config file path
@@ -116,13 +124,28 @@ func main() {
 	// Clean up config sections to remove invalid keys after merging includes
 	config.CleanConfigSections(cfg)
 
-	// Override config with env and flags (only if set)
+	// Only override log_timestamps if explicitly set by config/env/flag
+	logTimestamps := defaultLogTimestamps
 	if *logLevelFlag != "" {
 		cfg.General.LogLevel = *logLevelFlag
 	} else if os.Getenv("LOG_LEVEL") != "" {
 		cfg.General.LogLevel = os.Getenv("LOG_LEVEL")
 	}
 	cfg.General.DryRun = *dryRunFlag || strings.ToLower(os.Getenv("DRY_RUN")) == "true"
+
+	// Check for explicit log_timestamps in env or config
+	if val := os.Getenv("LOG_TIMESTAMPS"); val != "" {
+		valLower := strings.ToLower(val)
+		if valLower == "false" || valLower == "0" || valLower == "no" {
+			logTimestamps = false
+		} else if valLower == "true" || valLower == "1" || valLower == "yes" {
+			logTimestamps = true
+		}
+	} else if config.FieldSetInConfigFile(configFilePath, "log_timestamps") {
+		logTimestamps = cfg.General.LogTimestamps
+	}
+
+	cfg.General.LogTimestamps = logTimestamps
 
 	// Re-initialize logger with the final config value
 	log.Initialize(cfg.General.LogLevel, cfg.General.LogTimestamps)
@@ -135,9 +158,6 @@ func main() {
 
 	// Apply configuration to environment variables
 	config.ApplyConfigToEnv(cfg, "")
-
-	// Load environment variable configuration (overrides config file)
-	config.LoadFromEnvironment(cfg)
 
 	// Register DNS providers after logging is initialized
 	providers.RegisterProviders()
