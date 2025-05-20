@@ -62,3 +62,9 @@ func ApplyOverrides(opts *Options) {
 		config.SetEnvVar("DRY_RUN", "true")
 	}
 }
+
+// RegisterConfigFlags registers -config and -config-file flags for config files
+func RegisterConfigFlags(fs *flag.FlagSet, configs *config.StringSliceFlag) {
+	fs.Var(configs, "config", "Path to config file (can be specified multiple times)")
+	fs.Var(configs, "config-file", "Path to config file (can be specified multiple times)")
+}

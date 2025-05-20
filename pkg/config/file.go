@@ -19,6 +19,18 @@ import (
 // SecretRegex matches environment variable references like ${ENV_VAR}
 var SecretRegex = regexp.MustCompile(`\${([^}]+)}`)
 
+// StringSliceFlag is a flag.Value that collects multiple string values
+type StringSliceFlag []string
+
+func (s *StringSliceFlag) String() string {
+	return "[" + strings.Join(*s, ", ") + "]"
+}
+
+func (s *StringSliceFlag) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
+
 // LoadConfigFile loads the configuration from a YAML file (any extension)
 func LoadConfigFile(path string) (*ConfigFile, error) {
 	log.Debug("[config/file] Loading configuration from %s", path)
@@ -232,4 +244,56 @@ func parseCommaList(s string) []string {
 		}
 	}
 	return out
+}
+
+// MergeConfigFile merges src into dst, with src overriding dst where set
+func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
+	if dst == nil {
+		dst = &ConfigFile{}
+	}
+	if src == nil {
+		return dst
+	}
+	// Merge General section
+	if src.General.LogLevel != "" {
+		dst.General.LogLevel = src.General.LogLevel
+	}
+	if src.General.LogType != "" {
+		dst.General.LogType = src.General.LogType
+	}
+	if src.General.LogTimestamps {
+		dst.General.LogTimestamps = src.General.LogTimestamps
+	}
+	if len(src.General.PollProfiles) > 0 {
+		dst.General.PollProfiles = src.General.PollProfiles
+	}
+	if src.General.DryRun {
+		dst.General.DryRun = src.General.DryRun
+	}
+	// Merge Defaults
+	if (src.Defaults != DefaultsConfig{}) {
+		dst.Defaults = src.Defaults
+	}
+	// Merge Providers (src overrides dst)
+	if dst.Providers == nil {
+		dst.Providers = map[string]ProviderConfig{}
+	}
+	for k, v := range src.Providers {
+		dst.Providers[k] = v
+	}
+	// Merge Polls (src overrides dst)
+	if dst.Polls == nil {
+		dst.Polls = map[string]ProviderConfig{}
+	}
+	for k, v := range src.Polls {
+		dst.Polls[k] = v
+	}
+	// Merge Domains (src overrides dst)
+	if dst.Domains == nil {
+		dst.Domains = map[string]DomainConfig{}
+	}
+	for k, v := range src.Domains {
+		dst.Domains[k] = v
+	}
+	return dst
 }
