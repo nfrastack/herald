@@ -214,7 +214,6 @@
           config = lib.mkIf cfg.enable {
             environment.systemPackages = [ cfg.package ];
 
-            # Generate the config file in the Nix store and link it to the user-specified configFile path under /etc
             environment.etc."${lib.removePrefix "/etc/" cfg.configFile}".source =
               let
                 yaml = pkgs.formats.yaml { };
