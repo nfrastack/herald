@@ -44,29 +44,30 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 
 	// Get poll interval from options
-	pollIntervalSecs := 60
+	pollInterval := 60 * time.Second
 	if interval := options["interval"]; interval != "" {
-		if parsed, err := strconv.Atoi(interval); err == nil && parsed > 0 {
-			pollIntervalSecs = parsed
+		dur, err := time.ParseDuration(interval)
+		if err == nil && dur > 0 {
+			pollInterval = dur
+		} else if parsed, err := strconv.Atoi(interval); err == nil && parsed > 0 {
+			pollInterval = time.Duration(parsed) * time.Second
 		}
 	}
 
 	configPath := options["config_path"]
-	if configPath == "" {
-		return nil, fmt.Errorf("traefik: config_path option is required")
-	}
-
-	// Ensure path exists
-	configPath, err := filepath.Abs(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("traefik: invalid config path: %v", err)
+	if configPath != "" {
+		var err error
+		configPath, err = filepath.Abs(configPath)
+		if err != nil {
+			return nil, fmt.Errorf("[poll/traefik] invalid config path: %v", err)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &TraefikProvider{
 		pollURL:      pollURL,
-		pollInterval: time.Duration(pollIntervalSecs) * time.Second,
+		pollInterval: pollInterval,
 		running:      false,
 		ctx:          ctx,
 		cancel:       cancel,
@@ -82,7 +83,7 @@ func init() {
 
 // StartPolling starts polling Traefik for routers
 func (t *TraefikProvider) StartPolling() error {
-	log.Info("[poll/traefik] Starting polling")
+	log.Info("[poll/traefik] Starting polling (interval: %s)", t.pollInterval)
 
 	if t.running {
 		return nil
@@ -157,32 +158,32 @@ func (t *TraefikProvider) processTraefikRouters() error {
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(t.ctx, "GET", t.pollURL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("[poll/traefik] failed to create request: %w", err)
 	}
 
 	// Send request
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return fmt.Errorf("[poll/traefik] failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Read response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+		return fmt.Errorf("[poll/traefik] failed to read response: %w", err)
 	}
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return fmt.Errorf("[poll/traefik] unexpected status code: %d", resp.StatusCode)
 	}
 
 	// Parse JSON response
 	var routers map[string]interface{}
 	if err := json.Unmarshal(body, &routers); err != nil {
-		return fmt.Errorf("failed to parse JSON: %w", err)
+		return fmt.Errorf("[poll/traefik] failed to parse JSON: %w", err)
 	}
 
 	// Extract hostnames from router rules
