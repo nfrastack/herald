@@ -68,13 +68,8 @@ func main() {
 		defaultLogTimestamps = false
 	}
 
-	// Determine initial log level from CLI or env
-	initialLogLevel := "info"
-	if *logLevelFlag != "" {
-		initialLogLevel = *logLevelFlag
-	} else if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
-		initialLogLevel = lvl
-	}
+	// Initialize logger early to avoid singleton lock-in at wrong level
+	log.Initialize("info", true)
 
 	// Show version if requested
 	if *showVersion {
@@ -97,9 +92,6 @@ func main() {
 	fmt.Printf("Starting Container DNS Companion version: %s \n", versionString(false))
 	fmt.Printf("© 2025 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
 	fmt.Println()
-
-	// Initialize logger with detected log level and default timestamps before config loading
-	log.Initialize(initialLogLevel, defaultLogTimestamps)
 
 	log.Trace("Built: %s", BuildTime)
 	// Determine the config file path
@@ -147,8 +139,11 @@ func main() {
 
 	cfg.General.LogTimestamps = logTimestamps
 
+	log.GetLogger().SetLevel(cfg.General.LogLevel)
+	log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
+
 	// Re-initialize logger with the final config value
-	log.Initialize(cfg.General.LogLevel, cfg.General.LogTimestamps)
+	//log.Initialize(cfg.General.LogLevel, cfg.General.LogTimestamps)
 
 	log.Info("[config] Using config file: %s", configFilePath)
 
