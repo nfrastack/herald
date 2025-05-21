@@ -124,7 +124,7 @@ func processPollsFromEnv(cfg *ConfigFile) {
 			continue
 		}
 		profileName := strings.ToLower(matches[1])
-		optionFullName := strings.ToLower(matches[2])
+		option := strings.ToLower(matches[2])
 		value := os.Getenv(envVar)
 		if value == "" {
 			continue
@@ -132,16 +132,6 @@ func processPollsFromEnv(cfg *ConfigFile) {
 		pollType, hasType := pollTypes[profileName]
 		if !hasType || pollType == "" {
 			continue // skip if no type set for this profile
-		}
-		// Expect optionFullName to be in the form PROVIDERTYPE_OPTION
-		parts := strings.SplitN(optionFullName, "_", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		providerType := parts[0]
-		option := parts[1]
-		if providerType != pollType {
-			continue // only apply options for the correct provider type
 		}
 		if _, exists := cfg.Polls[profileName]; !exists {
 			cfg.Polls[profileName] = PollProviderConfig{
