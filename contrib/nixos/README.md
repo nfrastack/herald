@@ -115,7 +115,7 @@ Here are the available options for the NixOS module (services.container-dns-comp
   * `traefik` (attrs):
     * `type` (str): "traefik"
     * `poll_url` (str): Traefik API URL.
-    * `poll_interval` (int): Poll interval in seconds.
+    * `poll_interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
 * `providers` (attrs): DNS provider profiles. Example:
   * `cloudflare` (attrs):
     * `type` (str): "cloudflare"
