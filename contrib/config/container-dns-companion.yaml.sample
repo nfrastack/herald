@@ -17,12 +17,12 @@ defaults:
     allow_multiple: false
 
 providers:
-  cloudflare:
+  providerexample:
     type: "cloudflare"
     api_token: "your_api_token_here"
 
 polls:
-  docker:
+  pollexample:
     type: "docker"
     host: "unix:///var/run/docker.sock"   #Unix socket
     #host: "tcp://docker.example.com:2376" #TLS
@@ -36,15 +36,16 @@ polls:
     #  cert: "/etc/docker/certs/cert.pem"
     #  key: "/etc/docker/certs/key.pem"
 
-  traefik:
-    type: "traefik"
-    poll_url: "http://traefik:8080/api/http/routers"
-    poll_interval: 60
+  pollexample2:
+    type: traefik
+    poll_url: http://traefik:8080/api/http/routers
+    poll_interval: 30s  # or 60, 1m, 1h, etc.
+    #config_path: /etc/traefik/dynamic
 
 domains:
-  example_com:
+  domainexample:
     name: "example.com"
-    provider: "cloudflare"
+    provider: "providerexample"
     zone_id: "your_zone_id_here"
     record:
       type: "A"
