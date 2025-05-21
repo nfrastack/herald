@@ -41,11 +41,9 @@ Dockerfile to build an [Container-dns-companion DNS Cache](https://github.com/nf
 - You have a Docker environment available to poll container information from
 - You have access to your DNS server
 
-
 ## Installation
 
 Automated builds of the image are available on [Docker Hub](https://hub.docker.com/r/nfrastack/container-dns-companion)
-
 
 ```bash
 docker pull hub.docker.com/nfrastack/container-dns-companion:(imagetag)
@@ -58,15 +56,15 @@ docker pull ghcr.io/nfrastack/container-dns-companion:(imagetag)
 ```
 
 The following image tags are available along with the repository Releases:
-* `latest` - Most recent release of container-dns-companion w/ Alpine Linux
+
+- `latest` - Most recent release of container-dns-companion w/ Alpine Linux
 
 ### Quick Start
 
-* The quickest way to get started is using [docker-compose](https://docs.docker.com/compose/). See the examples folder for a working [compose.yml](../contrib/container/compose.yml) that can be modified for development or production use.
+- The quickest way to get started is using [docker-compose](https://docs.docker.com/compose/). See the examples folder for a working [compose.yml](../contrib/container/compose.yml) that can be modified for development or production use.
 
-* Set various [environment variables](#environment-variables) to understand the capabilities of this image.
-* Map [persistent storage](#data-volumes) for access to configuration and data files for backup.
-
+- Set various [environment variables](#environment-variables) to understand the capabilities of this image.
+- Map [persistent storage](#data-volumes) for access to configuration and data files for backup.
 
 ## Configuration
 
@@ -78,10 +76,9 @@ The following image tags are available along with the repository Releases:
 | `config/` | Optional Config File Path |
 | `/var/run/docker.sock` | (example) You must have access to a docker socket in order to utilize the Docker polling functionality |
 
-
 ### Environment Variables
 
-* This Container uses a [customized Alpine Linux base](https://hub.docker.com/r/nfrastack/base) that contains advanced functionality for logging, metrics, monitoring and more.
+- This Container uses a [customized Alpine Linux base](https://hub.docker.com/r/nfrastack/base) that contains advanced functionality for logging, metrics, monitoring and more.
 
 Along with the Environment Variables from the [Base image](https://hub.docker.com/r/nfrastack/base), below are the complete list of available options that can be used to customize your installation.
 
@@ -134,6 +131,7 @@ If you don't add anything in the Poll Provider environment variables the followi
 ##### Defaults
 
 These defaults
+
 | Variable                                    | Description                                   | Default                       |
 | ------------------------------------------- | --------------------------------------------- | ----------------------------- |
 | `DEFAULT_POLL_DOCKER_EXPOSE_CONTAINERS`     | Expose all Docker containers                  | `TRUE`                        |
@@ -164,7 +162,6 @@ Create as many providers as you want under the syntax of `POLL_`<PROFILENAME>`_<
 | `POLL_01_POLL_INTERVAL`         | Traefik poll interval (seconds)               | `60`                                   |
 | `POLL_01_FILTER_TYPE`           | Traefik poll filter type                      | `none`                                 |
 
-
 ## Maintenance
 
 ### Shell Access
@@ -180,23 +177,28 @@ docker exec -it (whatever your container name is e.g. container-dns-companion) b
 These images were built to serve a specific need in a production environment and gradually have had more functionality added based on requests from the community.
 
 ### Usage
+
 - The [Discussions board](../../discussions) is a great place for working with the community on tips and tricks of using this image.
 - [Contact](https://nfrastack.com) for personalized support
 
 ### Bugfixes
+
 - Please, submit a [Bug Report](issues/new) if something isn't working as expected. I'll do my best to issue a fix in short order.
 
 ### Feature Requests
+
 - Feel free to submit a feature request, however there is no guarantee that it will be added, or at what timeline.
 - [Contact](https://nfrastack.com) regarding development of features.
 
 ### Updates
+
 - Best effort to track upstream changes, More priority if I am actively using the image in a production environment.
 - [Contact](https://nfrastack.com) for up to date releases.
 
 ## License
+
 BSD-3-Clause. See [../LICENSE](LICENSE) for more details.
 
 ## References
 
-* https://github.com/tiredofit/docker-traefik-cloudflare-companion
+- <https://github.com/tiredofit/docker-traefik-cloudflare-companion>

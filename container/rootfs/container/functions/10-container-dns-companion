@@ -109,8 +109,8 @@ ${POLL_DOCKER_TLS_CA_PATH:+      ca: ${POLL_DOCKER_TLS_CA_PATH}}
 ${POLL_DOCKER_TLS_CERT_PATH:+      cert: ${POLL_DOCKER_TLS_CERT_PATH}}
 ${POLL_DOCKER_TLS_KEY_PATH:+      key: ${POLL_DOCKER_TLS_KEY_PATH}}
 ${POLL_DOCKER_TLS_VERIFY:+      verify: ${POLL_DOCKER_TLS_VERIFY,,}}
-                                              )"
 EOF
+                                              )"
                     fi
                     _configPoll+="$(cat <<EOF
   ${!POLL_TYPE,,}${i}:
