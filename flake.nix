@@ -168,7 +168,13 @@
                 traefik = {
                   type = "traefik";
                   poll_url = "http://traefik:8080/api/http/routers";
-                  poll_interval = 60;
+                  poll_interval = lib.mkOption {
+                    type = lib.types.str;
+                    default = "60s";
+                    description = ''
+                      How often to poll the Traefik API for updates. Supports Go duration units (e.g., `15s`, `1m`, `1h`, or just `60` for 60 seconds).
+                    '';
+                  };
                 };
               };
               description = "Poll profiles for service/container discovery. Each key is the poller name, and the value is an attribute set of options for that poller. TLS options for Docker are nested under 'tls'.";
