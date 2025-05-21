@@ -363,7 +363,7 @@ func setDomainSettingsFromEnv(cfg *ConfigFile) {
 		}
 
 		// Process all environment variables for this domain
-		setNamedDomainConfigFromEnv(domainKey, domainName, &domainCfg)
+		setNamedDomainConfigFromEnv(domainKey, domainName, configKey, &domainCfg)
 
 		// Save the domain config
 		cfg.Domains[configKey] = domainCfg
@@ -371,7 +371,7 @@ func setDomainSettingsFromEnv(cfg *ConfigFile) {
 }
 
 // setNamedDomainConfigFromEnv configures a specific domain from environment variables using named format
-func setNamedDomainConfigFromEnv(domainKey, domainName string, domainCfg *DomainConfig) {
+func setNamedDomainConfigFromEnv(domainKey, domainName, configKey string, domainCfg *DomainConfig) {
 	prefix := fmt.Sprintf("DOMAIN_%s_", strings.ToUpper(domainKey))
 
 	// Zone ID
