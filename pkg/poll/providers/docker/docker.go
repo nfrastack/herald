@@ -916,7 +916,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	if hasDNSLabel {
 		val := strings.ToLower(dnsLabel)
 		if val == "false" || val == "0" {
-			log.Debug("[poll/docker] Skipping container '%s' due to nfrastack.dns.enable/nfrastack.dns label set to false", containerName)
+			log.Debug("[poll/docker] Skipping container '%s' due to 'nfrastack.dns.enable' label set to false", containerName)
 			return entries
 		}
 		if val == "true" || val == "1" {
@@ -927,7 +927,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 			return entries
 		}
 	} else if !p.config.ExposeContainers {
-		log.Debug("[poll/docker] Skipping container '%s' because 'expose_containers=false' and no enable label is set", containerName)
+		log.Debug("[poll/docker] Skipping container '%s' because 'expose_containers=false' and no 'nfrastack.dns.enable' label is set", containerName)
 		return entries
 	}
 
