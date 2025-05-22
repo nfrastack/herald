@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"reflect"
 )
 
 type ConfigFile struct {
@@ -187,29 +188,58 @@ func (dpc *DNSProviderConfig) GetOptions() map[string]string {
 	if dpc.Type != "" {
 		options["type"] = dpc.Type
 	}
-	log.Debug("[config/file] DNS provider options: %v", options)
+
+	// Create masked options map for logging
+	maskedOptions := utils.MaskSensitiveOptions(options)
+	log.Debug("[config/file] DNS provider options: %v", maskedOptions)
+
 	return options
 }
 
 // Add PollProviderConfig methods here since struct is defined in this file
 func (ppc *PollProviderConfig) GetOptions() map[string]string {
-	return ppc.setPollProviderOptions()
-}
-
-func (ppc *PollProviderConfig) setPollProviderOptions() map[string]string {
 	options := make(map[string]string)
-	if ppc.ExposeContainers {
-		options["expose_containers"] = "true"
-		log.Debug("[config/file] Setting poll provider option expose_containers = true")
-	} else {
-		options["expose_containers"] = "false"
-		log.Debug("[config/file] Setting poll provider option expose_containers = false")
+	// Add all struct fields from the PollProviderConfig struct itself
+	val := reflect.ValueOf(*ppc)
+	typ := reflect.TypeOf(*ppc)
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		key := field.Tag.Get("yaml")
+		if key == "" {
+			key = strings.ToLower(field.Name)
+		}
+		 // Skip the "options" field since we handle it separately
+		if key == ",inline" {
+			continue
+		}
+
+		// Only add string fields
+		if field.Type.Kind() == reflect.String {
+			valStr := val.Field(i).String()
+			if valStr != "" {
+				options[key] = valStr
+			}
+		}
+		// Add bool and int fields as string
+		if field.Type.Kind() == reflect.Bool {
+			options[key] = fmt.Sprintf("%v", val.Field(i).Bool())
+		}
+		if field.Type.Kind() == reflect.Int {
+			intVal := val.Field(i).Int()
+			if intVal != 0 { // Only add non-zero values
+				options[key] = fmt.Sprintf("%d", intVal)
+			}
+		}
 	}
+	// Add all keys from Options map (do not filter or restrict)
 	for k, v := range ppc.Options {
-		// Convert interface{} to string
+		// Convert any type to string
 		options[k] = fmt.Sprintf("%v", v)
-		log.Debug("[config/file] Setting poll provider option %s = %v", k, v)
 	}
-	log.Debug("[config/file] Poll provider options: %v", options)
+
+	// Create masked options map for logging
+	maskedOptions := utils.MaskSensitiveOptions(options)
+	log.Debug("[config/file] Poll provider options (all keys): %v", maskedOptions)
+
 	return options
 }
