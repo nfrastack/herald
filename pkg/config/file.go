@@ -6,6 +6,7 @@ package config
 
 import (
 	"container-dns-companion/pkg/log"
+	"container-dns-companion/pkg/utils"
 
 	"fmt"
 	"net"
@@ -133,7 +134,7 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 	if err != nil {
 		return nil, err
 	}
-	log.Trace("[config/file] Raw YAML map in %s: %#v", basePath, maskSensitiveMap(raw))
+	log.Trace("[config/file] Raw YAML map in %s: %#v", basePath, utils.MaskSensitiveMapRecursive(raw))
 
 	topKeys := make([]string, 0, len(raw))
 	for k := range raw {
@@ -179,7 +180,7 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 			}
 			log.Trace("[config/file] Imported keys from %s: %v", incPath, topKeys)
 			for _, k := range topKeys {
-				log.Trace("[config/file] Key '%s' from %s: %v", k, incPath, maskSensitiveMap(map[string]interface{}{k: incRaw[k]})[k])
+				log.Trace("[config/file] Key '%s' from %s: %v", k, incPath, utils.MaskSensitiveMapRecursive(map[string]interface{}{k: incRaw[k]})[k])
 			}
 			// Only merge known top-level sections as maps
 			for _, section := range []string{"providers", "polls", "domains", "defaults", "general"} {
@@ -375,12 +376,9 @@ func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 
 // CleanConfigSections removes invalid keys from DNS providers and poll providers after merging includes
 func CleanConfigSections(cfg *ConfigFile) {
-	// Define valid keys for DNS providers and poll providers
+	// Define valid keys for DNS providers - poll providers should accept any options
 	validDNSProviderKeys := map[string]struct{}{
 		"type": {}, "api_token": {}, "api_key": {}, "api_email": {}, "zone_id": {},
-	}
-	validPollProviderKeys := map[string]struct{}{
-		"type": {}, "host": {}, "expose_containers": {}, "filter_type": {}, "process_existing_containers": {}, "record_remove_on_stop": {}, "tls": {}, "poll_url": {}, "poll_interval": {},
 	}
 
 	// Clean DNS providers
@@ -394,30 +392,8 @@ func CleanConfigSections(cfg *ConfigFile) {
 		cfg.Providers[name] = provider
 	}
 
-	// Clean poll providers
-	for name, poll := range cfg.Polls {
-		for k := range poll.Options {
-			if _, ok := validPollProviderKeys[k]; !ok {
-				log.Debug("[config/clean] Removing invalid poll provider key '%s' from poll '%s'", k, name)
-				delete(poll.Options, k)
-			}
-		}
-		cfg.Polls[name] = poll
-	}
+	// No cleaning for poll providers - pass all options through
+	// This allows providers to handle their own options and filtering
 }
 
-// maskSensitiveMap returns a copy of the map with sensitive values masked
-func maskSensitiveMap(m map[string]interface{}) map[string]interface{} {
-	masked := make(map[string]interface{}, len(m))
-	for k, v := range m {
-		kl := strings.ToLower(k)
-		if strings.Contains(kl, "token") || strings.Contains(kl, "key") || strings.Contains(kl, "secret") || strings.Contains(kl, "password") || strings.Contains(kl, "email") {
-			masked[k] = "****"
-		} else if subMap, ok := v.(map[string]interface{}); ok {
-			masked[k] = maskSensitiveMap(subMap)
-		} else {
-			masked[k] = v
-		}
-	}
-	return masked
-}
+// Function removed - now using utils.MaskSensitiveMapRecursive instead
