@@ -9,6 +9,7 @@ import (
 	"container-dns-companion/pkg/config"
 	"container-dns-companion/pkg/dns"
 	"container-dns-companion/pkg/log"
+	"container-dns-companion/pkg/utils"
 
 	"context"
 	"fmt"
@@ -89,7 +90,7 @@ func (p *Provider) lazyInitAPI() error {
 	if apiToken != "" {
 		// Use the token-based authentication method
 		log.Debug("[provider/cloudflare] Initializing Cloudflare API with token authentication")
-		log.Debug("[provider/cloudflare] API Token (partial): %s...", maskToken(apiToken))
+		log.Debug("[provider/cloudflare] API Token (partial): %s", utils.MaskSensitiveValue(apiToken))
 		api, err = cloudflare.NewWithAPIToken(apiToken)
 		if err != nil {
 			return fmt.Errorf("[provider/cloudflare] failed to initialize API with token: %w", err)
@@ -115,13 +116,6 @@ func (p *Provider) lazyInitAPI() error {
 	return nil
 }
 
-// maskToken returns a masked version of the token for safe logging
-func maskToken(token string) string {
-	if len(token) <= 5 {
-		return "****"
-	}
-	return token[:5] + "****"
-}
 
 // getZoneID retrieves the zone ID for a domain
 func (p *Provider) getZoneID(domain string) (string, error) {
