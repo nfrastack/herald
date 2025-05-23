@@ -7,15 +7,16 @@ package docker
 import (
 	"container-dns-companion/pkg/config"
 	"container-dns-companion/pkg/dns"
+	"container-dns-companion/pkg/domain"
 	"container-dns-companion/pkg/log"
 	"container-dns-companion/pkg/poll"
 	"container-dns-companion/pkg/poll/providers/docker/filter"
 	"container-dns-companion/pkg/utils"
-	"container-dns-companion/pkg/domain"
 
 	"context"
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -29,41 +30,41 @@ import (
 
 // DockerProvider implements the Provider interface for Docker
 type DockerProvider struct {
+	apiAuthPass        string
+	apiAuthUser        string
 	client             *client.Client
 	config             Config
-	lastContainerIDs   map[string]bool
-	options            map[string]string
 	dnsProvider        dns.Provider
-	running            bool
+	domainConfigs      map[string]config.DomainConfig
 	exposeContainers   bool
 	filterConfig       filter.FilterConfig
-	swarmMode          bool                           // Whether to operate in Docker Swarm mode
-	domainConfigs      map[string]config.DomainConfig // Add this field to hold domain configs
-	recordRemoveOnStop bool                           // Add this field for record removal on stop
-	profileName        string                         // Store profile name for logs
-	logPrefix          string                         // Store log prefix for consistent logging
-	apiAuthUser        string                         // Basic auth user for Docker API
-	apiAuthPass        string                         // Basic auth pass for Docker API
+	lastContainerIDs   map[string]bool
+	logPrefix          string
+	options            map[string]string
+	profileName        string
+	recordRemoveOnStop bool
+	running            bool
+	swarmMode          bool
 }
 
 // Config defines configuration for the Docker provider
 type Config struct {
-	ExposeContainers bool   `mapstructure:"expose_containers"`
-	SwarmMode        bool   `mapstructure:"swarm_mode"`
-	ProcessExisting  bool   `mapstructure:"process_existing"`
-	APIURL           string `mapstructure:"api_url"`
-	APIAuthUser      string `mapstructure:"api_auth_user"`
 	APIAuthPass      string `mapstructure:"api_auth_pass"`
+	APIAuthUser      string `mapstructure:"api_auth_user"`
+	APIURL           string `mapstructure:"api_url"`
+	ExposeContainers bool   `mapstructure:"expose_containers"`
+	ProcessExisting  bool   `mapstructure:"process_existing"`
+	SwarmMode        bool   `mapstructure:"swarm_mode"`
 }
 
-// DockerContainerInfo holds information about a Docker container
+// DockerContainerInfo holds information about a Docker container with albels
 type DockerContainerInfo struct {
-	ID         string
 	Hostname   string
-	Target     string
-	RecordType string
-	TTL        int
+	ID         string
 	Overwrite  bool
+	RecordType string
+	Target     string
+	TTL        int
 }
 
 // Ensure DockerProvider implements the necessary interfaces
@@ -83,6 +84,20 @@ func (c *DockerContainerInfo) GetHostname() string {
 // GetTarget returns the target for the DNS record
 func (c *DockerContainerInfo) GetTarget() string {
 	return c.Target
+}
+
+// extractHostsFromRule extracts all hostnames from a Traefik rule string
+func extractHostsFromRule(rule string) []string {
+    hosts := []string{}
+    // Regex to match Host(`...`), Host('...'), or Host("...")
+    re := regexp.MustCompile(`Host\(\s*['"` + "`" + `](.*?)['"` + "`" + `]\s*\)`)
+    matches := re.FindAllStringSubmatch(rule, -1)
+    for _, match := range matches {
+        if len(match) > 1 {
+            hosts = append(hosts, match[1])
+        }
+    }
+    return hosts
 }
 
 // NewProvider creates a new Docker poll provider
@@ -170,12 +185,12 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	var config Config
 
 	// Default values
-	config.ExposeContainers = false
-	config.SwarmMode = false
-	config.ProcessExisting = false
-	config.APIURL = apiURL
-	config.APIAuthUser = apiAuthUser
 	config.APIAuthPass = apiAuthPass
+	config.APIAuthUser = apiAuthUser
+	config.APIURL = apiURL
+	config.ExposeContainers = false
+	config.ProcessExisting = false
+	config.SwarmMode = false
 
 	// Log all available options for debugging
 	log.Trace("%s Provider options received: %v", logPrefix, options)
@@ -324,7 +339,6 @@ func (p *DockerProvider) StartPolling() error {
 				})
 
 			case event := <-eventChan:
-				// Handle different event types
 				switch event.Type {
 				case "container":
 					p.handleContainerEvent(ctx, event)
@@ -411,8 +425,23 @@ func (p *DockerProvider) handleServiceEvent(ctx context.Context, event events.Me
 		// Service created or updated - check for DNS entries
 		p.processService(ctx, serviceID)
 	case "remove":
-		// Service removed - we may want to implement DNS record removal here
-		log.Debug("%s Service removed: %s", p.logPrefix, serviceName)
+		// Service removed - remove DNS entries for this service
+		service, _, err := p.client.ServiceInspectWithRaw(ctx, serviceID, types.ServiceInspectOptions{})
+		if err != nil {
+			log.Warn("%s Failed to inspect service '%s' for DNS removal: '%v'", p.logPrefix, serviceName, err)
+			return
+		}
+		entries, err := p.extractDNSEntriesFromService(service)
+		if err != nil {
+			log.Warn("%s Failed to extract DNS entries from service '%s' for removal: %v", p.logPrefix, serviceName, err)
+			return
+		}
+		if len(entries) > 0 {
+			log.Info("%s Removing %d DNS entries for service %s", p.logPrefix, len(entries), serviceName)
+			p.processDNSEntries(entries, true)
+		} else {
+			log.Debug("%s No DNS entries found for service '%s' to remove", p.logPrefix, serviceName)
+		}
 	}
 }
 
@@ -689,62 +718,56 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 
 	// Check if this container should be registered for the given domain
 	shouldRegister := false
-	hostname := container.ID[:12] // Default to container ID if no specific hostname
+	hostnames := []string{}
 
 	// Check through nfrastack.dns.host label for the domain
 	if hostLabel, exists := labels["nfrastack.dns.host"]; exists && hostLabel != "" {
-		// Format: nfrastack.dns.host=subdomain.example.com
-		parts := strings.Split(hostLabel, ".")
-		if len(parts) >= 2 {
-			hostDomain := strings.Join(parts[len(parts)-2:], ".")
-			if hostDomain == domain {
-				shouldRegister = true
-				// Extract hostname from host label (everything before domain)
-				if len(parts) > 2 {
-					hostname = strings.Join(parts[:len(parts)-2], ".")
+			// Support multiple hostnames separated by comma or space
+			splitFunc := func(r rune) bool {
+				return r == ',' || r == ' ' || r == '\t' || r == '\n'
+			}
+			for _, host := range strings.FieldsFunc(hostLabel, splitFunc) {
+				parts := strings.Split(host, ".")
+				if len(parts) >= 2 {
+					hostDomain := strings.Join(parts[len(parts)-2:], ".")
+					if hostDomain == domain {
+						shouldRegister = true
+						// Extract hostname from host label (everything before domain)
+						hostname := "@"
+						if len(parts) > 2 {
+							hostname = strings.Join(parts[:len(parts)-2], ".")
+						}
+						hostnames = append(hostnames, hostname)
+					}
 				}
 			}
-		}
 	}
 
 	// Also check Traefik rules for Host entries
 	if !shouldRegister {
 		for k, v := range labels {
 			if strings.HasPrefix(k, "traefik.http.routers.") && strings.Contains(k, ".rule") && strings.Contains(v, "Host(") {
-				// Extract the host from the value (format: Host(`subdomain.example.com`))
-				hostStart := strings.Index(v, "Host(`")
-				if hostStart == -1 {
-					continue
-				}
-				hostStart += 6 // Move past "Host(`"
-
-				hostEnd := strings.Index(v[hostStart:], "`)")
-				if hostEnd == -1 {
-					continue
-				}
-
-				host := v[hostStart : hostStart+hostEnd]
-
-				// Split the host into parts to extract domain
-				parts := strings.Split(host, ".")
-				if len(parts) >= 2 {
-					hostDomain := strings.Join(parts[len(parts)-2:], ".")
-					if hostDomain == domain {
-						shouldRegister = true
-						// Extract hostname from host (everything before domain)
-						if len(parts) > 2 {
-							hostname = strings.Join(parts[:len(parts)-2], ".")
-						} else {
-							hostname = "@" // Use @ for apex domain
+				hosts := extractHostsFromRule(v)
+				for _, host := range hosts {
+					parts := strings.Split(host, ".")
+					if len(parts) >= 2 {
+						hostDomain := strings.Join(parts[len(parts)-2:], ".")
+						if hostDomain == domain {
+							shouldRegister = true
+							// Extract hostname from host (everything before domain)
+							hostname := "@"
+							if len(parts) > 2 {
+								hostname = strings.Join(parts[:len(parts)-2], ".")
+							}
+							hostnames = append(hostnames, hostname)
 						}
-						break
 					}
 				}
 			}
 		}
 	}
 
-	if !shouldRegister {
+	if !shouldRegister || len(hostnames) == 0 {
 		return entries
 	}
 
@@ -784,20 +807,18 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 		}
 	}
 
-	// Create the container info
-	containerInfo := &DockerContainerInfo{
-		ID:         container.ID,
-		Hostname:   hostname,
-		Target:     target,
-		RecordType: recordType,
-		TTL:        ttl,
-		Overwrite:  overwrite,
+	// Create a DNS entry for each hostname
+	for _, hostname := range hostnames {
+		containerInfo := &DockerContainerInfo{
+			ID:         container.ID,
+			Hostname:   hostname,
+			Target:     target,
+			RecordType: recordType,
+			TTL:        ttl,
+			Overwrite:  overwrite,
+		}
+		entries = append(entries, containerInfo)
 	}
-
-	entries = append(entries, containerInfo)
-
-	log.Info("[poll/docker] Using domain %s: %s.%s (%s) -> %s (TTL: %d, Overwrite: %v)",
-		domain, hostname, domain, recordType, target, ttl, overwrite)
 
 	return entries
 }
@@ -884,18 +905,12 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	} else {
 		for k, v := range labels {
 			if strings.HasPrefix(k, "traefik.http.routers.") && strings.Contains(k, ".rule") && strings.Contains(v, "Host(") {
-				hostStart := strings.Index(v, "Host(`")
-				if hostStart == -1 {
-					continue
+				hosts := extractHostsFromRule(v)
+				for _, host := range hosts {
+					hostValue = host
+					hostSource = k
+					break
 				}
-				hostStart += 6
-				hostEnd := strings.Index(v[hostStart:], "`)")
-				if hostEnd == -1 {
-					continue
-				}
-				hostValue = v[hostStart : hostStart+hostEnd]
-				hostSource = k
-				break
 			}
 		}
 	}
