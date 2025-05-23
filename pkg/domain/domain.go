@@ -20,21 +20,11 @@ type RouterState struct {
 	SourceType  string // e.g. "container", "router", etc.
 }
 
-// When creating RouterState in the Traefik poller, set SourceType and Name:
-// Example (in pkg/poll/providers/traefik/traefik.go):
-// state := domain.RouterState{
-//     Name: <routerName>,
-//     Rule: <routerRule>,
-//     EntryPoints: <entryPoints>,
-//     Service: <service>,
-//     SourceType: "router",
-// }
-
 // EnsureDNSForRouterState merges config, validates, and performs DNS add/update for a router event
 func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	logPrefix := fmt.Sprintf("[domain/%s]", domain)
 
-	// Debug: print all provider keys and their options at this point
+	// Print all provider keys and their options at this point
 	if len(config.GlobalConfig.Providers) == 0 {
 		log.Warn("%s Providers map is EMPTY at EnsureDNSForRouterState", logPrefix)
 	} else {
