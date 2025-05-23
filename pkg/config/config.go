@@ -6,7 +6,6 @@ package config
 
 import (
 	"container-dns-companion/pkg/log"
-	"container-dns-companion/pkg/utils"
 
 	"fmt"
 	"os"
@@ -194,10 +193,6 @@ func (dpc *DNSProviderConfig) GetOptions() map[string]string {
 		options["type"] = dpc.Type
 	}
 
-	// Create masked options map for logging
-	//maskedOptions := utils.MaskSensitiveOptions(options)
-	//log.Debug("[config/file] DNS provider options: %v", maskedOptions)
-
 	return options
 }
 
@@ -243,10 +238,6 @@ func (ppc *PollProviderConfig) GetOptions(profileName string) map[string]string 
 	// Always add profile_name and name
 	options["profile_name"] = profileName
 	options["name"] = profileName
-
-	// Create masked options map for logging
-	maskedOptions := utils.MaskSensitiveOptions(options)
-	log.Debug("[config/file] Poll provider options (all keys): %v", maskedOptions)
 
 	return options
 }
