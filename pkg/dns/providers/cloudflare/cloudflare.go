@@ -57,7 +57,7 @@ func NewProvider(config map[string]string) (dns.Provider, error) {
 
 	// Log available configuration keys for debugging
 	log.Trace("%s Cloudflare provider config keys: %v", logPrefix, maps.Keys(config))
-	log.Debug("%s Cloudflare provider config map: %v", logPrefix, utils.MaskSensitiveOptions(config))
+	log.Trace("%s Cloudflare provider config map: %v", logPrefix, utils.MaskSensitiveOptions(config))
 
 	// Initialize default TTL
 	ttl, err := strconv.Atoi(config["default_ttl"])
@@ -128,10 +128,20 @@ func (p *Provider) getZoneID(domain string) (string, error) {
 	return zoneID, nil
 }
 
-// CreateOrUpdateRecord creates or updates a DNS record
+// CreateOrUpdateRecord creates or updates a DNS record (Cloudflare-specific)
 func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostname string, target string, ttl int, overwrite bool) error {
+	return p.createOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, overwrite, "")
+}
+
+// CreateOrUpdateRecordWithSource allows logging the source/container name
+func (p *Provider) CreateOrUpdateRecordWithSource(domain string, recordType string, hostname string, target string, ttl int, overwrite bool, sourceName string) error {
+	return p.createOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, overwrite, sourceName)
+}
+
+// createOrUpdateRecordWithSource is the internal implementation that supports logging the source/container name
+func (p *Provider) createOrUpdateRecordWithSource(domain string, recordType string, hostname string, target string, ttl int, overwrite bool, sourceName string) error {
 	if p.DryRun {
-		log.Info("%s [dry-run] Would create or update DNS record: %s.%s (%s) -> %s (TTL: %d, Overwrite: %v)", p.logPrefix, hostname, domain, recordType, target, ttl, overwrite)
+		log.Info("%s [dry-run] Would create or update DNS record: %s.%s (%s) -> %s (TTL: %d, Overwrite: %v)%s", p.logPrefix, hostname, domain, recordType, target, ttl, overwrite, formatSourceName(sourceName))
 		return nil
 	}
 
@@ -161,6 +171,15 @@ func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostna
 	// If we found a record and overwrite is true
 	if err == nil && recordID != "" {
 		if overwrite {
+			// Fetch current record value and compare all relevant fields
+			current, err := p.GetRecordValue(domain, recordType, hostname)
+			if err == nil && current != nil {
+				proxied := false // Default, adjust if you support proxied
+				if current.Type == recordType && current.Value == target && current.TTL == ttl && current.Proxied == proxied {
+					log.Debug("%s Record %s (%s) already up to date, skipping update", p.logPrefix, fullHostname, recordType)
+					return nil
+				}
+			}
 			log.Debug("%s Record %s (%s) exists and update_existing=true, updating it", p.logPrefix, fullHostname, recordType)
 			// Record exists, update it
 			proxied := false
@@ -179,7 +198,7 @@ func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostna
 				return fmt.Errorf("%s failed to update DNS record: %w", p.logPrefix, err)
 			}
 
-			log.Info("%s Updated DNS record %s (%s) -> %s", p.logPrefix, fullHostname, recordType, target)
+			log.Info("%s Updated DNS record %s (%s) -> %s%s", p.logPrefix, fullHostname, recordType, target, formatSourceName(sourceName))
 			return nil
 		} else {
 			// Record exists but overwrite is false
@@ -233,8 +252,72 @@ func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostna
 		return fmt.Errorf("%s failed to create DNS record: %w", p.logPrefix, err)
 	}
 
-	log.Info("%s Created DNS record %s (%s) -> %s", p.logPrefix, fullHostname, recordType, target)
+	log.Info("%s Created DNS record %s (%s) -> %s%s", p.logPrefix, fullHostname, recordType, target, formatSourceName(sourceName))
 	return nil
+}
+
+// DeleteRecord deletes a DNS record (Cloudflare-specific)
+func (p *Provider) DeleteRecord(domain string, recordType string, hostname string) error {
+	return p.deleteRecordWithSource(domain, recordType, hostname, "")
+}
+
+// DeleteRecordWithSource deletes a DNS record and logs the source/container name
+func (p *Provider) DeleteRecordWithSource(domain string, recordType string, hostname string, sourceName string) error {
+	return p.deleteRecordWithSource(domain, recordType, hostname, sourceName)
+}
+
+// deleteRecordWithSource is the internal implementation that supports logging the source/container name
+func (p *Provider) deleteRecordWithSource(domain string, recordType string, hostname string, sourceName string) error {
+	if p.DryRun {
+		log.Info("%s [dry-run] Would delete DNS record: %s.%s (%s)%s", p.logPrefix, hostname, domain, recordType, formatSourceName(sourceName))
+		return nil
+	}
+
+	// Initialize API if needed
+	if err := p.lazyInitAPI(); err != nil {
+		return err
+	}
+
+	// Get zone ID for the domain
+	zoneID, err := p.getZoneID(domain)
+	if err != nil {
+		return err
+	}
+
+	// Format the full hostname
+	fullHostname := dns.JoinHostWithDomain(hostname, domain)
+
+	// Create context for API calls
+	ctx := context.Background()
+
+	// Create resource container with zone ID
+	rc := cloudflare.ZoneIdentifier(zoneID)
+
+	// Get record ID
+	recordID, err := p.GetRecordID(domain, recordType, hostname)
+	if err != nil {
+		return err
+	}
+
+	if recordID == "" {
+		return fmt.Errorf("%s record %s not found", p.logPrefix, fullHostname)
+	}
+
+	// Delete the record
+	err = p.api.DeleteDNSRecord(ctx, rc, recordID)
+	if err != nil {
+		return fmt.Errorf("%s failed to delete DNS record: %w", p.logPrefix, err)
+	}
+
+	log.Info("%s Deleted DNS record %s (%s)%s", p.logPrefix, fullHostname, recordType, formatSourceName(sourceName))
+	return nil
+}
+
+func formatSourceName(sourceName string) string {
+	if sourceName != "" {
+		return fmt.Sprintf(" (container: %s)", sourceName)
+	}
+	return ""
 }
 
 // GetRecordID gets a DNS record ID for a specific record
@@ -275,53 +358,6 @@ func (p *Provider) GetRecordID(domain string, recordType string, hostname string
 	}
 
 	return records[0].ID, nil
-}
-
-// DeleteRecord deletes a DNS record
-func (p *Provider) DeleteRecord(domain string, recordType string, hostname string) error {
-	if p.DryRun {
-		log.Info("%s [dry-run] Would delete DNS record: %s.%s (%s)", p.logPrefix, hostname, domain, recordType)
-		return nil
-	}
-
-	// Initialize API if needed
-	if err := p.lazyInitAPI(); err != nil {
-		return err
-	}
-
-	// Get zone ID for the domain
-	zoneID, err := p.getZoneID(domain)
-	if err != nil {
-		return err
-	}
-
-	// Format the full hostname
-	fullHostname := dns.JoinHostWithDomain(hostname, domain)
-
-	// Create context for API calls
-	ctx := context.Background()
-
-	// Create resource container with zone ID
-	rc := cloudflare.ZoneIdentifier(zoneID)
-
-	// Get record ID
-	recordID, err := p.GetRecordID(domain, recordType, hostname)
-	if err != nil {
-		return err
-	}
-
-	if recordID == "" {
-		return fmt.Errorf("%s record %s not found", p.logPrefix, fullHostname)
-	}
-
-	// Delete the record
-	err = p.api.DeleteDNSRecord(ctx, rc, recordID)
-	if err != nil {
-		return fmt.Errorf("%s failed to delete DNS record: %w", p.logPrefix, err)
-	}
-
-	log.Info("%s Deleted DNS record %s (%s)", p.logPrefix, fullHostname, recordType)
-	return nil
 }
 
 // GetRecordValue retrieves the value of a DNS record
