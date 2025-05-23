@@ -14,7 +14,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/cloudflare/cloudflare-go"
 	"golang.org/x/exp/maps"
@@ -38,14 +37,11 @@ type Provider struct {
 
 // NewProvider creates a new Cloudflare DNS provider
 func NewProvider(config map[string]string) (dns.Provider, error) {
-	// Get profile name from options or use "default" if not set
-	profileName := config["profile_name"]
-	if profileName == "" {
-		profileName = "default"
-	}
-
-	// Create log prefix with profile name
+	// Always use utils.GetProfileNameFromOptions for profile name resolution
+	profileName := utils.GetProfileNameFromOptions(config, "default")
 	logPrefix := fmt.Sprintf("[provider/cloudflare/%s]", profileName)
+
+	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
 
 	p := &Provider{
 		config:      config,
@@ -61,15 +57,7 @@ func NewProvider(config map[string]string) (dns.Provider, error) {
 
 	// Log available configuration keys for debugging
 	log.Trace("%s Cloudflare provider config keys: %v", logPrefix, maps.Keys(config))
-
-	// Log values received (excluding sensitive ones)
-	for k, v := range config {
-		if !strings.Contains(k, "token") && !strings.Contains(k, "key") && !strings.Contains(k, "secret") && !strings.Contains(k, "password") {
-			log.Trace("%s Cloudflare config: %s = %s", logPrefix, k, v)
-		} else {
-			log.Trace("%s Cloudflare config: %s = ****", logPrefix, k)
-		}
-	}
+	log.Debug("%s Cloudflare provider config map: %v", logPrefix, utils.MaskSensitiveOptions(config))
 
 	// Initialize default TTL
 	ttl, err := strconv.Atoi(config["default_ttl"])
@@ -89,12 +77,6 @@ func (p *Provider) lazyInitAPI() error {
 		return nil
 	}
 
-	// Debug configuration
-	log.Debug("%s Cloudflare provider configuration:", p.logPrefix)
-	log.Debug("%s  - API Token present: %v", p.logPrefix, config.GetConfig(p.config, "api_token") != "")
-	log.Debug("%s  - Zone ID present: %v", p.logPrefix, config.GetConfig(p.config, "zone_id") != "")
-	log.Debug("%s  - All config keys: %v", p.logPrefix, p.config)
-
 	var api *cloudflare.API
 	var err error
 
@@ -103,7 +85,6 @@ func (p *Provider) lazyInitAPI() error {
 	if apiToken != "" {
 		// Use the token-based authentication method
 		log.Debug("%s Initializing Cloudflare API with token authentication", p.logPrefix)
-		log.Debug("%s API Token (partial): %s", p.logPrefix, utils.MaskSensitiveValue(apiToken))
 		api, err = cloudflare.NewWithAPIToken(apiToken)
 		if err != nil {
 			return fmt.Errorf("%s failed to initialize API with token: %w", p.logPrefix, err)
@@ -181,7 +162,7 @@ func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostna
 	// If we found a record and overwrite is true
 	if err == nil && recordID != "" {
 		if overwrite {
-			log.Debug("%s Record %s (%s) exists and overwrite=true, updating it", p.logPrefix, fullHostname, recordType)
+			log.Debug("%s Record %s (%s) exists and update_existing=true, updating it", p.logPrefix, fullHostname, recordType)
 			// Record exists, update it
 			proxied := false
 			updateParams := cloudflare.UpdateDNSRecordParams{

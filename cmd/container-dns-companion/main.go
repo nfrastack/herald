@@ -113,6 +113,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Set the global config so all packages see the loaded config
+	config.GlobalConfig = *cfg
+
 	// Clean up config sections to remove invalid keys after merging includes
 	config.CleanConfigSections(cfg)
 
@@ -205,6 +208,11 @@ func main() {
 		if providerConfig.Type != "" {
 			providerOptions["type"] = providerConfig.Type
 		}
+
+        // Add profile name for consistent logging
+        providerOptions["profile_name"] = dnsProviderName
+        providerOptions["name"] = dnsProviderName
+        log.Debug("[provider] Adding profile_name=%s to DNS provider options", dnsProviderName)
 	}
 
 	// Initialize DNS provider if only one is defined
@@ -276,17 +284,19 @@ func main() {
 		}
 
 		log.Info("[poll] Initializing poll provider: '%s'", pollProfileName)
+		// Create options map for the provider, passing through ALL options from the config
+		providerOptions := pollProviderConfig.GetOptions(pollProfileName)
 
-		// Create options map for the provider
-		providerOptions := make(map[string]string)
+		//log.Debug("[poll] Created provider options map with %d keys", len(providerOptions))
 
-		// Add the direct fields from the provider config
+		// For backward compatibility, add expose_containers directly
 		if pollProviderConfig.ExposeContainers {
 			providerOptions["expose_containers"] = "true"
 			log.Debug("[poll] Adding expose_containers=true to provider options")
 		}
 
-		// Add any additional options from the options map
+		// Add or override with any additional options from the options map
+		// (This is redundant now since GetOptions already does this, but kept for compatibility)
 		for k, v := range pollProviderConfig.Options {
 			if strVal, ok := v.(string); ok {
 				providerOptions[k] = strVal

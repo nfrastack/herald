@@ -5,6 +5,8 @@
 package utils
 
 import (
+
+
 	"fmt"
 	"strings"
 )
@@ -108,4 +110,56 @@ func MaskSensitiveMapRecursive(m map[string]interface{}) map[string]interface{} 
 		}
 	}
 	return masked
+}
+
+// GetMapKeys returns a slice of all keys in a map for debugging purposes
+func GetMapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// GetMapKeysGeneric returns a slice of all keys in a map[string]interface{} for debugging purposes
+func GetMapKeysGeneric(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// GetProfileNameFromOptions extracts a profile name from a map of options
+// in a consistent manner, checking multiple possible keys
+func GetProfileNameFromOptions(options map[string]string, defaultName string) string {
+	// First check for the dedicated profile_name field
+	profileName := options["profile_name"]
+
+	// If not available, try to get the profile name from the "name" field
+	if profileName == "" {
+		profileName = options["name"]
+	}
+
+	// If not available, try "profile" field
+	if profileName == "" {
+		profileName = options["profile"]
+	}
+
+	// If still not available, check for poller-specific field
+	if profileName == "" {
+		profileName = options["_poll_profile"]
+	}
+
+	// If still not available, check for dns-specific field
+	if profileName == "" {
+		profileName = options["_dns_profile"]
+	}
+
+	// If still not available, use the provided default
+	if profileName == "" {
+		profileName = defaultName
+	}
+
+	return profileName
 }

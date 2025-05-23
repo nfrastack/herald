@@ -75,6 +75,9 @@ var (
 	domainConfigs   = make(map[string]map[string]string)
 )
 
+// GlobalConfig holds the loaded configuration file
+var GlobalConfig ConfigFile
+
 // SetDomainConfigs sets the global domain configurations
 func SetDomainConfigs(configs map[string]map[string]string) {
 	domainConfigsMu.Lock()
@@ -192,14 +195,15 @@ func (dpc *DNSProviderConfig) GetOptions() map[string]string {
 	}
 
 	// Create masked options map for logging
-	maskedOptions := utils.MaskSensitiveOptions(options)
-	log.Debug("[config/file] DNS provider options: %v", maskedOptions)
+	//maskedOptions := utils.MaskSensitiveOptions(options)
+	//log.Debug("[config/file] DNS provider options: %v", maskedOptions)
 
 	return options
 }
 
 // Add PollProviderConfig methods here since struct is defined in this file
-func (ppc *PollProviderConfig) GetOptions() map[string]string {
+// Updated: Accept profileName and always add it to options
+func (ppc *PollProviderConfig) GetOptions(profileName string) map[string]string {
 	options := make(map[string]string)
 	// Add all struct fields from the PollProviderConfig struct itself
 	val := reflect.ValueOf(*ppc)
@@ -209,12 +213,11 @@ func (ppc *PollProviderConfig) GetOptions() map[string]string {
 		key := field.Tag.Get("yaml")
 		if key == "" {
 			key = strings.ToLower(field.Name)
-		}
-		 // Skip the "options" field since we handle it separately
+		 }
+		// Skip the "options" field since we handle it separately
 		if key == ",inline" {
 			continue
 		}
-
 		// Only add string fields
 		if field.Type.Kind() == reflect.String {
 			valStr := val.Field(i).String()
@@ -235,9 +238,11 @@ func (ppc *PollProviderConfig) GetOptions() map[string]string {
 	}
 	// Add all keys from Options map (do not filter or restrict)
 	for k, v := range ppc.Options {
-		// Convert any type to string
 		options[k] = fmt.Sprintf("%v", v)
 	}
+	// Always add profile_name and name
+	options["profile_name"] = profileName
+	options["name"] = profileName
 
 	// Create masked options map for logging
 	maskedOptions := utils.MaskSensitiveOptions(options)

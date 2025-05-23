@@ -1,0 +1,121 @@
+package domain
+
+import (
+	"container-dns-companion/pkg/config"
+	"container-dns-companion/pkg/dns"
+	"container-dns-companion/pkg/log"
+
+	"fmt"
+	"net"
+	"strconv"
+	"strings"
+)
+
+type RouterState struct {
+	Name        string
+	Rule        string
+	EntryPoints []string
+	Service     string
+}
+
+// EnsureDNSForRouterState merges config, validates, and performs DNS add/update for a router event
+func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
+	logPrefix := fmt.Sprintf("[domain/%s]", domain)
+
+	// Debug: print all provider keys and their options at this point
+	if len(config.GlobalConfig.Providers) == 0 {
+		log.Warn("%s Providers map is EMPTY at EnsureDNSForRouterState", logPrefix)
+	} else {
+		for k, v := range config.GlobalConfig.Providers {
+			log.Trace("%s Provider key: %s, Options: %+v", logPrefix, k, v.Options)
+		}
+	}
+
+	domainConfig := config.GetDomainConfig(domain)
+	if domainConfig == nil {
+		log.Error("%s No domain config found for '%s'", logPrefix, fqdn)
+		return fmt.Errorf("no domain config for %s", fqdn)
+	}
+	log.Trace("%s domainConfig: %+v", logPrefix, domainConfig)
+	providerKey := domainConfig["provider"]
+	if providerKey == "" {
+		log.Error("%s No provider specified for domain '%s' (hostname: %s)", logPrefix, domain, fqdn)
+		return fmt.Errorf("no provider for domain %s", domain)
+	}
+	log.Trace("%s Looking up provider config for key: '%s'", logPrefix, providerKey)
+	providerCfg, ok := config.GlobalConfig.Providers[providerKey]
+	if !ok {
+		log.Error("%s No provider config found for key '%s' (domain: %s)", logPrefix, providerKey, domain)
+		// Get keys from map[string]config.DNSProviderConfig
+		providerKeys := make([]string, 0, len(config.GlobalConfig.Providers))
+		for k := range config.GlobalConfig.Providers {
+			providerKeys = append(providerKeys, k)
+		}
+		log.Trace("%s Available provider keys: %v", logPrefix, providerKeys)
+		return fmt.Errorf("no provider config for %s", providerKey)
+	}
+	log.Trace("%s providerCfg.Options: %+v", logPrefix, providerCfg.Options)
+	// Merge provider options and domain config
+	providerOptions := providerCfg.GetOptions()
+	for k, v := range domainConfig {
+		providerOptions[k] = v
+	}
+	log.Trace("%s Merged providerOptions: %v", logPrefix, providerOptions)
+
+	// Check for required secrets
+	missingSecrets := []string{}
+	for _, key := range []string{"api_token", "api_key", "api_email"} {
+		if v, ok := providerOptions[key]; !ok || v == "" {
+			missingSecrets = append(missingSecrets, key)
+		}
+	}
+
+	recordType := providerOptions["type"]
+	target := state.Service
+	if v, ok := providerOptions["target"]; ok && v != "" {
+		target = v
+	}
+	// Smart record type detection if not explicitly set
+	if recordType == "" {
+		if ip := net.ParseIP(target); ip != nil {
+			if ip.To4() != nil {
+				recordType = "A"
+			} else {
+				recordType = "AAAA"
+			}
+		} else {
+			recordType = "CNAME"
+		}
+	}
+	ttl := 60
+	if v, ok := providerOptions["ttl"]; ok && v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			ttl = parsed
+		}
+	}
+	overwrite := true
+	if v, ok := providerOptions["update_existing"]; ok && v != "" {
+		overwrite = v == "true" || v == "1"
+	}
+	// Use the subdomain part for the hostname
+	hostname := fqdn
+	if fqdn == domain {
+		hostname = "@"
+	} else if strings.HasSuffix(fqdn, "."+domain) {
+		hostname = strings.TrimSuffix(fqdn, "."+domain)
+	}
+	log.Debug("%s Final DNS params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d, overwrite=%v", logPrefix, domain, recordType, hostname, target, ttl, overwrite)
+
+	dnsProvider, err := dns.LoadProviderFromConfig(providerKey, providerOptions)
+	if err != nil {
+		log.Error("%s Failed to load DNS provider '%s': %v", logPrefix, providerKey, err)
+		return err
+	}
+	err = dnsProvider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, overwrite)
+	if err != nil {
+		log.Error("%s Failed to create/update DNS record for '%s': %v", logPrefix, fqdn, err)
+		return err
+	}
+	//log.Info("%s Created/updated DNS record for '%s'", logPrefix, fqdn)
+	return nil
+}
