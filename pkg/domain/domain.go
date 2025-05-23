@@ -104,19 +104,25 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	} else if strings.HasSuffix(fqdn, "."+domain) {
 		hostname = strings.TrimSuffix(fqdn, "."+domain)
 	}
-	log.Debug("%s Final DNS params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d, overwrite=%v", logPrefix, domain, recordType, hostname, target, ttl, overwrite)
+	log.Debug("%s DNS params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d, update=%v, container=%s", logPrefix, domain, recordType, hostname, target, ttl, overwrite, state.Name)
 
 	dnsProvider, err := dns.LoadProviderFromConfig(providerKey, providerOptions)
 	if err != nil {
 		log.Error("%s Failed to load DNS provider '%s': %v", logPrefix, providerKey, err)
 		return err
 	}
-	err = dnsProvider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, overwrite)
+	// Pass container/source name if the provider supports it
+	// action := "created/updated"
+	if cfProvider, ok := dnsProvider.(interface{ CreateOrUpdateRecordWithSource(string, string, string, string, int, bool, string) error }); ok {
+		err = cfProvider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, overwrite, state.Name)
+		// If no error, assume created/updated (provider logs the real action)
+	} else {
+		err = dnsProvider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, overwrite)
+	}
 	if err != nil {
-		log.Error("%s Failed to create/update DNS record for '%s': %v", logPrefix, fqdn, err)
 		return err
 	}
-	//log.Info("%s Created/updated DNS record for '%s'", logPrefix, fqdn)
+	// log.Info("%s %s DNS record: %s (%s) -> %s (container: %s)", logPrefix, action, fqdn, recordType, target, state.Name)
 	return nil
 }
 
@@ -176,11 +182,16 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 		log.Error("%s Failed to load DNS provider '%s': %v", logPrefix, providerKey, err)
 		return err
 	}
-	err = dnsProvider.DeleteRecord(domain, recordType, hostname)
+	// action := "Deleted"
+	if cfProvider, ok := dnsProvider.(interface{ DeleteRecordWithSource(string, string, string, string) error }); ok {
+		err = cfProvider.DeleteRecordWithSource(domain, recordType, hostname, state.Name)
+	} else {
+		err = dnsProvider.DeleteRecord(domain, recordType, hostname)
+	}
 	if err != nil {
 		log.Error("%s Failed to delete DNS record for '%s': %v", logPrefix, fqdn, err)
 		return err
 	}
-	log.Debug("%s Deleted DNS record for '%s'", logPrefix, fqdn)
+	// log.Info("%s %s DNS record: %s (%s) -> %s (container: %s)", logPrefix, action, fqdn, recordType, target, state.Name)
 	return nil
 }
