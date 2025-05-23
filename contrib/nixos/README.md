@@ -53,8 +53,10 @@ This flake provides a NixOS module that allows you to configure and run the Cont
       };
       traefik = {
         type = "traefik";
-        poll_url = "http://traefik:8080/api/http/routers";
-        poll_interval = 60;
+        api_url = "http://traefik:8080/api/http/routers";
+        api_auth_user = "admin";
+        api_auth_pass = "password";
+        interval = 60;
       };
     };
     providers = {
@@ -114,8 +116,10 @@ Here are the available options for the NixOS module (services.container-dns-comp
     * `record_remove_on_stop` (bool): Remove DNS records on stop.
   * `traefik` (attrs):
     * `type` (str): "traefik"
-    * `poll_url` (str): Traefik API URL.
-    * `poll_interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
+    * `api_url` (str): Traefik API URL.
+    * `api_auth_user` (str): Username for basic auth to the Traefik API.
+    * `api_auth_pass` (str): Password for basic auth to the Traefik API.
+    * `interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
 * `providers` (attrs): DNS provider profiles. Example:
   * `cloudflare` (attrs):
     * `type` (str): "cloudflare"
