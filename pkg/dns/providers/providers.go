@@ -17,15 +17,3 @@ func RegisterProviders() {
 
 // Import the provider packages here to ensure they're included in the build
 // But register them explicitly through RegisterProviders()
-
-// Helper to determine if multiple records are allowed for a given record type and config
-func AllowMultipleRecords(recordType string, allowMultiple bool) bool {
-	if !allowMultiple {
-		return false
-	}
-	if recordType == "A" || recordType == "AAAA" {
-		return true
-	}
-	// Never allow multiple CNAME records
-	return false
-}
