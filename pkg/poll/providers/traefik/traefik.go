@@ -215,8 +215,8 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		initialPollDone:    false,
 	}
 
-	log.Info("%s Successfully created new Traefik provider instance", logPrefix)
-	log.Trace("%s Provider details: URL=%s, interval=%s",
+	log.Info("%s Successfully created new Traefik provider", logPrefix)
+	log.Debug("%s Provider details: URL=%s, interval=%s",
 		logPrefix, provider.apiURL, provider.pollInterval)
 
 	return provider, nil
@@ -231,7 +231,7 @@ func init() {
 
 // StartPolling starts polling Traefik for routers
 func (t *TraefikProvider) StartPolling() error {
-	log.Info("%s Starting polling for Routers (interval: %s)", t.logPrefix, t.pollInterval)
+	log.Info("%s Starting polling for routers (interval: %s)", t.logPrefix, t.pollInterval)
 
 	if t.running {
 		log.Debug("%s Already running, skipping start", t.logPrefix)
@@ -368,20 +368,20 @@ func (t *TraefikProvider) processTraefikRouters() error {
 	}
 	log.Debug("%s Received HTTP response from %s with status code: %d", t.logPrefix, t.apiURL, resp.StatusCode)
 	defer resp.Body.Close()
-	log.Trace("%s Received HTTP response with status code: %d", t.logPrefix, resp.StatusCode)
+	//log.Trace("%s Received HTTP response with status code: %d", t.logPrefix, resp.StatusCode)
 
 	// Read response
-	log.Trace("%s Reading response body", t.logPrefix)
+	// log.Trace("%s Reading response body", t.logPrefix)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Error("%s Failed to read response body: %v", t.logPrefix, err)
 		return fmt.Errorf("[poll/traefik] failed to read response: %w", err)
 	}
-	log.Trace("%s Response body size: %d bytes", t.logPrefix, len(body))
+	// log.Trace("%s Response body size: %d bytes", t.logPrefix, len(body))
 
 	// Always log the response body for debugging purposes
-	bodyStr := string(body)
-	log.Trace("%s Response body: %s", t.logPrefix, bodyStr)
+	// bodyStr := string(body)
+	// log.Trace("%s Response body: %s", t.logPrefix, bodyStr)
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
@@ -483,10 +483,21 @@ func (t *TraefikProvider) processTraefikRouters() error {
 
 	if initialLog {
 		if len(currentHostnames) == 0 {
-			log.Info("%s No hostnames to process", t.logPrefix)
+			log.Info("%s No routers to process", t.logPrefix)
 		} else {
-			log.Info("%s Initial hostnames to process: %v", t.logPrefix, currentHostnames)
-			// Initial run: process all hostnames as adds
+			// Build a slice of 'routerName (hostname)' strings
+			var routerHostPairs []string
+			for _, h := range currentHostnames {
+				state := hostnameToRouter[h]
+				routerLabel := state.Name
+				if routerLabel == "" {
+					routerLabel = "unknown-router"
+				}
+				pair := fmt.Sprintf("%s (%s)", routerLabel, h)
+				routerHostPairs = append(routerHostPairs, pair)
+			}
+			log.Info("%s Initial routers to process [%s]", t.logPrefix, strings.Join(routerHostPairs, ", "))
+			// Initial run: process all routers and hostnames as adds
 			for _, h := range currentHostnames {
 				state := hostnameToRouter[h]
 				log.Trace("%s Preparing to add DNS for hostname: %s | RouterState: %+v", t.logPrefix, h, state)
@@ -494,7 +505,6 @@ func (t *TraefikProvider) processTraefikRouters() error {
 				t.routerCache[h] = state
 			}
 		}
-		//log.Info("%s Initial poll: processed all hostnames as adds", t.logPrefix)
 		if !t.initialPollDone {
 			t.initialPollDone = true
 			log.Debug("%s Initial poll complete, future polls will only log changes.", t.logPrefix)
@@ -522,13 +532,28 @@ func (t *TraefikProvider) processTraefikRouters() error {
 
 	if t.initialPollDone {
 		if len(added) > 0 {
-			log.Info("%s Hostnames added: %v", t.logPrefix, added)
+			log.Info("%s Routers detected: %v", t.logPrefix, added)
 			for _, h := range added {
 				t.processRouterAdd(hostnameToRouter[h])
 			}
 		}
 		if len(removed) > 0 {
-			log.Info("%s Hostnames removed: %v", t.logPrefix, removed)
+			// Build a slice of 'routerName (hostname)' strings for removed routers
+			var removedRouterHostPairs []string
+			for _, h := range removed {
+				if prevState, ok := t.routerCache[h]; ok {
+					routerLabel := prevState.Name
+					if routerLabel == "" {
+						routerLabel = "unknown-router"
+					}
+					pair := fmt.Sprintf("%s (%s)", routerLabel, h)
+					removedRouterHostPairs = append(removedRouterHostPairs, pair)
+				} else {
+					pair := fmt.Sprintf("unknown-router (%s)", h)
+					removedRouterHostPairs = append(removedRouterHostPairs, pair)
+				}
+			}
+			log.Info("%s Routers removed [%s]", t.logPrefix, strings.Join(removedRouterHostPairs, ", "))
 			for _, h := range removed {
 				if prevState, ok := t.routerCache[h]; ok {
 					t.processRouterRemove(prevState)
