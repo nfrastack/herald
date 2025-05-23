@@ -130,27 +130,36 @@ If you don't add anything in the Poll Provider environment variables the followi
 
 ##### Defaults
 
-These defaults
+| Variable                                     | Description                                   | Default/Example                        |
+| -------------------------------------------- | --------------------------------------------- | -------------------------------------- |
+| `DEFAULT_POLL_DOCKER_API_URL`                | Docker socket path                            | `unix:///var/run/docker.sock`          |
+| `DEFAULT_POLL_DOCKER_API_AUTH_USER`          | Docker API basic auth user                    | (optional)                             |
+| `DEFAULT_POLL_DOCKER_API_AUTH_PASS`          | Docker API basic auth password                | (optional)                             |
+| `DEFAULT_POLL_DOCKER_EXPOSE_CONTAINERS`      | Expose all Docker containers                  | `TRUE`                                 |
+| `DEFAULT_POLL_DOCKER_FILTER_TYPE`            | Docker poll filter type                       | `none`                                 |
+| `DEFAULT_POLL_DOCKER_PROCESS_EXISTING`       | Process existing Docker containers on startup | `TRUE`                                 |
+| `DEFAULT_POLL_DOCKER_RECORD_REMOVE_ON_STOP`  | Remove DNS records on container stop          | `FALSE`                                |
+| `DEFAULT_POLL_DOCKER_SWARM_MODE`             | Enable Docker Swarm mode                      | `FALSE`                                |
+| `DEFAULT_POLL_TRAEFIK_API_URL`               | Docker socket path                            | `http://traefik:8080/api/http/routers` |
+| `DEFAULT_POLL_TRAEFIK_API_AUTH_USER`         | Docker API basic auth user                    | (optional)                             |
+| `DEFAULT_POLL_TRAEFIK_API_AUTH_PASS`         | Docker API basic auth password                | (optional)                             |
+| `DEFAULT_POLL_TRAEFIK_FILTER_TYPE`           | Traefik poll filter type                      | `none`                                 |
+| `DEFAULT_POLL_TRAEFIK_INTERVAL`              | Traefik poll interval (seconds)               | `60`                                   |
+| `DEFAULT_POLL_TRAEFIK_PROCESS_EXISTING`      | Process existing Traefik Routers at startup   | `TRUE`                                 |
+| `DEFAULT_POLL_TRAEFIK_RECORD_REMOVE_ON_STOP` | Remove DNS records on container stop          | `FALSE`                                |
 
-| Variable                                    | Description                                   | Default                       |
-| ------------------------------------------- | --------------------------------------------- | ----------------------------- |
-| `DEFAULT_POLL_DOCKER_EXPOSE_CONTAINERS`     | Expose all Docker containers                  | `TRUE`                        |
-| `DEFAULT_POLL_DOCKER_FILTER_TYPE`           | Docker poll filter type                       | `none`                        |
-| `DEFAULT_POLL_DOCKER_HOST`                  | Docker socket path                            | `unix:///var/run/docker.sock` |
-| `DEFAULT_POLL_DOCKER_PROCESS_EXISTING`      | Process existing Docker containers on startup | `TRUE`                        |
-| `DEFAULT_POLL_DOCKER_RECORD_REMOVE_ON_STOP` | Remove DNS records on container stop          | `FALSE`                       |
-| `DEFAULT_POLL_DOCKER_SWARM_MODE`            | Enable Docker Swarm mode                      | `FALSE`                       |
-| `DEFAULT_POLL_TRAEFIK_FILTER_TYPE`          | Traefik poll filter type                      | `none`                        |
-| `DEFAULT_POLL_TRAEFIK_POLL_INTERVAL`        | Traefik poll interval (seconds)               | `60`                          |
-
-Create as many providers as you want under the syntax of `POLL_`<PROFILENAME>`_<OPTION>`
+Create as many poll providers as you want under the syntax of `POLL_<PROFILENAME>_<OPTION>`
 
 | Variable                        | Description                                   | Example                                |
 | ------------------------------- | --------------------------------------------- | -------------------------------------- |
 | `POLL_01_TYPE`                  | Poll provider type                            | `docker` `traefik`                     |
-| `POLL_01_HOST`                  | Docker socket path                            | `unix:///var/run/docker.sock           |
+| `POLL_01_API_URL`               | API Endpoint (Docker socket or Traefik API)   | `unix:///var/run/docker.sock`          |
+|                                 |                                               | `http://traefik:8080/api/http/routers` |
+| `POLL_01_API_AUTH_USER`         | Basic Authentication User                     | (optional)                             |
+| `POLL_01_API_AUTH_PASS`         | Basic Authentication Pass                     | (optional)                             |
 | `POLL_01_EXPOSE_CONTAINERS`     | Expose all Docker containers                  | `TRUE`                                 |
-| `POLL_01_FILTER_TYPE`           | poll filter type                              | `none`                                 |
+| `POLL_01_FILTER_TYPE`           | Poll filter type                              | `none`                                 |
+| `POLL_01_FILTER_VALUE`          | Poll filter value                             | (optional)                             |
 | `POLL_01_PROCESS_EXISTING`      | Process existing Docker containers on startup | `TRUE`                                 |
 | `POLL_01_RECORD_REMOVE_ON_STOP` | Remove DNS records on container stop          | `FALSE`                                |
 | `POLL_01_SWARM_MODE`            | Enable Docker Swarm mode                      | `FALSE`                                |
@@ -158,9 +167,7 @@ Create as many providers as you want under the syntax of `POLL_`<PROFILENAME>`_<
 | `POLL_01_TLS_CERT_PATH`         | Path to Docker TLS cert                       | (optional)                             |
 | `POLL_01_TLS_KEY_PATH`          | Path to Docker TLS key                        | (optional)                             |
 | `POLL_01_TLS_VERIFY`            | Verify Docker TLS connection                  | `TRUE` or `FALSE`                      |
-| `POLL_01_POLL_URL`              | Traefik API URL                               | `http://traefik:8080/api/http/routers` |
-| `POLL_01_POLL_INTERVAL`         | Traefik poll interval (seconds)               | `60`                                   |
-| `POLL_01_FILTER_TYPE`           | Traefik poll filter type                      | `none`                                 |
+| `POLL_01_INTERVAL`              | Traefik poll interval (seconds)               | `60`                                   |
 
 ## Maintenance
 
