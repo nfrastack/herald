@@ -48,7 +48,6 @@ This flake provides a NixOS module that allows you to configure and run the Cont
         host = "unix:///var/run/docker.sock";
         expose_containers = true;
         filter_type = "none";
-        process_existing_containers = false;
         record_remove_on_stop = false;
       };
       traefik = {
@@ -56,7 +55,9 @@ This flake provides a NixOS module that allows you to configure and run the Cont
         api_url = "http://traefik:8080/api/http/routers";
         api_auth_user = "admin";
         api_auth_pass = "password";
-        interval = 60;
+        interval = "15s";
+        process_existing = true;
+        record_remove_on_stop = true;
       };
     };
     providers = {
@@ -112,7 +113,6 @@ Here are the available options for the NixOS module (services.container-dns-comp
     * `host` (str): Docker socket path.
     * `expose_containers` (bool): Expose all containers.
     * `filter_type` (str): Filter type.
-    * `process_existing_containers` (bool): Process existing containers on startup.
     * `record_remove_on_stop` (bool): Remove DNS records on stop.
   * `traefik` (attrs):
     * `type` (str): "traefik"
@@ -120,6 +120,8 @@ Here are the available options for the NixOS module (services.container-dns-comp
     * `api_auth_user` (str): Username for basic auth to the Traefik API.
     * `api_auth_pass` (str): Password for basic auth to the Traefik API.
     * `interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
+    * `process_existing` (bool): Process existing routers on startup.
+    * `record_remove_on_stop` (bool): Remove DNS records when router is removed.
 * `providers` (attrs): DNS provider profiles. Example:
   * `cloudflare` (attrs):
     * `type` (str): "cloudflare"
