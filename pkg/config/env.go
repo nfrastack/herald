@@ -30,8 +30,7 @@ var (
 	providerRegex   = regexp.MustCompile(`^PROVIDER_([A-Za-z0-9_]+)_(.+)$`)
 )
 
-// LoadFromEnvironment loads configuration values from environment variables
-// and overrides values in the provided config
+// LoadFromEnvironment loads configuration values from environment variables and overrides values in the provided config
 func LoadFromEnvironment(cfg *ConfigFile) {
 	// Load .env file if present
 	if _, err := os.Stat(".env"); err == nil {

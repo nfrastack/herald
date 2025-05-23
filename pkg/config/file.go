@@ -395,5 +395,3 @@ func CleanConfigSections(cfg *ConfigFile) {
 	// No cleaning for poll providers - pass all options through
 	// This allows providers to handle their own options and filtering
 }
-
-// Function removed - now using utils.MaskSensitiveMapRecursive instead

@@ -197,7 +197,6 @@ func (dpc *DNSProviderConfig) GetOptions() map[string]string {
 }
 
 // Add PollProviderConfig methods here since struct is defined in this file
-// Updated: Accept profileName and always add it to options
 func (ppc *PollProviderConfig) GetOptions(profileName string) map[string]string {
 	options := make(map[string]string)
 	// Add all struct fields from the PollProviderConfig struct itself
