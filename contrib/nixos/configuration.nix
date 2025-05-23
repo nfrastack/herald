@@ -24,6 +24,15 @@
           swarm = false;
           record_remove_on_stop = false;
         };
+        traefikpoller01 = {
+          type = "traefik";
+          api_url = "http://traefik:8080/api/http/routers";
+          api_auth_user = "admin";
+          api_auth_pass = "password";
+          interval = "60s";
+          process_existing = true;
+          record_remove_on_stop = true;
+        };
       };
       providers = {
         dnsprovider01 = {

@@ -40,11 +40,18 @@ polls:
 
   pollexample2:
     type: traefik
-    poll_url: http://traefik:8080/api/http/routers
-    poll_interval: 30s  # or 60, 1m, 1h, etc.
+    api_url: http://traefik:8080/api/http/routers
+    interval: 30s  # or 60, 1m, 1h, etc.
     config_path: /etc/traefik/dynamic
     process_existing: true  # Process existing routers on startup
     record_remove_on_stop: true  # Remove DNS records when router is removed
+
+services:
+  traefik-poller:
+    api_url: http://traefik:8080/api/http/routers
+    api_auth_user: admin
+    api_auth_pass: password
+    interval: 15s
 
 domains:
   domainexample:
