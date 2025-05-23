@@ -11,6 +11,7 @@ import (
 	"container-dns-companion/pkg/log"
 	"container-dns-companion/pkg/poll"
 	"container-dns-companion/pkg/poll/providers/docker/filter"
+	"container-dns-companion/pkg/utils"
 
 	"context"
 	"fmt"
@@ -80,14 +81,12 @@ func (c *DockerContainerInfo) GetTarget() string {
 
 // NewProvider creates a new Docker poll provider
 func NewProvider(options map[string]string) (poll.Provider, error) {
-	// Get profile name from options or use "default" if not set
-	profileName := options["profile_name"]
-	if profileName == "" {
-		profileName = "default"
-	}
-
-	// Create log prefix with profile name
+	// Always use utils.GetProfileNameFromOptions for profile name resolution
+	profileName := utils.GetProfileNameFromOptions(options, "default")
 	logPrefix := fmt.Sprintf("[poll/docker/%s]", profileName)
+
+	// Log resolved profile name at trace level only
+	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
 
 	// Setup Docker client options from environment or provided options
 	clientOpts := []client.Opt{client.FromEnv}

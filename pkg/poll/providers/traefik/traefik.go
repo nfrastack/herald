@@ -132,18 +132,20 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	// Get poll interval from options
 	pollInterval := 60 * time.Second
 	if interval := options["interval"]; interval != "" {
-		dur, err := time.ParseDuration(interval)
-		if err == nil && dur > 0 {
-			pollInterval = dur
-			log.Debug("%s Setting poll interval from duration: %s", logPrefix, pollInterval)
-		} else if parsed, err := strconv.Atoi(interval); err == nil && parsed > 0 {
-			pollInterval = time.Duration(parsed) * time.Second
-			log.Debug("%s Setting poll interval from seconds: %s", logPrefix, pollInterval)
-		} else {
-			log.Debug("%s Invalid interval format, using default: %s", logPrefix, pollInterval)
+		parsed, err := time.ParseDuration(interval)
+		if err == nil {
+			pollInterval = parsed
+		} else if i, err := strconv.Atoi(interval); err == nil {
+			pollInterval = time.Duration(i) * time.Second
 		}
-	} else {
-		log.Debug("%s No interval specified, using default: %s", logPrefix, pollInterval)
+	} else if interval := options["poll_interval"]; interval != "" {
+		// Backward compatibility
+		parsed, err := time.ParseDuration(interval)
+		if err == nil {
+			pollInterval = parsed
+		} else if i, err := strconv.Atoi(interval); err == nil {
+			pollInterval = time.Duration(i) * time.Second
+		}
 	}
 
 	processExisting := false
