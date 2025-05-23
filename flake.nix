@@ -167,8 +167,10 @@
                 };
                 traefik = {
                   type = "traefik";
-                  poll_url = "http://traefik:8080/api/http/routers";
-                  poll_interval = lib.mkOption {
+                  api_url = "http://traefik:8080/api/http/routers";
+                  api_auth_user = "admin";
+                  api_auth_pass = "password";
+                  interval = lib.mkOption {
                     type = lib.types.str;
                     default = "60s";
                     description = ''
