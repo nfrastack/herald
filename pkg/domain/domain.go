@@ -119,3 +119,68 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	//log.Info("%s Created/updated DNS record for '%s'", logPrefix, fqdn)
 	return nil
 }
+
+// EnsureDNSRemoveForRouterState removes DNS records for a router event
+func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error {
+	logPrefix := fmt.Sprintf("[domain/%s]", domain)
+	log.Debug("%s Removing DNS for FQDN: %s | RouterState: %+v", logPrefix, fqdn, state)
+
+	domainConfig := config.GetDomainConfig(domain)
+	if domainConfig == nil {
+		log.Error("%s No domain config found for '%s'", logPrefix, fqdn)
+		return fmt.Errorf("no domain config for %s", fqdn)
+	}
+	providerKey := domainConfig["provider"]
+	if providerKey == "" {
+		log.Error("%s No provider specified for domain '%s' (hostname: %s)", logPrefix, domain, fqdn)
+		return fmt.Errorf("no provider for domain %s", domain)
+	}
+	providerCfg, ok := config.GlobalConfig.Providers[providerKey]
+	if !ok {
+		log.Error("%s No provider config found for key '%s' (domain: %s)", logPrefix, providerKey, domain)
+		return fmt.Errorf("no provider config for %s", providerKey)
+	}
+	providerOptions := providerCfg.GetOptions()
+	for k, v := range domainConfig {
+		providerOptions[k] = v
+	}
+	log.Debug("%s Merged providerOptions for removal: %v", logPrefix, providerOptions)
+
+	recordType := providerOptions["type"]
+	target := state.Service
+	if v, ok := providerOptions["target"]; ok && v != "" {
+		target = v
+	}
+	if recordType == "" {
+		if ip := net.ParseIP(target); ip != nil {
+			if ip.To4() != nil {
+				recordType = "A"
+			} else {
+				recordType = "AAAA"
+			}
+		} else {
+			recordType = "CNAME"
+		}
+	}
+
+	hostname := fqdn
+	if fqdn == domain {
+		hostname = "@"
+	} else if strings.HasSuffix(fqdn, "."+domain) {
+		hostname = strings.TrimSuffix(fqdn, "."+domain)
+	}
+	log.Debug("%s Final DNS removal params: domain=%s, recordType=%s, hostname=%s", logPrefix, domain, recordType, hostname)
+
+	dnsProvider, err := dns.LoadProviderFromConfig(providerKey, providerOptions)
+	if err != nil {
+		log.Error("%s Failed to load DNS provider '%s': %v", logPrefix, providerKey, err)
+		return err
+	}
+	err = dnsProvider.DeleteRecord(domain, recordType, hostname)
+	if err != nil {
+		log.Error("%s Failed to delete DNS record for '%s': %v", logPrefix, fqdn, err)
+		return err
+	}
+	log.Debug("%s Deleted DNS record for '%s'", logPrefix, fqdn)
+	return nil
+}
