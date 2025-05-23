@@ -4,6 +4,7 @@ import (
 	"container-dns-companion/pkg/config"
 	"container-dns-companion/pkg/dns"
 	"container-dns-companion/pkg/log"
+	"container-dns-companion/pkg/utils"
 
 	"fmt"
 	"net"
@@ -71,7 +72,9 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	for k, v := range domainConfig {
 		providerOptions[k] = v
 	}
-	log.Trace("%s Merged providerOptions: %v", logPrefix, providerOptions)
+	// Mask sensitive values before logging
+	maskedProviderOptions := utils.MaskSensitiveOptions(providerOptions)
+	log.Trace("%s Merged providerOptions: %v", logPrefix, maskedProviderOptions)
 
 	// Check for required secrets
 	missingSecrets := []string{}
@@ -162,7 +165,9 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 	for k, v := range domainConfig {
 		providerOptions[k] = v
 	}
-	log.Debug("%s Merged providerOptions for removal: %v", logPrefix, providerOptions)
+	// Mask sensitive values before logging
+	maskedProviderOptions := utils.MaskSensitiveOptions(providerOptions)
+	log.Debug("%s Merged providerOptions for removal: %v", logPrefix, maskedProviderOptions)
 
 	recordType := providerOptions["type"]
 	target := state.Service

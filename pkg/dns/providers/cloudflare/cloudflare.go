@@ -205,8 +205,15 @@ func (p *Provider) createOrUpdateRecordWithSource(domain string, recordType stri
 			if err != nil {
 				return fmt.Errorf("%s failed to update DNS record: %w", p.logPrefix, err)
 			}
-
-			log.Info("%s Updated DNS record %s (%s) -> %s (%s: %s)", p.logPrefix, fullHostname, recordType, target, sourceType, sourceName)
+			label := sourceType
+			if label == "" {
+				label = "unknown"
+			}
+			name := sourceName
+			if name == "" {
+				name = "unknown"
+			}
+			log.Info("%s Updated DNS record %s (%s) -> %s (%s: %s)", p.logPrefix, fullHostname, recordType, target, label, name)
 			return nil
 		} else {
 			// Record exists but overwrite is false
@@ -259,8 +266,15 @@ func (p *Provider) createOrUpdateRecordWithSource(domain string, recordType stri
 	if err != nil {
 		return fmt.Errorf("%s failed to create DNS record: %w", p.logPrefix, err)
 	}
-
-	log.Info("%s Created DNS record %s (%s) -> %s (%s: %s)", p.logPrefix, fullHostname, recordType, target, sourceType, sourceName)
+	label := sourceType
+	if label == "" {
+		label = "unknown"
+	}
+	name := sourceName
+	if name == "" {
+		name = "unknown"
+	}
+	log.Info("%s Created DNS record %s (%s) -> %s (%s: %s)", p.logPrefix, fullHostname, recordType, target, label, name)
 	return nil
 }
 
