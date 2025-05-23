@@ -175,6 +175,16 @@
                       How often to poll the Traefik API for updates. Supports Go duration units (e.g., `15s`, `1m`, `1h`, or just `60` for 60 seconds).
                     '';
                   };
+                  process_existing = lib.mkOption {
+                    type = lib.types.bool;
+                    default = false;
+                    description = "If true, process existing routers on startup for Traefik poller.";
+                  };
+                  record_remove_on_stop = lib.mkOption {
+                    type = lib.types.bool;
+                    default = false;
+                    description = "If true, remove DNS records when router is removed for Traefik poller.";
+                  };
                 };
               };
               description = "Poll profiles for service/container discovery. Each key is the poller name, and the value is an attribute set of options for that poller. TLS options for Docker are nested under 'tls'.";
