@@ -84,7 +84,6 @@ func (p *Provider) lazyInitAPI() error {
 	apiToken := config.GetConfig(p.config, "api_token")
 	if apiToken != "" {
 		// Use the token-based authentication method
-		log.Debug("%s Initializing Cloudflare API with token authentication", p.logPrefix)
 		api, err = cloudflare.NewWithAPIToken(apiToken)
 		if err != nil {
 			return fmt.Errorf("%s failed to initialize API with token: %w", p.logPrefix, err)
@@ -184,8 +183,8 @@ func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostna
 			return nil
 		} else {
 			// Record exists but overwrite is false
-			log.Debug("%s Record %s (%s) exists but overwrite=false, skipping", p.logPrefix, fullHostname, recordType)
-			return fmt.Errorf("%s record %s (%s) already exists and overwrite is not enabled", p.logPrefix, fullHostname, recordType)
+			log.Debug("%s Record %s (%s) exists but update_existing=false, skipping", p.logPrefix, fullHostname, recordType)
+			return fmt.Errorf("%s record %s (%s) already exists and update_existing_records=false", p.logPrefix, fullHostname, recordType)
 		}
 	}
 
