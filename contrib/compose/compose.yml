@@ -21,7 +21,9 @@ services:
 
       # Poll provider example (Docker)
       - POLL_01_TYPE=docker
-      - POLL_01_DOCKER_HOST=unix:///var/run/docker.sock
+      - POLL_01_API_URL=unix:///var/run/docker.sock
+      - POLL_01_API_AUTH_USER=
+      - POLL_01_API_AUTH_PASS=
       - POLL_01_DOCKER_EXPOSE_CONTAINERS=TRUE
       - POLL_01_DOCKER_FILTER_TYPE=none
       - POLL_01_DOCKER_PROCESS_EXISTING=TRUE

@@ -27,6 +27,8 @@ polls:
   pollexample:
     type: "docker"
     host: "unix:///var/run/docker.sock"   #Unix socket
+    api_auth_user: ""
+    api_auth_pass: ""
     #host: "tcp://docker.example.com:2376" #TLS
     expose_containers: true
     filter_type: "none"

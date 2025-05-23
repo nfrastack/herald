@@ -20,6 +20,8 @@
         pollprovider01 = {
           type = "docker";
           host = "unix:///var/run/docker.sock";
+          api_auth_user = "";
+          api_auth_pass = "";
           expose_containers = true;
           swarm = false;
           record_remove_on_stop = false;

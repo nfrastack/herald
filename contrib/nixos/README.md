@@ -110,8 +110,11 @@ Here are the available options for the NixOS module (services.container-dns-comp
 * `polls` (attrs): Poll provider profiles. Example:
   * `docker` (attrs):
     * `type` (str): "docker"
-    * `host` (str): Docker socket path.
+    * `api_url` (str): Docker socket path.
+    * `api_auth_user` (str): Username for basic auth to the Docker API.
+    * `api_auth_pass` (str): Password for basic auth to the Docker API.
     * `expose_containers` (bool): Expose all containers.
+    * `process_existing` (bool): Process existing containers on startup.
     * `filter_type` (str): Filter type.
     * `record_remove_on_stop` (bool): Remove DNS records on stop.
   * `traefik` (attrs):
