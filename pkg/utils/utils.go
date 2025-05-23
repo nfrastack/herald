@@ -10,18 +10,68 @@ import (
 	"strings"
 )
 
+// GetEnvDefault returns the value of the environment variable if set, otherwise returns the default value.
+func GetEnvDefault(key, defaultValue string) string {
+	val, ok := os.LookupEnv(key)
+	if !ok {
+		return defaultValue
+	}
+	return val
+}
+
+// GetMapKeys returns a slice of all keys in a map for debugging purposes
+func GetMapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// GetMapKeysGeneric returns a slice of all keys in a map[string]interface{} for debugging purposes
+func GetMapKeysGeneric(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// GetProfileNameFromOptions extracts a profile name from a map of options
+// in a consistent manner, checking multiple possible keys
+func GetProfileNameFromOptions(options map[string]string, defaultName string) string {
+	// First check for the dedicated profile_name field
+	profileName := options["profile_name"]
+
+	// If not available, try to get the profile name from the "name" field
+	if profileName == "" {
+		profileName = options["name"]
+	}
+
+	if profileName == "" {
+		profileName = options["profile"]
+	}
+
+	// If still not available, use the provided default
+	if profileName == "" {
+		profileName = defaultName
+	}
+
+	return profileName
+}
+
 // MaskSensitiveValue masks a sensitive string value for safe logging.
 // It preserves some characters from the beginning and end of the string
 // to aid in identification, while masking the middle part.
-// For very short strings (less than 6 chars), it simply returns "[REDACTED]".
+// For very short strings (less than 6 chars), it simply returns "****".
 func MaskSensitiveValue(value string) string {
 	if value == "" {
 		return ""
 	}
 
-	// For very short strings, just return [REDACTED]
+	// For very short strings, just return ****
 	if len(value) < 6 {
-		return "[REDACTED]"
+		return "****"
 	}
 
 	// For longer strings, keep some characters at beginning and end
@@ -51,8 +101,23 @@ func MaskSensitiveValue(value string) string {
 // that should be masked in logs.
 func IsSensitiveKey(key string) bool {
 	sensitiveKeywords := []string{
-		"password", "pass", "secret", "key", "token", "auth", "cred",
-		"apikey", "api_key", "auth_pass", "auth_token",
+		"api_email",
+		"api_key",
+		"api_user",
+		"apikey",
+		"auth_pass",
+		"auth_token",
+		"auth",
+		"code",
+		"cred",
+		"credential"
+		"key",
+		"pass",
+		"password",
+		"secret",
+		"token",
+		"username",
+        "user",
 	}
 
 	lowerKey := strings.ToLower(key)
@@ -100,7 +165,7 @@ func MaskSensitiveMapRecursive(m map[string]interface{}) map[string]interface{} 
 			if sv, ok := v.(string); ok {
 				masked[k] = MaskSensitiveValue(sv)
 			} else {
-				masked[k] = "[REDACTED]"
+				masked[k] = "****"
 			}
 		} else if subMap, ok := v.(map[string]interface{}); ok {
 			masked[k] = MaskSensitiveMapRecursive(subMap)
@@ -109,55 +174,4 @@ func MaskSensitiveMapRecursive(m map[string]interface{}) map[string]interface{} 
 		}
 	}
 	return masked
-}
-
-// GetMapKeys returns a slice of all keys in a map for debugging purposes
-func GetMapKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
-// GetMapKeysGeneric returns a slice of all keys in a map[string]interface{} for debugging purposes
-func GetMapKeysGeneric(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
-// GetProfileNameFromOptions extracts a profile name from a map of options
-// in a consistent manner, checking multiple possible keys
-func GetProfileNameFromOptions(options map[string]string, defaultName string) string {
-	// First check for the dedicated profile_name field
-	profileName := options["profile_name"]
-
-	// If not available, try to get the profile name from the "name" field
-	if profileName == "" {
-		profileName = options["name"]
-	}
-
-	// If not available, try "profile" field
-	if profileName == "" {
-		profileName = options["profile"]
-	}
-
-	// If still not available, use the provided default
-	if profileName == "" {
-		profileName = defaultName
-	}
-
-	return profileName
-}
-
-// GetEnvDefault returns the value of the environment variable if set, otherwise returns the default value.
-func GetEnvDefault(key, defaultValue string) string {
-	val, ok := os.LookupEnv(key)
-	if !ok {
-		return defaultValue
-	}
-	return val
 }
