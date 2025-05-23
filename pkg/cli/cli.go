@@ -11,36 +11,26 @@ import (
 
 // Options holds all command line options
 type Options struct {
-	// General options
 	ConfigFile  string
-	ShowVersion bool
-
-	// Logging options
+	DryRun        bool
+	LogFile       string
 	LogLevel      string
 	LogTimestamps bool
 	LogType       string
-	LogFile       string
-	DryRun        bool
+	ShowVersion bool
 }
 
 // ParseFlags parses command line flags and returns the options
 func ParseFlags() *Options {
 	opts := &Options{}
-
-	// Parse command line flags
 	flag.StringVar(&opts.ConfigFile, "config-file", "", "Path to configuration file")
 	flag.BoolVar(&opts.ShowVersion, "version", false, "Show version information")
-
-	// Add command line options for common settings
 	flag.StringVar(&opts.LogLevel, "log-level", "", "Log level (info, debug)")
 	flag.BoolVar(&opts.LogTimestamps, "log-timestamps", false, "Show timestamps in logs")
 	flag.StringVar(&opts.LogType, "log-type", "", "Log type (console, file, both)")
 	flag.StringVar(&opts.LogFile, "log-file", "", "Path to log file (includes directory)")
 	flag.BoolVar(&opts.DryRun, "dry-run", false, "Enable dry run mode (no changes will be made)")
-
-	// Parse the flags
 	flag.Parse()
-
 	return opts
 }
 
