@@ -363,3 +363,4 @@ func extractSubdomainFromFQDN(fqdn, domain string) string {
 	// If we couldn't extract a proper subdomain, return the original FQDN
 	return fqdn
 }
+
