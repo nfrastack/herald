@@ -229,15 +229,17 @@ A poller is a module that discovers resources (like containers or routers) to be
 **Options for configuring a Docker poll provider:**
 
 - `type`: (string) Must be `docker` for Docker poller.
-- `host`: (string) Docker socket or TCP endpoint (e.g., `unix:///var/run/docker.sock`).
-- `expose_containers`: (bool) Expose all containers without explicit DNS labels.
-- `filter_type`: (string) Type of container filter to apply (e.g., `none`, `label`, `name`, etc.).
-- `record_remove_on_stop`: (bool) Remove DNS records when a container stops.
-- `tls`: (object) TLS configuration for Docker API:
-  - `verify`: (bool) Verify TLS certificates.
-  - `ca`: (string) Path to CA certificate.
-  - `cert`: (string) Path to client certificate.
-  - `key`: (string) Path to client key.
+- `api_url`: (string) Docker API endpoint (default: `unix:///var/run/docker.sock`).
+- `api_auth_user`: (string) Username for basic auth to the Docker API (optional).
+- `api_auth_pass`: (string) Password for basic auth to the Docker API (optional).
+- `process_existing`: (bool) Process existing containers on startup (default: false).
+- `expose_containers`: (bool) Expose all containers by default (default: false).
+- `swarm_mode`: (bool) Enable Docker Swarm mode (default: false).
+- `record_remove_on_stop`: (bool) Remove DNS records when containers stop (default: false).
+
+Legacy options like `host` and `docker_host` are no longer supported.
+
+See `contrib/sample-config.yaml` for an example configuration.
 
 ##### Config File
 
@@ -245,50 +247,37 @@ A poller is a module that discovers resources (like containers or routers) to be
 polls:
   docker_example:
     type: docker
-    host: unix:///var/run/docker.sock
-    #host: tcp://docker.host:2376 #TLS
+    api_url: unix:///var/run/docker.sock
+    api_auth_user: admin
+    api_auth_pass: password
+    process_existing: false
     expose_containers: true
-    filter_type: none
+    swarm_mode: false
     record_remove_on_stop: true
-    tls:
-      verify: true
-      ca: /etc/docker/certs/ca.pem
-      cert: /etc/docker/certs/cert.pem
-      key: /etc/docker/certs/key.pem
 ```
 
 ##### Environment Variables
 
 | Variable                                 | Description                                                      | Default                       |
 | ---------------------------------------- | ---------------------------------------------------------------- | ----------------------------- |
-| `DOCKER_HOST`                            | Docker socket or TCP endpoint (e.g., `tcp://111.222.111.32:2376`) | `unix:///var/run/docker.sock` |
-| `TLS_VERIFY`                             | Verify TLS when connecting to Docker                              | `1`                           |
-| `TLS_CA`                                 | Path to CA certificate                                            |                               |
-| `TLS_CERT`                               | Path to client certificate                                        |                               |
-| `TLS_KEY`                                | Path to client key                                                |                               |
-| `DOCKER_SWARM_MODE`                      | Enable Docker Swarm Mode                                          | `false`                       |
+| `API_URL`                                | Docker API endpoint (e.g., `tcp://111.222.111.32:2376`)          | `unix:///var/run/docker.sock` |
+| `API_AUTH_USER`                          | Username for basic auth to the Docker API                       |                               |
+| `API_AUTH_PASS`                          | Password for basic auth to the Docker API                       |                               |
+| `PROCESS_EXISTING`                       | Process existing containers on startup                           | `false`                       |
 | `EXPOSE_CONTAINERS`                      | Expose all containers without requiring explicit labels           | `false`                       |
-| `FILTER_TYPE`                            | Container filter type                                             | `none`                        |
-| `PROCESS_EXISTING_CONTAINERS`            | Process existing containers on startup                            | `false`                       |
+| `SWARM_MODE`                             | Enable Docker Swarm Mode                                          | `false`                       |
 | `RECORD_REMOVE_ON_STOP`                  | Remove DNS records when container stops                           | `false`                       |
 
 | Variable                                   | Description                                                      | Default                       |
 | ------------------------------------------ | ---------------------------------------------------------------- | ----------------------------- |
 | `POLL_<PROFILENAME>_TYPE`                  | Poller type (docker, traefik, etc.)                              |                               |
-| `POLL_<PROFILENAME>_HOST`                  | Docker socket or TCP endpoint                                    |                               |
+| `POLL_<PROFILENAME>_API_URL`               | Docker API endpoint                                              |                               |
+| `POLL_<PROFILENAME>_API_AUTH_USER`         | Username for basic auth to the Docker API                       |                               |
+| `POLL_<PROFILENAME>_API_AUTH_PASS`         | Password for basic auth to the Docker API                       |                               |
+| `POLL_<PROFILENAME>_PROCESS_EXISTING`      | Process existing containers on startup                           |                               |
 | `POLL_<PROFILENAME>_EXPOSE_CONTAINERS`     | Expose containers (true/false)                                   |                               |
-| `POLL_<PROFILENAME>_FILTER_TYPE`           | Filter type                                                      |                               |
-| `POLL_<PROFILENAME>_FILTER_VALUE`          | Filter value                                                     |                               |
+| `POLL_<PROFILENAME>_SWARM_MODE`            | Enable Docker Swarm mode                                         |                               |
 | `POLL_<PROFILENAME>_RECORD_REMOVE_ON_STOP` | Remove DNS on stop (true/false)                                  |                               |
-| `POLL_<PROFILENAME>_TLS_VERIFY`            | Verify TLS (true/false)                                          |                               |
-| `POLL_<PROFILENAME>_TLS_CA`                | Path to CA cert                                                  |                               |
-| `POLL_<PROFILENAME>_TLS_CERT`              | Path to client cert                                              |                               |
-| `POLL_<PROFILENAME>_TLS_KEY`               | Path to client key                                               |                               |
-| `POLL_<PROFILENAME>_API_URL`               | Poll Provider Endpoint                                           |                               |
-| `POLL_<PROFILENAME>_API_AUTH_USER`         | Username for basic auth to the Poll Provider API                 |                               |
-| `POLL_<PROFILENAME>_API_AUTH_PASS`         | Password for basic auth to the Poll Provider API                 |                               |
-| `POLL_<PROFILENAME>_INTERVAL`              | Traefik poll interval (supports units, e.g., `15s`, `1m`, `60`)  |                               |
-| `POLL_<PROFILENAME>_PROCESS_EXISTING`      | Process existing routers on startup (Traefik poller)             |                               |
 
 ##### Usage of Docker Provider
 
