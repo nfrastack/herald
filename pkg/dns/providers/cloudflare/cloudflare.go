@@ -130,18 +130,18 @@ func (p *Provider) getZoneID(domain string) (string, error) {
 
 // CreateOrUpdateRecord creates or updates a DNS record (Cloudflare-specific)
 func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostname string, target string, ttl int, overwrite bool) error {
-	return p.createOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, overwrite, "")
+	return p.createOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, overwrite, "", "")
 }
 
-// CreateOrUpdateRecordWithSource allows logging the source/container name
-func (p *Provider) CreateOrUpdateRecordWithSource(domain string, recordType string, hostname string, target string, ttl int, overwrite bool, sourceName string) error {
-	return p.createOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, overwrite, sourceName)
+// CreateOrUpdateRecordWithSource allows logging the source/container name and type
+func (p *Provider) CreateOrUpdateRecordWithSource(domain string, recordType string, hostname string, target string, ttl int, overwrite bool, sourceName string, sourceType string) error {
+	return p.createOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, overwrite, sourceName, sourceType)
 }
 
-// createOrUpdateRecordWithSource is the internal implementation that supports logging the source/container name
-func (p *Provider) createOrUpdateRecordWithSource(domain string, recordType string, hostname string, target string, ttl int, overwrite bool, sourceName string) error {
+// createOrUpdateRecordWithSource is the internal implementation that supports logging the source/container name and type
+func (p *Provider) createOrUpdateRecordWithSource(domain string, recordType string, hostname string, target string, ttl int, overwrite bool, sourceName string, sourceType string) error {
 	if p.DryRun {
-		log.Info("%s [dry-run] Would create or update DNS record: %s.%s (%s) -> %s (TTL: %d, Overwrite: %v)%s", p.logPrefix, hostname, domain, recordType, target, ttl, overwrite, formatSourceName(sourceName))
+		log.Info("%s [dry-run] Would create or update DNS record: %s.%s (%s) -> %s (TTL: %d, Overwrite: %v) (%s: %s)", p.logPrefix, hostname, domain, recordType, target, ttl, overwrite, sourceType, sourceName)
 		return nil
 	}
 
@@ -176,7 +176,15 @@ func (p *Provider) createOrUpdateRecordWithSource(domain string, recordType stri
 			if err == nil && current != nil {
 				proxied := false // Default, adjust if you support proxied
 				if current.Type == recordType && current.Value == target && current.TTL == ttl && current.Proxied == proxied {
-					log.Debug("%s Record %s (%s) already up to date, skipping update", p.logPrefix, fullHostname, recordType)
+					label := sourceType
+					if label == "" {
+						label = "unknown"
+					}
+					name := sourceName
+					if name == "" {
+						name = "unknown"
+					}
+					log.Debug("%s Record %s (%s) already up to date, skipping update (%s: %s)", p.logPrefix, fullHostname, recordType, label, name)
 					return nil
 				}
 			}
@@ -198,7 +206,7 @@ func (p *Provider) createOrUpdateRecordWithSource(domain string, recordType stri
 				return fmt.Errorf("%s failed to update DNS record: %w", p.logPrefix, err)
 			}
 
-			log.Info("%s Updated DNS record %s (%s) -> %s%s", p.logPrefix, fullHostname, recordType, target, formatSourceName(sourceName))
+			log.Info("%s Updated DNS record %s (%s) -> %s (%s: %s)", p.logPrefix, fullHostname, recordType, target, sourceType, sourceName)
 			return nil
 		} else {
 			// Record exists but overwrite is false
@@ -252,24 +260,24 @@ func (p *Provider) createOrUpdateRecordWithSource(domain string, recordType stri
 		return fmt.Errorf("%s failed to create DNS record: %w", p.logPrefix, err)
 	}
 
-	log.Info("%s Created DNS record %s (%s) -> %s%s", p.logPrefix, fullHostname, recordType, target, formatSourceName(sourceName))
+	log.Info("%s Created DNS record %s (%s) -> %s (%s: %s)", p.logPrefix, fullHostname, recordType, target, sourceType, sourceName)
 	return nil
 }
 
 // DeleteRecord deletes a DNS record (Cloudflare-specific)
 func (p *Provider) DeleteRecord(domain string, recordType string, hostname string) error {
-	return p.deleteRecordWithSource(domain, recordType, hostname, "")
+	return p.deleteRecordWithSource(domain, recordType, hostname, "", "")
 }
 
-// DeleteRecordWithSource deletes a DNS record and logs the source/container name
-func (p *Provider) DeleteRecordWithSource(domain string, recordType string, hostname string, sourceName string) error {
-	return p.deleteRecordWithSource(domain, recordType, hostname, sourceName)
+// DeleteRecordWithSource deletes a DNS record and logs the source/container name and type
+func (p *Provider) DeleteRecordWithSource(domain string, recordType string, hostname string, sourceName string, sourceType string) error {
+	return p.deleteRecordWithSource(domain, recordType, hostname, sourceName, sourceType)
 }
 
-// deleteRecordWithSource is the internal implementation that supports logging the source/container name
-func (p *Provider) deleteRecordWithSource(domain string, recordType string, hostname string, sourceName string) error {
+// deleteRecordWithSource is the internal implementation that supports logging the source/container name and type
+func (p *Provider) deleteRecordWithSource(domain string, recordType string, hostname string, sourceName string, sourceType string) error {
 	if p.DryRun {
-		log.Info("%s [dry-run] Would delete DNS record: %s.%s (%s)%s", p.logPrefix, hostname, domain, recordType, formatSourceName(sourceName))
+		log.Info("%s [dry-run] Would delete DNS record: %s.%s (%s) (%s: %s)", p.logPrefix, hostname, domain, recordType, sourceType, sourceName)
 		return nil
 	}
 
@@ -309,7 +317,7 @@ func (p *Provider) deleteRecordWithSource(domain string, recordType string, host
 		return fmt.Errorf("%s failed to delete DNS record: %w", p.logPrefix, err)
 	}
 
-	log.Info("%s Deleted DNS record %s (%s)%s", p.logPrefix, fullHostname, recordType, formatSourceName(sourceName))
+	log.Info("%s Deleted DNS record %s (%s) (%s: %s)", p.logPrefix, fullHostname, recordType, sourceType, sourceName)
 	return nil
 }
 

@@ -466,6 +466,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 			Rule:        rule,
 			EntryPoints: entryPoints,
 			Service:     service,
+			SourceType:  "router",
 		}
 		hosts := extractHostsFromRule(rule)
 		for _, h := range hosts {
@@ -620,6 +621,11 @@ func (p *TraefikProvider) pollRouters() error {
 func (t *TraefikProvider) processRouterAdd(state domain.RouterState) {
 	hosts := extractHostsFromRule(state.Rule)
 	for _, fqdn := range hosts {
+		// Always set SourceType and Name explicitly before calling domain logic
+		state.SourceType = "router"
+		if state.Name == "" {
+			state.Name = fqdn // fallback to FQDN if routerName is missing
+		}
 		err := domain.EnsureDNSForRouterState(getDomainFromHostname(fqdn), fqdn, state)
 		if err != nil {
 			//log.Error("%s Failed to ensure DNS for '%s': %v", t.logPrefix, fqdn, err)
@@ -634,6 +640,10 @@ func (t *TraefikProvider) processRouterUpdate(state domain.RouterState) {
 		return
 	}
 	for _, fqdn := range hosts {
+		state.SourceType = "router"
+		if state.Name == "" {
+			state.Name = fqdn
+		}
 		err := domain.EnsureDNSForRouterState(getDomainFromHostname(fqdn), fqdn, state)
 		if err != nil {
 			log.Error("%s Failed to update DNS for '%s': %v", t.logPrefix, fqdn, err)
@@ -648,6 +658,10 @@ func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
 		return
 	}
 	for _, fqdn := range hosts {
+		state.SourceType = "router"
+		if state.Name == "" {
+			state.Name = fqdn
+		}
 		if t.recordRemoveOnStop {
 			err := domain.EnsureDNSRemoveForRouterState(getDomainFromHostname(fqdn), fqdn, state)
 			if err != nil {

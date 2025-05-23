@@ -16,7 +16,18 @@ type RouterState struct {
 	Rule        string
 	EntryPoints []string
 	Service     string
+	SourceType  string // e.g. "container", "router", etc.
 }
+
+// When creating RouterState in the Traefik poller, set SourceType and Name:
+// Example (in pkg/poll/providers/traefik/traefik.go):
+// state := domain.RouterState{
+//     Name: <routerName>,
+//     Rule: <routerRule>,
+//     EntryPoints: <entryPoints>,
+//     Service: <service>,
+//     SourceType: "router",
+// }
 
 // EnsureDNSForRouterState merges config, validates, and performs DNS add/update for a router event
 func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
@@ -111,10 +122,8 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 		log.Error("%s Failed to load DNS provider '%s': %v", logPrefix, providerKey, err)
 		return err
 	}
-	// Pass container/source name if the provider supports it
-	// action := "created/updated"
-	if cfProvider, ok := dnsProvider.(interface{ CreateOrUpdateRecordWithSource(string, string, string, string, int, bool, string) error }); ok {
-		err = cfProvider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, overwrite, state.Name)
+	if cfProvider, ok := dnsProvider.(interface{ CreateOrUpdateRecordWithSource(string, string, string, string, int, bool, string, string) error }); ok {
+		err = cfProvider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, overwrite, state.Name, state.SourceType)
 		// If no error, assume created/updated (provider logs the real action)
 	} else {
 		err = dnsProvider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, overwrite)
@@ -122,7 +131,10 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	if err != nil {
 		return err
 	}
-	// log.Info("%s %s DNS record: %s (%s) -> %s (container: %s)", logPrefix, action, fqdn, recordType, target, state.Name)
+	label := state.SourceType
+	if label == "" {
+		label = "container"
+	}
 	return nil
 }
 
@@ -182,9 +194,8 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 		log.Error("%s Failed to load DNS provider '%s': %v", logPrefix, providerKey, err)
 		return err
 	}
-	// action := "Deleted"
-	if cfProvider, ok := dnsProvider.(interface{ DeleteRecordWithSource(string, string, string, string) error }); ok {
-		err = cfProvider.DeleteRecordWithSource(domain, recordType, hostname, state.Name)
+	if cfProvider, ok := dnsProvider.(interface{ DeleteRecordWithSource(string, string, string, string, string) error }); ok {
+		err = cfProvider.DeleteRecordWithSource(domain, recordType, hostname, state.Name, state.SourceType)
 	} else {
 		err = dnsProvider.DeleteRecord(domain, recordType, hostname)
 	}
@@ -192,6 +203,9 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 		log.Error("%s Failed to delete DNS record for '%s': %v", logPrefix, fqdn, err)
 		return err
 	}
-	// log.Info("%s %s DNS record: %s (%s) -> %s (container: %s)", logPrefix, action, fqdn, recordType, target, state.Name)
+	label := state.SourceType
+	if label == "" {
+		label = "container"
+	}
 	return nil
 }
