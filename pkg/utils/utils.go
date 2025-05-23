@@ -5,9 +5,8 @@
 package utils
 
 import (
-
-
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -152,4 +151,13 @@ func GetProfileNameFromOptions(options map[string]string, defaultName string) st
 	}
 
 	return profileName
+}
+
+// GetEnvDefault returns the value of the environment variable if set, otherwise returns the default value.
+func GetEnvDefault(key, defaultValue string) string {
+	val, ok := os.LookupEnv(key)
+	if !ok {
+		return defaultValue
+	}
+	return val
 }
