@@ -19,7 +19,9 @@ defaults:
 providers:
   providerexample:
     type: "cloudflare"
-    api_token: "your_api_token_here"
+    api_token: "your_scoped_api_token_here"
+    #api_email: "youremail@if.using.global.api"
+    #api_key: "global_api_key_here"
 
 polls:
   pollexample:
@@ -40,13 +42,15 @@ polls:
     type: traefik
     poll_url: http://traefik:8080/api/http/routers
     poll_interval: 30s  # or 60, 1m, 1h, etc.
-    #config_path: /etc/traefik/dynamic
+    config_path: /etc/traefik/dynamic
+    process_existing: true  # Process existing routers on startup
+    record_remove_on_stop: true  # Remove DNS records when router is removed
 
 domains:
   domainexample:
     name: "example.com"
     provider: "providerexample"
-    zone_id: "your_zone_id_here"
+    zone_id: "your_zone_id_here" # Optional - Only needed for Global API key in Cloudflare
     record:
       type: "A"
       ttl: 60
