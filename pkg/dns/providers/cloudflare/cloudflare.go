@@ -189,7 +189,6 @@ func (p *Provider) CreateOrUpdateRecord(domain string, recordType string, hostna
 	}
 
 	// Check if another record type exists with the same hostname
-	// This is specifically to handle the CNAME conflict error we're seeing
 	listParams := cloudflare.ListDNSRecordsParams{
 		Name: fullHostname,
 	}
