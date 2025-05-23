@@ -18,6 +18,7 @@ import (
 )
 
 // Log levels
+// TODO: Probably need a verbose in the middle of INFO and DEBUG
 const (
 	LevelTrace = "trace"
 	LevelDebug = "debug"
@@ -41,6 +42,7 @@ var (
 	defaultLogger *Logger
 	once          sync.Once
 )
+
 
 // Initialize creates the default logger with the specified level and timestamp visibility
 func Initialize(level string, showTimestamps bool) {
