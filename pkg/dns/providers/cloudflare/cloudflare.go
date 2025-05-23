@@ -38,7 +38,7 @@ type Provider struct {
 // NewProvider creates a new Cloudflare DNS provider
 func NewProvider(config map[string]string) (dns.Provider, error) {
 	// Always use utils.GetProfileNameFromOptions for profile name resolution
-	profileName := utils.GetProfileNameFromOptions(config, "unknown")
+	profileName := utils.GetProfileNameFromOptions(config, "default")
 	logPrefix := fmt.Sprintf("[provider/cloudflare/%s]", profileName)
 
 	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
