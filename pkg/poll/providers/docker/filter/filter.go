@@ -12,7 +12,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 )
-
+// TODO: Extract common logic (multi filter, operators, negation and regex/wildcards) to a common package
 // FilterType represents the type of filter to apply
 type FilterType string
 
