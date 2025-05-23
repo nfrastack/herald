@@ -5,7 +5,7 @@
 package cli
 
 import (
-	"container-dns-companion/pkg/config"
+	"dns-companion/pkg/config"
 	"flag"
 )
 

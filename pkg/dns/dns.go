@@ -6,7 +6,7 @@
 package dns
 
 import (
-	"container-dns-companion/pkg/log"
+	"dns-companion/pkg/log"
 
 	"fmt"
 	"sync"

@@ -5,7 +5,7 @@
 package config
 
 import (
-	"container-dns-companion/pkg/log"
+	"dns-companion/pkg/log"
 
 	"fmt"
 	"os"

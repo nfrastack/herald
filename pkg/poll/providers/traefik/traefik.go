@@ -5,12 +5,12 @@
 package traefik
 
 import (
-	"container-dns-companion/pkg/log"
-	"container-dns-companion/pkg/poll"
-	"container-dns-companion/pkg/poll/providers/traefik/filter"
-	"container-dns-companion/pkg/utils"
-	"container-dns-companion/pkg/dns"
-	"container-dns-companion/pkg/domain"
+	"dns-companion/pkg/log"
+	"dns-companion/pkg/poll"
+	"dns-companion/pkg/poll/providers/traefik/filter"
+	"dns-companion/pkg/utils"
+	"dns-companion/pkg/dns"
+	"dns-companion/pkg/domain"
 
 	"context"
 	"encoding/json"

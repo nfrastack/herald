@@ -5,8 +5,8 @@
 package config
 
 import (
-	"container-dns-companion/pkg/log"
-	"container-dns-companion/pkg/utils"
+	"dns-companion/pkg/log"
+	"dns-companion/pkg/utils"
 
 	"fmt"
 	"net"
@@ -224,11 +224,11 @@ func FindConfigFile(requested string) (string, error) {
 	if requested != "" {
 		candidates = append(candidates, requested)
 	}
-	// Always prefer container-dns-companion.yml, then .yaml, then .conf
+	// Always prefer dns-companion.yml, then .yaml, then .conf
 	candidates = append(candidates,
-		"container-dns-companion.yml",
-		"container-dns-companion.yaml",
-		"container-dns-companion.conf",
+		"dns-companion.yml",
+		"dns-companion.yaml",
+		"dns-companion.conf",
 	)
 	for _, name := range candidates {
 		// Check current directory

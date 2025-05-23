@@ -1,0 +1,8 @@
+{
+  "records": [
+    { "host": "www.example.com", "type": "A", "ttl": 300, "target": "192.0.2.10" },
+    { "host": "api.example.com", "type": "CNAME", "target": "www.example.com" },
+    { "host": "ipv6.example.com", "type": "AAAA", "target": "2001:db8::1" },
+    { "host": "autodetect.example.com", "target": "203.0.113.5" }
+  ]
+}

@@ -6,10 +6,10 @@
 package cloudflare
 
 import (
-	"container-dns-companion/pkg/config"
-	"container-dns-companion/pkg/dns"
-	"container-dns-companion/pkg/log"
-	"container-dns-companion/pkg/utils"
+	"dns-companion/pkg/config"
+	"dns-companion/pkg/dns"
+	"dns-companion/pkg/log"
+	"dns-companion/pkg/utils"
 
 	"context"
 	"fmt"

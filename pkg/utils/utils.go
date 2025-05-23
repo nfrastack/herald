@@ -110,7 +110,7 @@ func IsSensitiveKey(key string) bool {
 		"auth",
 		"code",
 		"cred",
-		"credential"
+		"credential", // <-- fixed missing comma
 		"key",
 		"pass",
 		"password",

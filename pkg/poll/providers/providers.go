@@ -6,6 +6,6 @@
 package providers
 
 import (
-	_ "container-dns-companion/pkg/poll/providers/docker"  // Register Docker provider
-	_ "container-dns-companion/pkg/poll/providers/traefik" // Register Traefik provider
+	_ "dns-companion/pkg/poll/providers/docker"  // Register Docker provider
+	_ "dns-companion/pkg/poll/providers/traefik" // Register Traefik provider
 )

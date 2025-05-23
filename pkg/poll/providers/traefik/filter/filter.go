@@ -6,7 +6,7 @@ package filter
 
 // TODO: Extract common logic (multi filter, operators, negation and regex/wildcards) to a common package
 import (
-	"container-dns-companion/pkg/log"
+	"dns-companion/pkg/log"
 
 	"fmt"
 	"regexp"

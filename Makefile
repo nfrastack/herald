@@ -1,5 +1,5 @@
-BINARY_NAME := container-dns-companion
-BUILD_DIR := ./cmd/container-dns-companion
+BINARY_NAME := dns-companion
+BUILD_DIR := ./cmd/dns-companion
 GO := go
 LDFLAGS := "-s -w"
 VERSION := $(shell git describe --tags --exact-match 2>/dev/null || git describe --always --dirty || echo "dev")
@@ -49,7 +49,7 @@ check-release:
 	fi
 
 container-build:
-	docker build --build-arg CDC_VERSION=$(VERSION) -t nfrastack/$(BINARY_NAME):$(VERSION) -f container/Containerfile .
+	docker build --build-arg DC_VERSION=$(VERSION) -t nfrastack/$(BINARY_NAME):$(VERSION) -f container/Containerfile .
 	docker tag nfrastack/$(BINARY_NAME):$(VERSION) nfrastack/$(BINARY_NAME):latest
 
 help:
@@ -60,5 +60,5 @@ help:
 	@echo "make install         Install the binary locally"
 	@echo "make release         Build and prepare for release"
 	@echo "make check-release   Verify if the repository is tagged and clean"
-	@echo "make container-build    Build the Container image with CDC_VERSION as build-arg and tag"
+	@echo "make container-build    Build the Container image with DC_VERSION as build-arg and tag"
 	@echo "make help            Show this message"

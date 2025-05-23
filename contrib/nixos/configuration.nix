@@ -1,10 +1,10 @@
 { config, inputs, lib, pkgs, ... }: {
   imports = [
-    inputs.container-dns-companion.nixosModules.default
+    inputs.dns-companion.nixosModules.default
   ];
 
   services = {
-    container-dns-companion = {
+    dns-companion = {
       enable = true;
       general = {
         log_level = "info";

@@ -1,8 +1,8 @@
-# github.com/nfrastack/docker-container-dns-companion
+# github.com/nfrastack/docker-dns-companion
 
 ## About
 
-Dockerfile to build an [Container-dns-companion DNS Cache](https://github.com/nfrastack/container-dns-companion) container image for monitoring events and writing appropriate records to an upstream DNS server.
+Container file to build a [DNS Companion](https://github.com/nfrastack/dns-companion) container image for monitoring events and writing appropriate records to an upstream DNS server.
 
 [Changelog](../CHANGELOG.md)
 
@@ -43,21 +43,21 @@ Dockerfile to build an [Container-dns-companion DNS Cache](https://github.com/nf
 
 ## Installation
 
-Automated builds of the image are available on [Docker Hub](https://hub.docker.com/r/nfrastack/container-dns-companion)
+Automated builds of the image are available on [Docker Hub](https://hub.docker.com/r/nfrastack/dns-companion)
 
 ```bash
-docker pull hub.docker.com/nfrastack/container-dns-companion:(imagetag)
+docker pull hub.docker.com/nfrastack/dns-companion:(imagetag)
 ```
 
-Builds of the image are also available on the [Github Container Registry](https://github.com/nfrastack/container-dns-companion/pkgs/container/container-dns-companion)
+Builds of the image are also available on the [Github Container Registry](https://github.com/nfrastack/dns-companion/pkgs/container/dns-companion)
 
 ```
-docker pull ghcr.io/nfrastack/container-dns-companion:(imagetag)
+docker pull ghcr.io/nfrastack/dns-companion:(imagetag)
 ```
 
 The following image tags are available along with the repository Releases:
 
-- `latest` - Most recent release of container-dns-companion w/ Alpine Linux
+- `latest` - Most recent release of dns-companion w/ Alpine Linux
 
 ### Quick Start
 
@@ -70,10 +70,10 @@ The following image tags are available along with the repository Releases:
 
 ### Persistent Storage
 
-| Folders   | Description               |
-| --------- | ------------------------- |
-| `/logs/`  | Optional Log Path         |
-| `config/` | Optional Config File Path |
+| Folders                | Description                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `/logs/`               | Optional Log Path                                                                                      |
+| `config/`              | Optional Config File Path                                                                              |
 | `/var/run/docker.sock` | (example) You must have access to a docker socket in order to utilize the Docker polling functionality |
 
 ### Environment Variables
@@ -84,17 +84,17 @@ Along with the Environment Variables from the [Base image](https://hub.docker.co
 
 #### Container Options
 
-| Variable         | Description                                     | Default                               |
-| ---------------- | ----------------------------------------------- | ------------------------------------- |
-| `CDC_USER`       | User to run as                                  | `cdc`                                   |
-| `CDC_GROUP`      | Group to run as                                 | `cdc`                                   |
-| `CDC_SETUP_TYPE` | `AUTO` generate config file.                    | `AUTO`                                |
-| `CONFIG_FILE`    | Path to config file (alternative to `-config`)  | `/config/container-dns-companion.yml` |
-| `LOG_TYPE`       | Display on `console`, write to `file` or `both` | `console`                             |
-| `LOG_PATH`       | Log file directory                              | `/logs/`                              |
-| `LOG_FILE`       | Log file name                                   | `cdc.log`                             |
-| `LOG_LEVEL`      | Logging level `info`, `default`, or `trace`     | `info`                                |
-| `LOG_TIMESTAMPS` | Show timestamps in logs (`TRUE`/`FALSE`)        | `TRUE`                                |
+| Variable         | Description                                     | Default                     |
+| ---------------- | ----------------------------------------------- | --------------------------- |
+| `DC_USER`        | User to run as                                  | `cdc`                       |
+| `DC_GROUP`       | Group to run as                                 | `cdc`                       |
+| `DC_SETUP_TYPE`  | `AUTO` generate config file.                    | `AUTO`                      |
+| `CONFIG_FILE`    | Path to config file (alternative to `-config`)  | `/config/dns-companion.yml` |
+| `LOG_TYPE`       | Display on `console`, write to `file` or `both` | `console`                   |
+| `LOG_PATH`       | Log file directory                              | `/logs/`                    |
+| `LOG_FILE`       | Log file name                                   | `cdc.log`                   |
+| `LOG_LEVEL`      | Logging level `info`, `default`, or `trace`     | `info`                      |
+| `LOG_TIMESTAMPS` | Show timestamps in logs (`TRUE`/`FALSE`)        | `TRUE`                      |
 
 #### Provider Environment Variables
 
@@ -176,7 +176,7 @@ Create as many poll providers as you want under the syntax of `POLL_<PROFILENAME
 For debugging and maintenance purposes you may want access the containers shell.
 
 ```bash
-docker exec -it (whatever your container name is e.g. container-dns-companion) bash
+docker exec -it (whatever your container name is e.g. dns-companion) bash
 ```
 
 ## Support

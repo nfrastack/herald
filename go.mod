@@ -1,4 +1,4 @@
-module container-dns-companion
+module dns-companion
 
 go 1.23.0
 
@@ -13,7 +13,7 @@ require (
 
 // This replace directive tells Go to use the local module code
 // when any imports reference the GitHub repository
-replace github.com/nfrastack/container-dns-companion => ./
+replace github.com/nfrastack/dns-companion => ./
 
 require (
 	github.com/Microsoft/go-winio v0.6.1 // indirect

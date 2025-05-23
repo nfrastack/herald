@@ -5,9 +5,9 @@
 
 source /container/base/functions/container/init
 prepare_service single
-SERVICE_NAME="container-dns-companion"
+SERVICE_NAME="dns-companion"
 
-cdc_bootstrap_filesystem
-cdc_generate_config
+dc_bootstrap_filesystem
+dc_generate_config
 
 liftoff

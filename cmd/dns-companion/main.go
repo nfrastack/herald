@@ -13,14 +13,14 @@ import (
 	"syscall"
 	"time"
 
-	"container-dns-companion/pkg/config"
-	"container-dns-companion/pkg/dns"
-	"container-dns-companion/pkg/dns/providers"
-	"container-dns-companion/pkg/log"
-	"container-dns-companion/pkg/poll"
+	"dns-companion/pkg/config"
+	"dns-companion/pkg/dns"
+	"dns-companion/pkg/dns/providers"
+	"dns-companion/pkg/log"
+	"dns-companion/pkg/poll"
 
 	// Import the polling providers to ensure they register
-	_ "container-dns-companion/pkg/poll/providers"
+	_ "dns-companion/pkg/poll/providers"
 )
 
 // Version information
@@ -89,13 +89,13 @@ func main() {
 		fmt.Println()
 	}
 
-	fmt.Printf("Starting Container DNS Companion version: %s \n", versionString(false))
+	fmt.Printf("Starting DNS Companion version: %s \n", versionString(false))
 	fmt.Printf("© 2025 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
 	fmt.Println()
 
 	log.Trace("Built: %s", BuildTime)
 	// Determine the config file path
-	configFile := "container-dns-companion.yml"
+	configFile := "dns-companion.yml"
 	if *configFilePath != "" {
 		configFile = *configFilePath
 	}
@@ -209,10 +209,10 @@ func main() {
 			providerOptions["type"] = providerConfig.Type
 		}
 
-        // Add profile name for consistent logging
-        providerOptions["profile_name"] = dnsProviderName
-        providerOptions["name"] = dnsProviderName
-        log.Debug("[provider] Adding profile_name=%s to DNS provider options", dnsProviderName)
+		// Add profile name for consistent logging
+		providerOptions["profile_name"] = dnsProviderName
+		providerOptions["name"] = dnsProviderName
+		log.Debug("[provider] Adding profile_name=%s to DNS provider options", dnsProviderName)
 	}
 
 	// Initialize DNS provider if only one is defined
@@ -334,7 +334,7 @@ func main() {
 
 	// Wait for signal
 	<-sigChan
-	fmt.Printf("\nShutting down Container DNS Companion\n")
+	fmt.Printf("\nShutting down DNS Companion\n")
 
 	// Stop all poll providers
 	for _, provider := range pollProviders {

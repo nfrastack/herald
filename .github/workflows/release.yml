@@ -29,13 +29,13 @@ jobs:
 
       - name: Build Binary
         run: |
-          GOARCH=${{ matrix.arch }} GOOS=linux go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o container-dns-companion_${{ matrix.arch }} ./cmd/container-dns-companion
+          GOARCH=${{ matrix.arch }} GOOS=linux go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o dns-companion_${{ matrix.arch }} ./cmd/dns-companion
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: container-dns-companion_${{ matrix.arch }}
-          path: container-dns-companion_${{ matrix.arch }}
+          name: dns-companion_${{ matrix.arch }}
+          path: dns-companion_${{ matrix.arch }}
 
   release:
     name: Create Release
@@ -46,12 +46,12 @@ jobs:
       - name: Download Build Artifacts (AMD64)
         uses: actions/download-artifact@v4
         with:
-          name: container-dns-companion_amd64
+          name: dns-companion_amd64
 
       - name: Download Build Artifacts (ARM64)
         uses: actions/download-artifact@v4
         with:
-          name: container-dns-companion_arm64
+          name: dns-companion_arm64
 
       - name: Create Release
         id: create_release
@@ -70,8 +70,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: container-dns-companion_amd64
-          asset_name: container-dns-companion_amd64
+          asset_path: dns-companion_amd64
+          asset_name: dns-companion_amd64
           asset_content_type: application/octet-stream
 
       - name: Upload Release Asset (ARM64)
@@ -80,8 +80,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: container-dns-companion_arm64
-          asset_name: container-dns-companion_arm64
+          asset_path: dns-companion_arm64
+          asset_name: dns-companion_arm64
           asset_content_type: application/octet-stream
 
   container:

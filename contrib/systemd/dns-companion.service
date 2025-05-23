@@ -4,7 +4,7 @@ Requires=.service
 After=.service
 
 [Service]
-ExecStart=/usr/bin/container-dns-companion
+ExecStart=/usr/bin/dns-companion
 
 [Install]
 WantedBy=multi-user.target

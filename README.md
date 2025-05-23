@@ -1,21 +1,22 @@
 <!-- vscode-markdown-toc off -->
-# Container DNS Companion
+# DNS Companion
 
 ## About
 
-This tool enables automatic DNS record management for containers. It monitors container events (creation, deletion, updates) and creates or removes DNS records accordingly. Whether you're using Docker containers with explicit DNS-related labels or Traefik with Host rules, Container DNS Companion provides seamless DNS integration, allowing your containers to be easily accessible by domain names without manual DNS configuration.
+This tool enables automatic DNS record management for containers. It monitors container events (creation, deletion, updates) and creates or removes DNS records accordingly. Whether you're using Docker containers with explicit DNS-related labels or Traefik with Host rules, DNS Companion provides seamless DNS integration, allowing your containers to be easily accessible by domain names without manual DNS configuration.
+
+> **Commercial/Enterprise Users:**
+>
+> This tool is free to use for all users. However, if you are using DNS Companion in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project, [please reach out](mailto:code+cdc@nfrastack.com).
 
 ## Disclaimer
 
-Container DNS Companion is an independent project and is not affiliated with, endorsed by, or sponsored by Docker, Inc. or Traefik Labs. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of container technologies. This tool is provided as-is and is not an official product of any container platform.
+DNS Companion is an independent project and is not affiliated with, endorsed by, or sponsored by Docker, Inc. or Traefik Labs. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of container technologies. This tool is provided as-is and is not an official product of any container platform.
 
 ## Maintainer
 
 nfrastack <code@nfrastack.com>
 
-> **Commercial/Enterprise Users:**
->
-> This tool is free to use for all users. However, if you are using Container DNS Companion in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project, [please reach out](mailto:code+cdc@nfrastack.com)
 
 ## Table of Contents
 
@@ -27,18 +28,54 @@ nfrastack <code@nfrastack.com>
 - [Installing](#installing)
   - [From Source](#from-source)
   - [Precompiled Binaries](#precompiled-binaries)
+    - [Supported Architectures](#supported-architectures)
+    - [How to Download](#how-to-download)
+    - [How to Use](#how-to-use)
+    - [Running in Background](#running-in-background)
   - [Containers](#containers)
   - [Distributions](#distributions)
-- [Running in Background](#running-in-background)
+    - [NixOS](#nixos)
 - [Configuration](#configuration)
   - [Overview](#overview)
+    - [Precedence Order](#precedence-order)
+  - [Example Configuration File](#example-configuration-file)
+    - [Multiple File Loading \& Includes](#multiple-file-loading--includes)
+    - [Example: Multiple Config Files](#example-multiple-config-files)
+    - [Example: YAML Include](#example-yaml-include)
   - [General Options](#general-options)
+- [Environment Variables](#environment-variables)
   - [Default Options](#default-options)
   - [Pollers](#pollers)
+    - [Docker Poller](#docker-poller)
+      - [Config File](#config-file)
+      - [Environment Variables](#environment-variables-1)
+      - [Usage of Docker Provider](#usage-of-docker-provider)
+      - [Creating Records with Container Labels](#creating-records-with-container-labels)
+        - [Examples](#examples)
+        - [Docker Label Configuration](#docker-label-configuration)
+      - [Optional Record Configuration](#optional-record-configuration)
+        - [Examples](#examples-1)
+        - [Example: AAAA Record (IPv6)](#example-aaaa-record-ipv6)
+        - [Example: Auto-detect AAAA Record](#example-auto-detect-aaaa-record)
+        - [Example: Multiple A/AAAA Record Labels](#example-multiple-aaaaa-record-labels)
+      - [Traefik Integration](#traefik-integration)
+      - [Docker Container Filtering](#docker-container-filtering)
+    - [Traefik Poller](#traefik-poller)
+  - [Simple filter (single filter)](#simple-filter-single-filter)
+  - [Advanced filters (multiple, AND/OR/NOT/Negate)](#advanced-filters-multiple-andornotnegate)
+      - [Poller Traefik Configuration File](#poller-traefik-configuration-file)
+      - [Poller Traefik Environment Variables](#poller-traefik-environment-variables)
   - [Providers](#providers)
+    - [Supported Providers](#supported-providers)
+    - [Provider Configuration (YAML)](#provider-configuration-yaml)
+    - [Provider Environment Variables](#provider-environment-variables)
   - [Domains](#domains)
-  - [Example Configuration File](#example-configuration-file)
+    - [Domain Environment Variables](#domain-environment-variables)
 - [Support](#support)
+  - [Usage](#usage)
+  - [Bugfixes](#bugfixes)
+  - [Feature Requests](#feature-requests)
+  - [Updates](#updates)
 - [References](#references)
 - [License](#license)
 
@@ -54,12 +91,12 @@ nfrastack <code@nfrastack.com>
 Clone this repository and compile with [GoLang 1.23 or later](https://golang.org):
 
 ```bash
-go build -o bin/container-dns-companion ./cmd/container-dns-companion
+go build -o bin/dns-companion ./cmd/dns-companion
 ```
 
 ### Precompiled Binaries
 
-Precompiled binaries are available for download from the [GitHub Releases](https://github.com/nfrastack/container-dns-companion/releases) page. These binaries are created only for tagged releases.
+Precompiled binaries are available for download from the [GitHub Releases](https://github.com/nfrastack/dns-companion/releases) page. These binaries are created only for tagged releases.
 
 #### Supported Architectures
 
@@ -68,7 +105,7 @@ Precompiled binaries are available for download from the [GitHub Releases](https
 
 #### How to Download
 
-1. Visit the [Releases](https://github.com/nfrastack/container-dns-companion/releases) page.
+1. Visit the [Releases](https://github.com/nfrastack/dns-companion/releases) page.
 2. Locate the release you want to download.
 3. Download the binary for your architecture.
 
@@ -77,19 +114,19 @@ Precompiled binaries are available for download from the [GitHub Releases](https
 1. Make the binary executable:
 
    ```bash
-   chmod +x container-dns-companion
+   chmod +x dns-companion
    ```
 
 2. Move it to a directory in your `PATH` (e.g., `/usr/local/bin`):
 
    ```bash
-   sudo mv container-dns-companion /usr/local/bin/
+   sudo mv dns-companion /usr/local/bin/
    ```
 
 3. Run the binary:
 
    ```bash
-   container-dns-companion --help
+   dns-companion --help
    ```
 
 #### Running in Background
@@ -110,7 +147,7 @@ See [contrib/nixos](contrib/nixos) for installation instructions and a module th
 
 ### Overview
 
-Container DNS Companion supports flexible configuration via YAML files, environment variables, and container labels. You can load multiple configuration files, use includes, and override settings at various levels. The configuration is organized into general options, defaults, pollers, providers, and domains.
+DNS Companion supports flexible configuration via YAML files, environment variables, and container labels. You can load multiple configuration files, use includes, and override settings at various levels. The configuration is organized into general options, defaults, pollers, providers, and domains.
 
 - **General options**: Global settings affecting the whole application.
 - **Defaults**: Default DNS record settings.
@@ -127,7 +164,7 @@ Container DNS Companion supports flexible configuration via YAML files, environm
 
 ### Example Configuration File
 
-See the sample in [`contrib/config/container-dns-companion.yaml`](contrib/config/container-dns-companion.yaml) for a full example.
+See the sample in [`contrib/config/dns-companion.yaml`](contrib/config/dns-companion.yaml) for a full example.
 
 #### Multiple File Loading & Includes
 
@@ -136,7 +173,7 @@ You can load and merge multiple configuration files by specifying the `-config` 
 #### Example: Multiple Config Files
 
 ```bash
-container-dns-companion \
+dns-companion \
   -config /folder1/base.yml \
   -config /folder2/override.yml \
   -config ./extra.yml
@@ -176,7 +213,7 @@ general:
 
 Provider, poll, and domain-specific environment variables are also supported. See the sample [.env](contrib/config/env.sample) file and documentation for more details.
 
-The following environment variables can be used to configure Container DNS Companion:
+The following environment variables can be used to configure DNS Companion:
 
 | Variable         | Description                                       | Default |
 | ---------------- | ------------------------------------------------- | ------- |
@@ -283,7 +320,7 @@ polls:
 
 ##### Creating Records with Container Labels
 
-Container DNS Companion supports two methods for specifying DNS records:
+DNS Companion supports two methods for specifying DNS records:
 
 1. **Direct DNS Labels**: Using `nfrastack.dns.*` labels
 2. **Traefik Host Rules**: Automatically detecting domains from Traefik HTTP router rules
@@ -694,4 +731,4 @@ domains:
 
 ## License
 
-MIT. See [LICENSE](LICENSE) for more details.
+BSD-3-Clause. See [LICENSE](LICENSE) for more details.

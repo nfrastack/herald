@@ -1,7 +1,7 @@
 services:
-  container-dns-companion:
-    image: nfrastack/traefik-container-dns-companion
-    container_name: container-dns-companion
+  dns-companion:
+    image: nfrastack/traefik-dns-companion
+    container_name: dns-companion
     volumes:
       - ./logs:/logs
       #- ./config:/config

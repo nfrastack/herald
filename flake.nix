@@ -18,14 +18,14 @@
       packages = forAllSystems (system:
         let pkgs = nixpkgsFor.${system};
         in {
-          container-dns-companion = pkgs.buildGoModule {
-            pname = "container-dns-companion";
+          dns-companion = pkgs.buildGoModule {
+            pname = "dns-companion";
             inherit version;
             src = ./.;
 
             meta = {
               description = "Manage DNS records based on DNS servers based on events from Docker or Traefik";
-              homepage = "https://github.com/nfrastack/container-dns-companion";
+              homepage = "https://github.com/nfrastack/dns-companion";
               license = "BSD-3-Clause";
               maintainers = [
                 {
@@ -62,11 +62,11 @@
 
       devShell = forAllSystems (system: self.devShells.${system});
 
-      defaultPackage = forAllSystems (system: self.packages.${system}.container-dns-companion);
+      defaultPackage = forAllSystems (system: self.packages.${system}.dns-companion);
 
       nixosModules.default = { config, lib, pkgs, ... }:
         let
-          cfg = config.services.container-dns-companion;
+          cfg = config.services.dns-companion;
 
           # Utility function to get directory part of path
           getDir = path:
@@ -82,28 +82,28 @@
 
           reorderSection = section: builtins.mapAttrs (_: reorderTypeFirst) section;
         in {
-          options.services.container-dns-companion = {
+          options.services.dns-companion = {
             enable = lib.mkEnableOption {
               default = false;
-              description = "Enable the Container DNS Companion module to configure the tool.";
+              description = "Enable the DNS Companion module to configure the tool.";
             };
 
             service.enable = lib.mkOption {
               type = lib.types.bool;
               default = true;
-              description = "Enable the systemd service for Container DNS Companion.";
+              description = "Enable the systemd service for DNS Companion.";
             };
 
             package = lib.mkOption {
               type = lib.types.package;
-              default = self.packages.${pkgs.system}.container-dns-companion;
-              description = "Container DNS Companion package to use.";
+              default = self.packages.${pkgs.system}.dns-companion;
+              description = "DNS Companion package to use.";
             };
 
             configFile = lib.mkOption {
               type = lib.types.str;
-              default = "container-dns-companion.yml";
-              description = "Path to the YAML configuration file for Container DNS Companion.";
+              default = "dns-companion.yml";
+              description = "Path to the YAML configuration file for DNS Companion.";
             };
 
             defaults = lib.mkOption {
@@ -219,13 +219,13 @@
             include = lib.mkOption {
               type = with lib.types; either str (listOf str);
               default = null;
-              example = [ "/etc/container-dns-companion/extra1.yml" "/etc/container-dns-companion/extra2.yml" ];
+              example = [ "/etc/dns-companion/extra1.yml" "/etc/dns-companion/extra2.yml" ];
               description = ''
                 One or more YAML files to include into the main configuration. Can be a string (single file) or a list of file paths.
                 Example:
-                include = "/etc/container-dns-companion/extra.yml";
+                include = "/etc/dns-companion/extra.yml";
                 or
-                include = [ "/etc/container-dns-companion/extra1.yml" "/etc/container-dns-companion/extra2.yml" ];
+                include = [ "/etc/dns-companion/extra1.yml" "/etc/dns-companion/extra2.yml" ];
                 Included files are merged into the main config. Later files override earlier ones.
               '';
             };
@@ -244,17 +244,17 @@
                   // (if cfg.providers != {} then { providers = reorderSection cfg.providers; } else {})
                   // (if cfg.domains != {} then { domains = cfg.domains; } else {})
                   // (if cfg.include != null then { include = cfg.include; } else {});
-              in yaml.generate "container-dns-companion.yml" configData;
+              in yaml.generate "dns-companion.yml" configData;
 
-            systemd.services.container-dns-companion = lib.mkIf cfg.service.enable {
-              description = "Container DNS Companion";
+            systemd.services.dns-companion = lib.mkIf cfg.service.enable {
+              description = "DNS Companion";
               wantedBy = [ "multi-user.target" ];
               serviceConfig = {
                 ExecStart =
                   let
                     configFileArg = "-config /etc/${cfg.configFile}";
                     args = lib.strings.concatStringsSep " " (lib.lists.filter (s: s != "") [
-                      "${cfg.package}/bin/container-dns-companion"
+                      "${cfg.package}/bin/dns-companion"
                       configFileArg
                     ]);
                   in args;

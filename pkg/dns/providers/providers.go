@@ -6,7 +6,7 @@
 package providers
 
 import (
-	"container-dns-companion/pkg/dns/providers/cloudflare"
+	"dns-companion/pkg/dns/providers/cloudflare"
 )
 
 // RegisterProviders registers all DNS providers

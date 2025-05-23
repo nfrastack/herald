@@ -1,6 +1,6 @@
 # NixOS
 
-This project provides a Nix flake that allows you to build, run, and configure the Container DNS Companion. Below are instructions on how to use it within Nix and NixOS.
+This project provides a Nix flake that allows you to build, run, and configure the DNS Companion. Below are instructions on how to use it within Nix and NixOS.
 
 ## Adding as an Input
 
@@ -8,27 +8,27 @@ To use this flake as an input in your own flake, add the following to your `flak
 
 ```nix
 {
-  inputs.container-dns-companion.url = "github:nfrastack/container-dns-companion";
+  inputs.dns-companion.url = "github:nfrastack/dns-companion";
 
-  outputs = { self, nixpkgs, container-dns-companion }: {
-    packages.default = container-dns-companion.packages.${system}.default;
+  outputs = { self, nixpkgs, dns-companion }: {
+    packages.default = dns-companion.packages.${system}.default;
   };
 }
 ```
 
 ### NixOS Module
 
-This flake provides a NixOS module that allows you to configure and run the Container DNS Companion as a systemd service. To use it, add the following to your `configuration.nix`:
+This flake provides a NixOS module that allows you to configure and run the DNS Companion as a systemd service. To use it, add the following to your `configuration.nix`:
 
 ```nix
 {
   imports = [
-    inputs.container-dns-companion.nixosModules.default
+    inputs.dns-companion.nixosModules.default
   ];
 
-  services.container-dns-companion = {
+  services.dns-companion = {
     enable = true;
-    configFile = "container-dns-companion.yml";
+    configFile = "dns-companion.yml";
     general = {
       log_level = "info";
       log_timestamps = true;
@@ -83,8 +83,8 @@ This flake provides a NixOS module that allows you to configure and run the Cont
       };
     };
     include = [
-      "/etc/container-dns-companion/extra1.yml"
-      "/etc/container-dns-companion/extra2.yml"
+      "/etc/dns-companion/extra1.yml"
+      "/etc/dns-companion/extra2.yml"
     ];
   };
 }
@@ -92,10 +92,10 @@ This flake provides a NixOS module that allows you to configure and run the Cont
 
 #### Available Options
 
-Here are the available options for the NixOS module (services.container-dns-companion):
+Here are the available options for the NixOS module (services.dns-companion):
 
 * `enable` (bool): Enable or disable the service.
-* `configFile` (str): Path to the YAML configuration file. Default: `container-dns-companion.yml`
+* `configFile` (str): Path to the YAML configuration file. Default: `dns-companion.yml`
 * `package` (package): The package to use for the service. Default: the flake's Go build.
 * `general` (attrs): General application settings. Example:
   * `log_level` (str): Logging level ("info", "debug", etc.).
@@ -146,4 +146,4 @@ Here are the available options for the NixOS module (services.container-dns-comp
     * `exclude_subdomains` (list of str): Subdomains to exclude.
 * `include` (str or list of str): One or more YAML files to include into the main configuration.
 
-This setup allows you to fully configure and manage the Container DNS Companion service declaratively using NixOS.
+This setup allows you to fully configure and manage the DNS Companion service declaratively using NixOS.
