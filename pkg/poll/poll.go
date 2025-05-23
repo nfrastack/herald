@@ -129,6 +129,7 @@ type DNSEntry struct {
 	Overwrite              bool
 	RecordTypeAMultiple    bool
 	RecordTypeAAAAMultiple bool
+	SourceName             string // Source name for logging (container, router, etc)
 }
 
 // GetFQDN returns the fully qualified domain name
