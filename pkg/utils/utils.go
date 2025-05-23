@@ -146,16 +146,6 @@ func GetProfileNameFromOptions(options map[string]string, defaultName string) st
 		profileName = options["profile"]
 	}
 
-	// If still not available, check for poller-specific field
-	if profileName == "" {
-		profileName = options["_poll_profile"]
-	}
-
-	// If still not available, check for dns-specific field
-	if profileName == "" {
-		profileName = options["_dns_profile"]
-	}
-
 	// If still not available, use the provided default
 	if profileName == "" {
 		profileName = defaultName
