@@ -1,4 +1,11 @@
-## 1.0.0 2025-05-03 <code at nfrastack dot com>
+## feat-poll_file (wip)
+
+   ### Added
+     - (poll) Added File provider to read YAML/JSON from filesystem
+     - (poll/file) Customizable interval to poll for changes or ondemand/fsnotify
+     -
+
+## 1.0.0 2025-05-23 <code at nfrastack dot com>
 
 Inaugral release of the DNS Companion!
 This tool will augment the amazing capabilities of working with the various pollers (eg Docker and Traefik) with hostname entries and perform DNS operations on providers such as Cloudflare.
@@ -43,5 +50,3 @@ There has been a large amount of work performed to provide feature parity to the
       - Sample configuration files included
       - Docker image included
       - NixOS Module included
-
-

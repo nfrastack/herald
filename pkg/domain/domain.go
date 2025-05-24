@@ -75,9 +75,9 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	}
 
 	recordType := providerOptions["type"]
-	target := state.Service
-	if v, ok := providerOptions["target"]; ok && v != "" {
-		target = v
+	target := providerOptions["target"]
+	if state.Service != "" {
+		target = state.Service
 	}
 	// Smart record type detection if not explicitly set
 	if recordType == "" {
@@ -115,7 +115,9 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 		log.Error("%s Failed to load DNS provider '%s': %v", logPrefix, providerKey, err)
 		return err
 	}
-	if cfProvider, ok := dnsProvider.(interface{ CreateOrUpdateRecordWithSource(string, string, string, string, int, bool, string, string) error }); ok {
+	if cfProvider, ok := dnsProvider.(interface {
+		CreateOrUpdateRecordWithSource(string, string, string, string, int, bool, string, string) error
+	}); ok {
 		err = cfProvider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, overwrite, state.Name, state.SourceType)
 		// If no error, assume created/updated (provider logs the real action)
 	} else {
@@ -160,9 +162,9 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 	log.Debug("%s Merged providerOptions for removal: %v", logPrefix, maskedProviderOptions)
 
 	recordType := providerOptions["type"]
-	target := state.Service
-	if v, ok := providerOptions["target"]; ok && v != "" {
-		target = v
+	target := providerOptions["target"]
+	if state.Service != "" {
+		target = state.Service
 	}
 	if recordType == "" {
 		if ip := net.ParseIP(target); ip != nil {
@@ -189,7 +191,9 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 		log.Error("%s Failed to load DNS provider '%s': %v", logPrefix, providerKey, err)
 		return err
 	}
-	if cfProvider, ok := dnsProvider.(interface{ DeleteRecordWithSource(string, string, string, string, string) error }); ok {
+	if cfProvider, ok := dnsProvider.(interface {
+		DeleteRecordWithSource(string, string, string, string, string) error
+	}); ok {
 		err = cfProvider.DeleteRecordWithSource(domain, recordType, hostname, state.Name, state.SourceType)
 	} else {
 		err = dnsProvider.DeleteRecord(domain, recordType, hostname)

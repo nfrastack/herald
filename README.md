@@ -65,6 +65,7 @@ nfrastack <code@nfrastack.com>
   - [Advanced filters (multiple, AND/OR/NOT/Negate)](#advanced-filters-multiple-andornotnegate)
       - [Poller Traefik Configuration File](#poller-traefik-configuration-file)
       - [Poller Traefik Environment Variables](#poller-traefik-environment-variables)
+  - [Poller File Provider](#poller-file-provider)
   - [Providers](#providers)
     - [Supported Providers](#supported-providers)
     - [Provider Configuration (YAML)](#provider-configuration-yaml)
@@ -76,7 +77,6 @@ nfrastack <code@nfrastack.com>
   - [Bugfixes](#bugfixes)
   - [Feature Requests](#feature-requests)
   - [Updates](#updates)
-- [References](#references)
 - [License](#license)
 
 ## Prerequisites and Assumptions
@@ -592,7 +592,7 @@ polls:
 - `operation` can be `AND`, `OR`, or `NOT` (default is `AND`).
 - `negate: true` inverts the filter result.
 
-You can use either style—**the loader will dynamically handle both**. No need for `composite` or `filter_filters` keys.
+You can use either style—**the loader will dynamically handle both**.
 
 **Environment variables:**
 
@@ -619,6 +619,44 @@ polls:
 | `POLL_<PROFILENAME>_API_URL`               | Traefik API URL                                                  |
 | `POLL_<PROFILENAME>_INTERVAL`              | Poll interval (supports units, e.g., `15s`, `1m`, `60` for 60 seconds) |
 | `POLL_<PROFILENAME>_CONFIG_PATH`           | Path to Traefik configuration file or directory (file-based)     |
+
+### Poller File Provider
+
+The file provider allows you to manage DNS records by reading from a YAML or JSON file. It supports real-time file watching (default) or interval-based polling.
+
+**Example configuration:**
+
+```yaml
+poll:
+  - type: file
+    name: file_example
+    source: ./result/records.yaml
+    format: yaml # or json
+    interval: -1 # (default: watch mode)
+    record_remove_on_stop: true
+    process_existing: true
+```
+
+**File format (YAML):**
+```yaml
+records:
+  - host: www.example.com
+    type: A
+    ttl: 300
+    target: 192.0.2.10
+  - host: api.example.com
+    type: CNAME
+    target: www.example.com
+```
+
+**Options:**
+- `source` (required): Path to the file.
+- `format`: `yaml` (default) or `json`.
+- `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
+- `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
+- `process_existing`: Process all records on startup. Default: `false`.
+- `name`: Profile name for logging and source tracking.
+
 
 ### Providers
 
@@ -722,12 +760,6 @@ domains:
 ### Updates
 
 - Best effort to track upstream dependency changes, with more priority if I am actively using the tool.
-
-## References
-
-- [Traefik](https://traefik.io/) - Modern HTTP reverse proxy and load balancer.
-- [CoreDNS](https://coredns.io/) - Flexible DNS server with plugin support.
-- [External DNS](https://github.com/kubernetes-sigs/external-dns) - Kubernetes controller for DNS providers.
 
 ## License
 
