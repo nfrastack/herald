@@ -4,69 +4,38 @@
 
 package filter
 
-// TODO: Extract common logic (multi filter, operators, negation and regex/wildcards) to a common package
 import (
 	"dns-companion/pkg/log"
+	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
 
 	"fmt"
 	"regexp"
 	"strings"
 )
 
-type FilterType string
+type TraefikRouter map[string]interface{}
 
-const (
-	FilterOperationAND = "AND"
-	FilterOperationOR  = "OR"
-	FilterOperationNOT = "NOT"
-)
-
-const (
-	FilterTypeNone       FilterType = "none"
-	FilterTypeName       FilterType = "name"
-	FilterTypeService    FilterType = "service"
-	FilterTypeProvider   FilterType = "provider"
-	FilterTypeEntrypoint FilterType = "entrypoint"
-	FilterTypeStatus     FilterType = "status"
-	FilterTypeRule       FilterType = "rule"
-)
-
-type Filter struct {
-	Type      FilterType
-	Value     string
-	Operation string // AND, OR, NOT
-	Negate    bool
-}
-
-type FilterConfig struct {
-	Filters []Filter
-}
-
-func DefaultFilterConfig() FilterConfig {
-	return FilterConfig{
-		Filters: []Filter{{Type: FilterTypeNone, Value: ""}},
-	}
-}
+const defaultLogPrefix = "[poll/traefik/filter]"
 
 // NewFilterFromOptions creates a filter config from options (simple or advanced)
-func NewFilterFromOptions(options map[string]string) (FilterConfig, error) {
+func NewFilterFromOptions(options map[string]string) (pollCommon.FilterConfig, error) {
 	filterType, hasFilterType := options["filter_type"]
 	filterValue, hasFilterValue := options["filter_value"]
-	config := DefaultFilterConfig()
+	config := pollCommon.DefaultFilterConfig()
 	// Simple filter
 	if hasFilterType && filterType != "" {
-		if filterType != string(FilterTypeNone) && (!hasFilterValue || filterValue == "") {
-			log.Error("[poll/traefik/filter] Missing filter_value for filter_type='%s'. Options: %+v", filterType, options)
-			return config, fmt.Errorf("[poll/traefik/filter] filter_value is required when filter_type is not 'none'")
+		if filterType != string(pollCommon.FilterTypeNone) && (!hasFilterValue || filterValue == "") {
+			log.Error("%s Missing filter_value for filter_type='%s'. Options: %+v", defaultLogPrefix, filterType, options)
+			return config, fmt.Errorf("%s filter_value is required when filter_type is not 'none'", defaultLogPrefix)
 		}
-		config.Filters = []Filter{{
-			Type:      FilterType(filterType),
+		config.Filters = []pollCommon.Filter{{
+			Type:      pollCommon.FilterType(filterType),
 			Value:     filterValue,
-			Operation: FilterOperationAND,
+			Operation: pollCommon.FilterOperationAND,
 			Negate:    false,
 		}}
 
-		log.Debug("[poll/traefik/filter] Created simple filter: type=%s value=%s", filterType, filterValue)
+		log.Debug("%s Created simple filter: type=%s value=%s", defaultLogPrefix, filterType, filterValue)
 	}
 
 	// Advanced filters: filter.N.type, filter.N.value, filter.N.operation, filter.N.negate
@@ -83,16 +52,16 @@ func NewFilterFromOptions(options map[string]string) (FilterConfig, error) {
 		// Find or create filter
 		var found bool
 		for i := range config.Filters {
-			if config.Filters[i].Type == FilterTypeNone {
-				config.Filters[i].Type = FilterType(value)
+			if config.Filters[i].Type == pollCommon.FilterTypeNone {
+				config.Filters[i].Type = pollCommon.FilterType(value)
 				found = true
 				break
 			}
 		}
 		if !found {
-			newFilter := Filter{
-				Type:      FilterType(value),
-				Operation: FilterOperationAND,
+			newFilter := pollCommon.Filter{
+				Type:      pollCommon.FilterType(value),
+				Operation: pollCommon.FilterOperationAND,
 				Negate:    false,
 			}
 			config.Filters = append(config.Filters, newFilter)
@@ -100,7 +69,7 @@ func NewFilterFromOptions(options map[string]string) (FilterConfig, error) {
 		// Set property
 		switch filterProp {
 		case "type":
-			config.Filters[len(config.Filters)-1].Type = FilterType(value)
+			config.Filters[len(config.Filters)-1].Type = pollCommon.FilterType(value)
 		case "value":
 			config.Filters[len(config.Filters)-1].Value = value
 		case "operation":
@@ -113,50 +82,31 @@ func NewFilterFromOptions(options map[string]string) (FilterConfig, error) {
 }
 
 // ShouldProcessRouter determines if a router should be processed based on the filters
-func (fc FilterConfig) ShouldProcessRouter(router map[string]interface{}) (bool, string) {
-	if len(fc.Filters) == 0 || (len(fc.Filters) == 1 && fc.Filters[0].Type == FilterTypeNone) {
-		return true, ""
-	}
-	var result bool
-	for i, filter := range fc.Filters {
-		match := matchFilter(filter, router)
-		if filter.Negate {
-			match = !match
-		}
-		if i == 0 {
-			result = match
-			continue
-		}
-		switch filter.Operation {
-		case FilterOperationAND:
-			result = result && match
-		case FilterOperationOR:
-			result = result || match
-		case FilterOperationNOT:
-			result = result && !match
-		default:
-			result = result && match
-		}
-	}
+func ShouldProcessRouter(fc pollCommon.FilterConfig, router TraefikRouter) (bool, string) {
+	result := fc.Evaluate(router, matchTraefikFilter)
 	if !result {
 		return false, "router did not match filter(s)"
 	}
 	return true, ""
 }
 
-func matchFilter(filter Filter, router map[string]interface{}) bool {
+func matchTraefikFilter(filter pollCommon.Filter, entry any) bool {
+	router, ok := entry.(TraefikRouter)
+	if !ok {
+		return false
+	}
 	switch filter.Type {
-	case FilterTypeName:
+	case pollCommon.FilterTypeName:
 		return matchStringField(filter.Value, router["name"])
-	case FilterTypeService:
+	case pollCommon.FilterTypeService:
 		return matchStringField(filter.Value, router["service"])
-	case FilterTypeProvider:
+	case pollCommon.FilterTypeProvider:
 		return matchStringField(filter.Value, router["provider"])
-	case FilterTypeEntrypoint:
+	case pollCommon.FilterTypeEntrypoint:
 		return matchArrayField(filter.Value, router["entryPoints"])
-	case FilterTypeStatus:
+	case pollCommon.FilterTypeStatus:
 		return matchStringField(filter.Value, router["status"])
-	case FilterTypeRule:
+	case pollCommon.FilterTypeRule:
 		return matchStringField(filter.Value, router["rule"])
 	default:
 		return false

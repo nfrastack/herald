@@ -5,201 +5,37 @@
 package filter
 
 import (
-	"fmt"
+	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
+
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/docker/docker/api/types"
 )
-// TODO: Extract common logic (multi filter, operators, negation and regex/wildcards) to a common package
-// FilterType represents the type of filter to apply
-type FilterType string
-
-// Filter operation types
-const (
-	FilterOperationAND = "AND"
-	FilterOperationOR  = "OR"
-	FilterOperationNOT = "NOT"
-)
-
-// Available filter types
-const (
-	FilterTypeNone    FilterType = "none"    // No filtering
-	FilterTypeLabel   FilterType = "label"   // Filter by container label
-	FilterTypeName    FilterType = "name"    // Filter by container name
-	FilterTypeNetwork FilterType = "network" // Filter by container network
-	FilterTypeImage   FilterType = "image"   // Filter by container image
-	FilterTypeService FilterType = "service" // Filter by service name (Swarm)
-	FilterTypeHealth  FilterType = "health"  // Filter by container health status
-)
-
-// Filter defines a container filter
-type Filter struct {
-	Type      FilterType // Type of filter
-	Value     string     // Filter value
-	Operation string     // AND, OR, NOT (defaults to AND)
-	Negate    bool       // Invert the filter result
-}
-
-// FilterConfig defines filter configuration
-type FilterConfig struct {
-	Filters []Filter // List of filters to apply
-}
-
-// DefaultFilterConfig returns a default filter configuration
-func DefaultFilterConfig() FilterConfig {
-	return FilterConfig{
-		Filters: []Filter{
-			{
-				Type:  FilterTypeNone,
-				Value: "",
-			},
-		},
-	}
-}
-
-// NewFilterFromOptions creates a filter from options
-func NewFilterFromOptions(options map[string]string) (FilterConfig, error) {
-	// Check if we have a simple filter
-	filterType, hasFilterType := options["filter_type"]
-	filterValue, hasFilterValue := options["filter_value"]
-
-	// Default to no filtering
-	config := DefaultFilterConfig()
-
-	// If we have a simple filter
-	if hasFilterType && filterType != "" {
-		if filterType != string(FilterTypeNone) && (!hasFilterValue || filterValue == "") {
-			return config, fmt.Errorf("[poll/docker/filter] filter_value is required when filter_type is not 'none'")
-		}
-
-		config.Filters = []Filter{
-			{
-				Type:      FilterType(filterType),
-				Value:     filterValue,
-				Operation: FilterOperationAND,
-				Negate:    false,
-			},
-		}
-	}
-
-	// Look for advanced filters in options
-	const filterPrefix = "filter."
-	for key, value := range options {
-		if !strings.HasPrefix(key, filterPrefix) {
-			continue
-		}
-
-		// Format: filter.N.type, filter.N.value, filter.N.operation, filter.N.negate
-		parts := strings.SplitN(key[len(filterPrefix):], ".", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		// We don't need to use the filter index, just need to validate the format
-		filterProp := parts[1]
-
-		// Find existing filter or create new one
-		var found bool
-		for i := range config.Filters {
-			if config.Filters[i].Type == FilterTypeNone {
-				// Replace the default filter
-				config.Filters[i].Type = FilterType(value)
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			// Add new filter
-			newFilter := Filter{
-				Type:      FilterType(value),
-				Operation: FilterOperationAND, // Default to AND
-				Negate:    false,
-			}
-			config.Filters = append(config.Filters, newFilter)
-		}
-
-		// Set filter property based on key suffix
-		switch filterProp {
-		case "type":
-			config.Filters[len(config.Filters)-1].Type = FilterType(value)
-		case "value":
-			config.Filters[len(config.Filters)-1].Value = value
-		case "operation":
-			config.Filters[len(config.Filters)-1].Operation = strings.ToUpper(value)
-		case "negate":
-			config.Filters[len(config.Filters)-1].Negate = strings.ToLower(value) == "true"
-		}
-	}
-
-	return config, nil
-}
-
-// ShouldProcessContainer determines if a container should be processed based on the filters
-func (fc FilterConfig) ShouldProcessContainer(container types.ContainerJSON) bool {
-	// If no filters or just the "none" filter, process all containers
-	if len(fc.Filters) == 0 || (len(fc.Filters) == 1 && fc.Filters[0].Type == FilterTypeNone) {
-		return true
-	}
-
-	// Process filters with AND/OR logic
-	var result bool
-	for i, filter := range fc.Filters {
-		// Check if this filter matches
-		match := matchFilter(filter, container)
-
-		// Apply NOT if needed
-		if filter.Negate {
-			match = !match
-		}
-
-		// For the first filter, just set the result
-		if i == 0 {
-			result = match
-			continue
-		}
-
-		// Apply operation
-		switch filter.Operation {
-		case FilterOperationAND:
-			result = result && match
-		case FilterOperationOR:
-			result = result || match
-		case FilterOperationNOT:
-			result = result && !match
-		default:
-			// Default to AND
-			result = result && match
-		}
-	}
-
-	return result
-}
 
 // matchFilter checks if a container matches a single filter
-func matchFilter(filter Filter, container types.ContainerJSON) bool {
+func matchFilter(filter pollCommon.Filter, container types.ContainerJSON) bool {
 	switch filter.Type {
-	case FilterTypeNone:
+	case pollCommon.FilterTypeNone:
 		return true
 
-	case FilterTypeLabel:
+	case pollCommon.FilterTypeLabel:
 		return matchLabelFilter(filter.Value, container)
 
-	case FilterTypeName:
+	case pollCommon.FilterTypeName:
 		return matchNameFilter(filter.Value, container)
 
-	case FilterTypeNetwork:
+	case pollCommon.FilterTypeNetwork:
 		return matchNetworkFilter(filter.Value, container)
 
-	case FilterTypeImage:
+	case pollCommon.FilterTypeImage:
 		return matchImageFilter(filter.Value, container)
 
-	case FilterTypeService:
+	case pollCommon.FilterTypeService:
 		return matchServiceFilter(filter.Value, container)
 
-	case FilterTypeHealth:
+	case pollCommon.FilterTypeHealth:
 		return matchHealthFilter(filter.Value, container)
 
 	default:
