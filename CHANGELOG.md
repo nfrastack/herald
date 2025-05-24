@@ -47,5 +47,3 @@ There has been a large amount of work performed to provide feature parity to the
       - Sample configuration files included
       - Docker image included
       - NixOS Module included
-
-
