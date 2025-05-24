@@ -66,6 +66,9 @@ nfrastack <code@nfrastack.com>
       - [Poller Traefik Configuration File](#poller-traefik-configuration-file)
       - [Poller Traefik Environment Variables](#poller-traefik-environment-variables)
   - [Poller File Provider](#poller-file-provider)
+  - [Remote Provider](#remote-provider)
+    - [Example configuration](#example-configuration)
+    - [Options](#options)
   - [Providers](#providers)
     - [Supported Providers](#supported-providers)
     - [Provider Configuration (YAML)](#provider-configuration-yaml)
@@ -631,7 +634,7 @@ poll:
   - type: file
     name: file_example
     source: ./result/records.yaml
-    format: yaml # or json
+    format: yaml # or json - autodetects based on extension
     interval: -1 # (default: watch mode)
     record_remove_on_stop: true
     process_existing: true
@@ -655,8 +658,38 @@ records:
 - `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
 - `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
 - `process_existing`: Process all records on startup. Default: `false`.
-- `name`: Profile name for logging and source tracking.
 
+### Remote Provider
+
+The remote provider works just like the File provider but allows you to poll a remote YAML or JSON file over HTTP/HTTPS. It supports HTTP Basic Auth and interval-based polling.
+
+#### Example configuration
+
+```yaml
+polls:
+  remote_example:
+    type: remote
+    name: remote_example
+    remote_url: https://example.com/records.yaml
+    format: yaml # or json (optional, autodetects by extension)
+    interval: 30s # Poll every 30 seconds
+    process_existing: true
+    record_remove_on_stop: true
+    remote_auth_user: myuser # Optional HTTP Basic Auth
+    remote_auth_pass: mypassword # Optional HTTP Basic Auth
+```
+
+#### Options
+
+- `remote_url` (required): URL to the remote YAML or JSON file.
+- `format`: `yaml` (default) or `json`.
+- `interval`: How often to poll the remote file (e.g., `30s`).
+- `process_existing`: Process all records on startup. Default: `false`.
+- `record_remove_on_stop`: Remove DNS records when removed from remote. Default: `false`.
+- `remote_auth_user`: Username for HTTP Basic Auth (optional).
+- `remote_auth_pass`: Password for HTTP Basic Auth (optional).
+
+See `contrib/file-provider.md` for file format details (same as file provider).
 
 ### Providers
 
