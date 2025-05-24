@@ -41,7 +41,7 @@ func NewProvider(config map[string]string) (dns.Provider, error) {
 	profileName := utils.GetProfileNameFromOptions(config, "default")
 	logPrefix := fmt.Sprintf("[provider/cloudflare/%s]", profileName)
 
-	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
+	log.Trace("%s Resolved domain profile name: %s", logPrefix, profileName)
 
 	p := &Provider{
 		config:      config,
@@ -184,7 +184,7 @@ func (p *Provider) createOrUpdateRecordWithSource(domain string, recordType stri
 					if name == "" {
 						name = "unknown"
 					}
-					log.Debug("%s Record %s (%s) already up to date, skipping update (%s: %s)", p.logPrefix, fullHostname, recordType, label, name)
+					log.Verbose("%s Record %s (%s) already up to date, skipping update (%s: %s)", p.logPrefix, fullHostname, recordType, label, name)
 					return nil
 				}
 			}

@@ -59,7 +59,7 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 
 	// Set application-level defaults ONLY if still unset after config and env
 	if cfg.General.LogLevel == "" {
-		cfg.General.LogLevel = "info"
+		cfg.General.LogLevel = "verbose"
 	}
 	if os.Getenv("LOG_TIMESTAMPS") == "" && !FieldSetInConfigFile(path, "log_timestamps") {
 		cfg.General.LogTimestamps = true
