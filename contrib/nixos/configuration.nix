@@ -43,6 +43,16 @@
           record_remove_on_stop = true;
           process_existing = true;
         };
+        remotepoller01 = {
+          type = "remote";
+          source = "https://example.com/records.json";
+          format = "json";
+          interval = "30s";
+          process_existing = true;
+          record_remove_on_stop = true;
+          http_user = "myuser";
+          http_pass = "mypassword";
+        };
       };
       providers = {
         dnsprovider01 = {

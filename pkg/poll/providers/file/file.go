@@ -9,11 +9,10 @@ import (
 	"dns-companion/pkg/domain"
 	"dns-companion/pkg/log"
 	"dns-companion/pkg/poll"
+	"dns-companion/pkg/poll/providers/common"
 
 	"context"
-	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +20,6 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"gopkg.in/yaml.v3"
 )
 
 type FileProvider struct {
@@ -40,22 +38,13 @@ type FileProvider struct {
 	logPrefix          string
 }
 
-type fileRecord struct {
-	Host   string `yaml:"host" json:"host"`
-	Type   string `yaml:"type" json:"type"`
-	TTL    int    `yaml:"ttl" json:"ttl"`
-	Target string `yaml:"target" json:"target"`
-}
-
-type yamlFile struct {
-	Records []fileRecord `yaml:"records"`
-}
-
-type jsonFile struct {
-	Records []fileRecord `json:"records"`
-}
-
 func NewProvider(options map[string]string) (poll.Provider, error) {
+	parsed := common.ParsePollProviderOptions(options, common.PollProviderOptions{
+		Interval:           60 * time.Second,
+		ProcessExisting:    false,
+		RecordRemoveOnStop: false,
+		Name:               "file",
+	})
 	source := options["source"]
 	if source == "" {
 		log.Error("[poll/file] source option (file path) is required")
@@ -91,25 +80,23 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 			}
 		}
 	}
-	recordRemoveOnStop := strings.ToLower(options["record_remove_on_stop"]) == "true" || options["record_remove_on_stop"] == "1"
-	processExisting := strings.ToLower(options["process_existing"]) == "true" || options["process_existing"] == "1"
 	ctx, cancel := context.WithCancel(context.Background())
 	logPrefix := "[poll/file]"
-	if name, ok := options["name"]; ok && name != "" {
-		logPrefix = "[poll/file/" + name + "]"
+	if parsed.Name != "" && parsed.Name != "file" {
+		logPrefix = "[poll/file/" + parsed.Name + "]"
 	}
 	if watchMode {
 		log.Info("%s Initializing file provider: source=%s, format=%s, watchMode=%v", logPrefix, source, format, watchMode)
 	} else {
-		log.Info("%s Initializing file provider: source=%s, format=%s, interval=%v, watchMode=%v", logPrefix, source, format, interval, watchMode)
+		log.Info("%s Initializing file provider: source=%s, format=%s, interval=%v, watchMode=%v", logPrefix, source, format, parsed.Interval, watchMode)
 	}
 	return &FileProvider{
 		source:             source,
 		format:             format,
-		interval:           interval,
+		interval:           parsed.Interval,
 		watchMode:          watchMode,
-		recordRemoveOnStop: recordRemoveOnStop,
-		processExisting:    processExisting,
+		recordRemoveOnStop: parsed.RecordRemoveOnStop,
+		processExisting:    parsed.ProcessExisting,
 		options:            options,
 		lastRecords:        make(map[string]poll.DNSEntry),
 		ctx:                ctx,
@@ -239,7 +226,7 @@ func (p *FileProvider) processFile() {
 			log.Trace("%s New or changed record detected: fqdn='%s', type='%s'", p.logPrefix, fqdnNoDot, recordType)
 
 			// Extract domain and subdomain like Docker/Traefik
-			domainKey, subdomain := extractDomainAndSubdomain(fqdnNoDot)
+			domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
 			log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", p.logPrefix, domainKey, subdomain, fqdnNoDot)
 			if domainKey == "" {
 				log.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
@@ -272,7 +259,7 @@ func (p *FileProvider) processFile() {
 				recordType := old.GetRecordType()
 				log.Info("%s Record removed: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
 				log.Trace("%s Record removed from file: fqdn='%s', type='%s'", p.logPrefix, fqdnNoDot, recordType)
-				domainKey, subdomain := extractDomainAndSubdomain(fqdnNoDot)
+				domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
 				log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", p.logPrefix, domainKey, subdomain, fqdnNoDot)
 				if domainKey == "" {
 					log.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
@@ -303,35 +290,6 @@ func (p *FileProvider) processFile() {
 	p.mutex.Unlock()
 }
 
-// extractDomainAndSubdomain tries to find the best matching domain from config and returns (domain, subdomain)
-func extractDomainAndSubdomain(fqdn string) (string, string) {
-	fqdn = strings.TrimSuffix(fqdn, ".")
-	labels := strings.Split(fqdn, ".")
-	// Add trace for what we're trying to match
-	log.Trace("[poll/file] extractDomainAndSubdomain: FQDN='%s', labels=%v", fqdn, labels)
-	for i := 0; i < len(labels); i++ {
-		domainCandidate := strings.Join(labels[i:], ".")
-		normalizedCandidate := normalizeDomainKey(domainCandidate)
-		for configKey := range config.GlobalConfig.Domains {
-			if normalizedCandidate == configKey {
-				subdomain := strings.Join(labels[:i], ".")
-				if subdomain == "" {
-					subdomain = "@"
-				}
-				log.Trace("[poll/file] extractDomainAndSubdomain: matched domain configKey='%s' for candidate='%s' (normalized='%s')", configKey, domainCandidate, normalizedCandidate)
-				return configKey, subdomain
-			}
-		}
-	}
-	log.Trace("[poll/file] extractDomainAndSubdomain: no match for FQDN='%s'", fqdn)
-	return "", ""
-}
-
-// normalizeDomainKey replaces dots with underscores for config key matching
-func normalizeDomainKey(domain string) string {
-	return strings.ReplaceAll(domain, ".", "_")
-}
-
 // keys returns the keys of a map as a slice
 func keys(m map[string]config.DomainConfig) []string {
 	var out []string
@@ -348,64 +306,30 @@ func (p *FileProvider) readFile() ([]poll.DNSEntry, error) {
 		log.Error("%s Error reading file: %v", p.logPrefix, err)
 		return nil, err
 	}
-	var records []fileRecord
+	var records []common.FileRecord
 	if p.format == "yaml" {
 		log.Trace("%s Parsing YAML file", p.logPrefix)
-		var y yamlFile
-		if err := yaml.Unmarshal(data, &y); err != nil {
+		records, err = common.ParseRecordsYAML(data)
+		if err != nil {
 			log.Error("%s YAML unmarshal error: %v", p.logPrefix, err)
 			return nil, err
 		}
-		records = y.Records
 	} else if p.format == "json" {
 		log.Trace("%s Parsing JSON file", p.logPrefix)
-		var j jsonFile
-		if err := json.Unmarshal(data, &j); err != nil {
+		records, err = common.ParseRecordsJSON(data)
+		if err != nil {
 			log.Error("%s JSON unmarshal error: %v", p.logPrefix, err)
 			return nil, err
 		}
-		records = j.Records
 	} else {
 		log.Error("%s Unsupported file format: %s", p.logPrefix, p.format)
 		return nil, fmt.Errorf("unsupported file format: %s", p.format)
 	}
-	var entries []poll.DNSEntry
-	for _, r := range records {
-		if r.Host == "" || r.Target == "" {
-			log.Warn("%s Skipping record with missing host or target: %+v", p.logPrefix, r)
-			continue
-		}
-		fqdn := strings.TrimSuffix(r.Host, ".")
-		// Do not attempt to extract or set domain here; let main domain logic handle it
-		recordType := r.Type
-		if recordType == "" {
-			if ip := net.ParseIP(r.Target); ip != nil {
-				if ip.To4() != nil {
-					recordType = "A"
-				} else {
-					recordType = "AAAA"
-				}
-			} else {
-				recordType = "CNAME"
-			}
-			log.Debug("%s Autodetected record type for %s: %s", p.logPrefix, fqdn, recordType)
-		}
-		providerName := p.options["name"]
-		if providerName == "" {
-			providerName = "file_profile"
-		}
-		sourceName := "file_provider: " + providerName
-		entry := poll.DNSEntry{
-			Hostname:   fqdn,
-			Domain:     "", // Let the main domain matching logic handle this
-			RecordType: recordType,
-			Target:     r.Target, // Always use the target from the file record
-			TTL:        r.TTL,
-			Overwrite:  true,
-			SourceName: sourceName, // Set to file_provider: <profile_name>
-		}
-		entries = append(entries, entry)
+	providerName := p.options["name"]
+	if providerName == "" {
+		providerName = "file_profile"
 	}
+	entries := common.ConvertRecordsToDNSEntries(records, providerName)
 	log.Trace("%s Returning %d DNS entries from file", p.logPrefix, len(entries))
 	return entries, nil
 }

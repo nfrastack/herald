@@ -48,6 +48,24 @@ polls:
     process_existing: true  # Process existing routers on startup
     record_remove_on_stop: true  # Remove DNS records when router is removed
 
+  file_example:
+    type: file
+    source: ./result/records.yaml
+    format: yaml # or json (optional, autodetects by extension)
+    interval: -1 # watch mode (default)
+    process_existing: true
+    record_remove_on_stop: true
+
+  remote_example:
+    type: remote
+    remote_url: https://example.com/records.yaml
+    format: yaml # or json (optional, autodetects by extension)
+    interval: 30s # Poll every 30 seconds
+    process_existing: true
+    record_remove_on_stop: true
+    remote_auth_user: myuser # Optional HTTP Basic Auth
+    remote_auth_pass: mypassword # Optional HTTP Basic Auth
+
 services:
   traefik-poller:
     api_url: http://traefik:8080/api/http/routers

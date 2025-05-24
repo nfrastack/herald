@@ -43,14 +43,14 @@ This flake provides a NixOS module that allows you to configure and run the DNS 
       };
     };
     polls = {
-      docker = {
+      d_example = {
         type = "docker";
         host = "unix:///var/run/docker.sock";
         expose_containers = true;
         filter_type = "none";
         record_remove_on_stop = false;
       };
-      traefik = {
+      t_example = {
         type = "traefik";
         api_url = "http://traefik:8080/api/http/routers";
         api_auth_user = "admin";
@@ -59,7 +59,7 @@ This flake provides a NixOS module that allows you to configure and run the DNS 
         process_existing = true;
         record_remove_on_stop = true;
       };
-      file = {
+      f_example = {
         type = "file";
         name = "file_example";
         source = "/var/lib/dns-companion/records.yaml";
@@ -67,8 +67,16 @@ This flake provides a NixOS module that allows you to configure and run the DNS 
         interval = "-1";
         record_remove_on_stop = true;
         process_existing = true;
-      }
-
+      };
+      r_example = {
+          type = "remote";
+          source = "https://example.com/records.json";
+          format = "json";
+          interval = "30s";
+          process_existing = true;
+          record_remove_on_stop = true;
+          http_user = "myuser";
+          http_pass = "mypassword";
       };
     };
     providers = {
@@ -136,6 +144,22 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
     * `process_existing` (bool): Process existing routers on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when router is removed.
+  * `file` (attrs):
+    * `type` (str): "file"
+    * `source` (str): Path to the YAML or JSON file.
+    * `format` (str): "yaml" (default) or "json".
+    * `interval` (str): Poll interval (e.g., "-1" for watch mode, or "30s").
+    * `process_existing` (bool): Process all records on startup.
+    * `record_remove_on_stop` (bool): Remove DNS records when removed from file.
+  * `remote` (attrs):
+    * `type` (str): "remote"
+    * `remote_url` (str): URL to the remote YAML or JSON file.
+    * `format` (str): "yaml" (default) or "json".
+    * `interval` (str): Poll interval (e.g., "30s").
+    * `process_existing` (bool): Process all records on startup.
+    * `record_remove_on_stop` (bool): Remove DNS records when removed from remote.
+    * `remote_auth_user` (str): Username for HTTP Basic Auth (optional).
+    * `remote_auth_pass` (str): Password for HTTP Basic Auth (optional).
 * `providers` (attrs): DNS provider profiles. Example:
   * `cloudflare` (attrs):
     * `type` (str): "cloudflare"
@@ -157,46 +181,5 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `exclude_subdomains` (list of str): Subdomains to exclude.
 * `include` (str or list of str): One or more YAML files to include into the main configuration.
 
-## File Provider
-
-The file provider allows you to manage DNS records from a YAML or JSON file. It supports real-time file watching (default) or interval-based polling.
-
-### Example NixOS Configuration
-
-```nix
-poll.providers.file = {
-  enable = true;
-  name = "file_example";
-  source = "/var/lib/dns-companion/records.yaml";
-  format = "yaml";
-  interval = "-1"; # watch mode (default)
-  record_remove_on_stop = true;
-  process_existing = true;
-};
-```
-
-### File Format Example (YAML)
-
-```yaml
-records:
-  - host: www.example.com
-    type: A
-    ttl: 300
-    target: 192.0.2.10
-  - host: api.example.com
-    type: CNAME
-    target: www.example.com
-```
-
-### Options
-
-- `source` (required): Path to the file.
-- `format`: `yaml` (default) or `json`.
-- `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
-- `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
-- `process_existing`: Process all records on startup. Default: `false`.
-- `name`: Profile name for logging and source tracking.
-
-See `../file-provider.md` for more details.
 
 This setup allows you to fully configure and manage the DNS Companion service declaratively using NixOS.
