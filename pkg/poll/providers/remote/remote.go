@@ -29,7 +29,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	})
 	remoteURL := pollCommon.GetOptionOrEnv(options, "remote_url", "REMOTE_URL", "")
 	if remoteURL == "" {
-		return nil, fmt.Errorf("[poll/remote] remote_url option (URL) is required")
+		return nil, fmt.Errorf("%s remote_url option (URL) is required", parsed.Name)
 	}
 	format := pollCommon.GetOptionOrEnv(options, "format", "REMOTE_FORMAT", "")
 	if format == "" {

@@ -15,6 +15,8 @@ import (
 
 type TraefikRouter map[string]interface{}
 
+const defaultLogPrefix = "[poll/traefik/filter]"
+
 // NewFilterFromOptions creates a filter config from options (simple or advanced)
 func NewFilterFromOptions(options map[string]string) (pollCommon.FilterConfig, error) {
 	filterType, hasFilterType := options["filter_type"]
@@ -23,8 +25,8 @@ func NewFilterFromOptions(options map[string]string) (pollCommon.FilterConfig, e
 	// Simple filter
 	if hasFilterType && filterType != "" {
 		if filterType != string(pollCommon.FilterTypeNone) && (!hasFilterValue || filterValue == "") {
-			log.Error("[poll/traefik/filter] Missing filter_value for filter_type='%s'. Options: %+v", filterType, options)
-			return config, fmt.Errorf("[poll/traefik/filter] filter_value is required when filter_type is not 'none'")
+			log.Error("%s Missing filter_value for filter_type='%s'. Options: %+v", defaultLogPrefix, filterType, options)
+			return config, fmt.Errorf("%s filter_value is required when filter_type is not 'none'", defaultLogPrefix)
 		}
 		config.Filters = []pollCommon.Filter{{
 			Type:      pollCommon.FilterType(filterType),
@@ -33,7 +35,7 @@ func NewFilterFromOptions(options map[string]string) (pollCommon.FilterConfig, e
 			Negate:    false,
 		}}
 
-		log.Debug("[poll/traefik/filter] Created simple filter: type=%s value=%s", filterType, filterValue)
+		log.Debug("%s Created simple filter: type=%s value=%s", defaultLogPrefix, filterType, filterValue)
 	}
 
 	// Advanced filters: filter.N.type, filter.N.value, filter.N.operation, filter.N.negate

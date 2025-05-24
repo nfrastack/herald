@@ -45,10 +45,11 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		RecordRemoveOnStop: false,
 		Name:               "file",
 	})
+	logPrefix := pollCommon.BuildLogPrefix("file", parsed.Name)
 	source := pollCommon.GetOptionOrEnv(options, "source", "FILE_SOURCE", "")
 	if source == "" {
-		log.Error("[poll/file] source option (file path) is required")
-		return nil, fmt.Errorf("[poll/file] source option (file path) is required")
+		log.Error("%s source option (file path) is required", logPrefix)
+		return nil, fmt.Errorf("%s source option (file path) is required", logPrefix)
 	}
 	format := pollCommon.GetOptionOrEnv(options, "format", "FILE_FORMAT", "")
 	if format == "" {
@@ -76,12 +77,11 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 				interval = d
 				watchMode = false
 			} else {
-				log.Warn("[poll/file] Invalid interval '%s', using default: %v", v, interval)
+				log.Warn("%s Invalid interval '%s', using default: %v", logPrefix, v, interval)
 			}
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	logPrefix := pollCommon.BuildLogPrefix("file", parsed.Name)
 	if watchMode {
 		log.Info("%s Initializing file provider: source=%s, format=%s, watchMode=%v", logPrefix, source, format, watchMode)
 	} else {

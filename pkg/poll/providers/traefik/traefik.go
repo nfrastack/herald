@@ -66,7 +66,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	logPrefix := pollCommon.BuildLogPrefix("traefik", profileName)
 
 	// Trace all options keys at the start to help troubleshoot
-	log.Trace("[poll/traefik] Provider options received: %+v", options)
+	log.Trace("%s Provider options received: %+v", logPrefix, options)
 
 	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
 
@@ -117,7 +117,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	filterConfig, err := pollCommon.NewFilterFromOptions(options)
 	if err != nil {
 		log.Error("%s Error setting up filters: %v", logPrefix, err)
-		return nil, fmt.Errorf("[poll/traefik] filter setup error: %w", err)
+		return nil, fmt.Errorf("%s filter setup error: %w", logPrefix, err)
 	}
 
 	// Check if we have active filters (not just "none" filter)
@@ -159,9 +159,10 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 
 // Register the Traefik provider
 func init() {
-	log.Debug("[poll/traefik] Registering Traefik provider")
+	logPrefix := pollCommon.BuildLogPrefix("traefik", "default")
+	log.Debug("%s Registering Traefik provider", logPrefix)
 	poll.RegisterProvider("traefik", NewProvider)
-	log.Debug("[poll/traefik] Successfully registered Traefik provider")
+	log.Debug("%s Successfully registered Traefik provider", logPrefix)
 }
 
 // StartPolling starts polling Traefik for routers
@@ -262,7 +263,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 	body, err := t.fetchTraefikAPI(t.apiURL, t.authUser, t.authPass, t.logPrefix)
 	if err != nil {
 		log.Error("%s Failed to fetch data from Traefik API: %v", t.logPrefix, err)
-		return fmt.Errorf("[poll/traefik] failed to fetch data: %w", err)
+		return fmt.Errorf("%s failed to fetch data: %w", t.logPrefix, err)
 	}
 
 	// Parse JSON response
@@ -275,7 +276,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 		var routersMap map[string]interface{}
 		if err := json.Unmarshal(body, &routersMap); err != nil {
 			log.Error("%s Failed to parse JSON response: %v", t.logPrefix, err)
-			return fmt.Errorf("[poll/traefik] failed to parse JSON: %w", err)
+			return fmt.Errorf("%s failed to parse JSON: %w", t.logPrefix, err)
 		}
 		log.Debug("%s Found %d routers in API response (map format)", t.logPrefix, len(routersMap))
 
@@ -486,7 +487,7 @@ func (p *TraefikProvider) pollRouters() error {
 		for k, v := range currentMap {
 			p.routerCache[k] = v
 		}
-		log.Info("[poll/traefik] Initial poll: process_existing=true, populating cache only, not processing routers")
+		log.Info("%s Initial poll: process_existing=true, populating cache only, not processing routers", p.logPrefix)
 		return nil
 	}
 
@@ -495,11 +496,11 @@ func (p *TraefikProvider) pollRouters() error {
 		prev, exists := p.routerCache[name]
 		if !exists {
 			// New router
-			log.Info("[poll/traefik] New router detected: %s", name)
+			log.Info("%s New router detected: %s", p.logPrefix, name)
 			p.processRouterAdd(state)
 		} else if !routerStatesEqual(prev, state) {
 			// Updated router
-			log.Info("[poll/traefik] Router updated: %s", name)
+			log.Info("%s Router updated: %s", p.logPrefix, name)
 			p.processRouterUpdate(state)
 		}
 	}
@@ -507,7 +508,7 @@ func (p *TraefikProvider) pollRouters() error {
 	// Detect removed routers
 	for name := range p.routerCache {
 		if _, exists := currentMap[name]; !exists {
-			log.Info("[poll/traefik] Router removed: %s", name)
+			log.Info("%s Router removed: %s", p.logPrefix, name)
 			if p.opts.RecordRemoveOnStop {
 				p.processRouterRemove(p.routerCache[name])
 			}
@@ -577,7 +578,8 @@ func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
 
 // extractHostsFromRule extracts hostnames from Traefik router rules
 func extractHostsFromRule(rule string) []string {
-	log.Trace("[poll/traefik] Extracting hosts from rule: '%s'", rule)
+	logPrefix := pollCommon.BuildLogPrefix("traefik", "default") // or pass t.logPrefix if available
+	log.Trace("%s Extracting hosts from rule: '%s'", logPrefix, rule)
 	var hostnames []string
 
 	// Helper to parse host args (handles single or multiple, with/without quotes)
