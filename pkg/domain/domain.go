@@ -83,7 +83,13 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 		} else if strings.Contains(state.Service, ".") {
 			target = state.Service
 		}
+
 	}
+	if target == "" {
+		log.Error("%s No target specified for domain '%s' (fqdn: %s, service: %s)", logPrefix, domain, fqdn, state.Service)
+		return fmt.Errorf("no target specified for domain %s (fqdn: %s, service: %s)", domain, fqdn, state.Service)
+	}
+  
 	// Smart record type detection if not explicitly set
 	if recordType == "" {
 		if ip := net.ParseIP(target); ip != nil {
