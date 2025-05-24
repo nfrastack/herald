@@ -6,7 +6,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "feat-poll_remote";
+      version = "patch-records_error";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"

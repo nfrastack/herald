@@ -140,6 +140,9 @@ func (p *Provider) CreateOrUpdateRecordWithSource(domain string, recordType stri
 
 // createOrUpdateRecordWithSource is the internal implementation that supports logging the source/container name and type
 func (p *Provider) createOrUpdateRecordWithSource(domain string, recordType string, hostname string, target string, ttl int, overwrite bool, sourceName string, sourceType string) error {
+	if target == "" {
+		return fmt.Errorf("%s target must be explicitly set in domain config or default_target; refusing to guess for %s.%s (%s)", p.logPrefix, hostname, domain, recordType)
+	}
 	if p.DryRun {
 		log.Info("%s [dry-run] Would create or update DNS record: %s.%s (%s) -> %s (TTL: %d, Overwrite: %v) (%s: %s)", p.logPrefix, hostname, domain, recordType, target, ttl, overwrite, sourceType, sourceName)
 		return nil
@@ -333,13 +336,6 @@ func (p *Provider) deleteRecordWithSource(domain string, recordType string, host
 
 	log.Info("%s Deleted DNS record %s (%s) (%s: %s)", p.logPrefix, fullHostname, recordType, sourceType, sourceName)
 	return nil
-}
-
-func formatSourceName(sourceName string) string {
-	if sourceName != "" {
-		return fmt.Sprintf(" (container: %s)", sourceName)
-	}
-	return ""
 }
 
 // GetRecordID gets a DNS record ID for a specific record

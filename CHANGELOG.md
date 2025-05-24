@@ -1,4 +1,4 @@
-## feat-refactor_poll_providers (wip)
+## patch-records_error (wip)
 
    ### Added
      - (poll) Added File provider to read YAML/JSON from filesystem
@@ -8,6 +8,10 @@
    ### Changed
      - Created pollCommonfunctions for poll providers (http, records management, options, processing of parsed,received data, filter logic for easier implementation of future pollers)
      -
+
+   ### Fixed
+     - Issue where record targets weren't being read correctly with the traefik poll provider
+
 
 ## 1.0.0 2025-05-23 <code at nfrastack dot com>
 
