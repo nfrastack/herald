@@ -7,6 +7,7 @@ toolchain go1.24.2
 require (
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/docker/docker v24.0.6+incompatible
+	github.com/fsnotify/fsnotify v1.9.0
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6
 	gopkg.in/yaml.v3 v3.0.1
 )
