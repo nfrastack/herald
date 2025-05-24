@@ -10,7 +10,7 @@ import (
 	"dns-companion/pkg/domain"
 	"dns-companion/pkg/log"
 	"dns-companion/pkg/poll"
-	"dns-companion/pkg/poll/providers/docker/filter"
+	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
 	"dns-companion/pkg/utils"
 
 	"context"
@@ -37,7 +37,7 @@ type DockerProvider struct {
 	dnsProvider        dns.Provider
 	domainConfigs      map[string]config.DomainConfig
 	exposeContainers   bool
-	filterConfig       filter.FilterConfig
+	filterConfig       pollCommon.FilterConfig
 	lastContainerIDs   map[string]bool
 	logPrefix          string
 	options            map[string]string
@@ -45,6 +45,7 @@ type DockerProvider struct {
 	recordRemoveOnStop bool
 	running            bool
 	swarmMode          bool
+	opts               pollCommon.PollProviderOptions
 }
 
 // Config defines configuration for the Docker provider
@@ -88,23 +89,28 @@ func (c *DockerContainerInfo) GetTarget() string {
 
 // extractHostsFromRule extracts all hostnames from a Traefik rule string
 func extractHostsFromRule(rule string) []string {
-    hosts := []string{}
-    // Regex to match Host(`...`), Host('...'), or Host("...")
-    re := regexp.MustCompile(`Host\(\s*['"` + "`" + `](.*?)['"` + "`" + `]\s*\)`)
-    matches := re.FindAllStringSubmatch(rule, -1)
-    for _, match := range matches {
-        if len(match) > 1 {
-            hosts = append(hosts, match[1])
-        }
-    }
-    return hosts
+	hosts := []string{}
+	// Regex to match Host(`...`), Host('...'), or Host("...")
+	re := regexp.MustCompile(`Host\(\s*['"` + "`" + `](.*?)['"` + "`" + `]\s*\)`)
+	matches := re.FindAllStringSubmatch(rule, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			hosts = append(hosts, match[1])
+		}
+	}
+	return hosts
 }
 
 // NewProvider creates a new Docker poll provider
 func NewProvider(options map[string]string) (poll.Provider, error) {
-	// Always use utils.GetProfileNameFromOptions for profile name resolution
-	profileName := utils.GetProfileNameFromOptions(options, "default")
-	logPrefix := fmt.Sprintf("[poll/docker/%s]", profileName)
+	parsed := pollCommon.ParsePollProviderOptions(options, pollCommon.PollProviderOptions{
+		Interval:           30 * time.Second,
+		ProcessExisting:    false,
+		RecordRemoveOnStop: false,
+		Name:               "docker",
+	})
+	profileName := pollCommon.GetOptionOrEnv(options, "name", "DOCKER_PROFILE_NAME", parsed.Name)
+	logPrefix := pollCommon.BuildLogPrefix("docker", profileName)
 
 	// Log resolved profile name at trace level only
 	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
@@ -113,10 +119,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	clientOpts := []client.Opt{client.FromEnv}
 
 	// Only use api_url and API_URL env var for Docker API endpoint
-	apiURL := options["api_url"]
-	if apiURL == "" {
-		apiURL = utils.GetEnvDefault("API_URL", "unix:///var/run/docker.sock")
-	}
+	apiURL := pollCommon.GetOptionOrEnv(options, "api_url", "API_URL", "unix:///var/run/docker.sock")
 	if apiURL != "" {
 		log.Debug("%s Using Docker API URL: %s", logPrefix, apiURL)
 		clientOpts = append(clientOpts, client.WithHost(apiURL))
@@ -146,14 +149,8 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 
 	// Parse API auth options
-	apiAuthUser := options["api_auth_user"]
-	apiAuthPass := options["api_auth_pass"]
-	if apiAuthUser == "" {
-		apiAuthUser = utils.GetEnvDefault("DOCKER_API_AUTH_USER", "")
-	}
-	if apiAuthPass == "" {
-		apiAuthPass = utils.GetEnvDefault("DOCKER_API_AUTH_PASS", "")
-	}
+	apiAuthUser := pollCommon.GetOptionOrEnv(options, "api_auth_user", "DOCKER_API_AUTH_USER", "")
+	apiAuthPass := pollCommon.GetOptionOrEnv(options, "api_auth_pass", "DOCKER_API_AUTH_PASS", "")
 	if apiAuthUser != "" {
 		log.Debug("%s Using Docker API basic auth user: %s", logPrefix, apiAuthUser)
 		if apiAuthPass != "" {
@@ -179,6 +176,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		logPrefix:        logPrefix,
 		apiAuthUser:      apiAuthUser,
 		apiAuthPass:      apiAuthPass,
+		opts:             parsed,
 	}
 
 	// Parse configuration
@@ -189,7 +187,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	config.APIAuthUser = apiAuthUser
 	config.APIURL = apiURL
 	config.ExposeContainers = false
-	config.ProcessExisting = false
+	config.ProcessExisting = parsed.ProcessExisting
 	config.SwarmMode = false
 
 	// Log all available options for debugging
@@ -231,10 +229,10 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 
 	// Create filter configuration
-	filterConfig, err := filter.NewFilterFromOptions(options)
+	filterConfig, err := pollCommon.NewFilterFromOptions(options)
 	if err != nil {
 		log.Info("%s Error creating filter configuration: %v, using default", logPrefix, err)
-		filterConfig = filter.DefaultFilterConfig()
+		filterConfig = pollCommon.DefaultFilterConfig()
 	}
 
 	// Store the config and filter config in the provider
@@ -242,9 +240,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	provider.filterConfig = filterConfig
 
 	// Parse record_remove_on_stop option
-	if val, exists := options["record_remove_on_stop"]; exists {
-		provider.recordRemoveOnStop = strings.ToLower(val) == "true" || val == "1"
-	}
+	provider.recordRemoveOnStop = parsed.RecordRemoveOnStop
 
 	// Log the actual filterConfig.Filters slice for diagnosis
 	log.Debug("%s Filter Configuration: %+v", logPrefix, filterConfig.Filters)
@@ -488,6 +484,16 @@ func (p *DockerProvider) processRunningServices(ctx context.Context) {
 	}
 }
 
+// matchDockerFilter is a provider-specific match function for Docker filters
+func matchDockerFilter(filter pollCommon.Filter, entry any) bool {
+	container, ok := entry.(types.ContainerJSON)
+	if !ok {
+		return false
+	}
+	// Implement match logic for Docker filters
+	return strings.Contains(container.Name, filter.Value)
+}
+
 // shouldProcessContainer determines if the container should be processed based on labels and configuration
 func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) bool {
 	// Ensure container name doesn't have slash prefix
@@ -497,7 +503,7 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 	}
 
 	// First, check if the container passes our filter configuration
-	if !p.filterConfig.ShouldProcessContainer(container) {
+	if !p.filterConfig.Evaluate(container, matchDockerFilter) {
 		log.Debug("%s Skipping container '%s' because it does not match filter criteria", p.logPrefix, containerName)
 		return false
 	}
@@ -635,7 +641,7 @@ func (p *DockerProvider) GetDNSEntries() ([]poll.DNSEntry, error) {
 		// Get container details
 		container, err := p.client.ContainerInspect(ctx, c.ID)
 		if err != nil {
-			log.Warn("[poll/docker] Failed to inspect container '%s': %v", c.ID[:12], err)
+			log.Warn("%s Failed to inspect container '%s': %v", p.logPrefix, c.ID[:12], err)
 			continue
 		}
 
@@ -644,7 +650,7 @@ func (p *DockerProvider) GetDNSEntries() ([]poll.DNSEntry, error) {
 		result = append(result, entries...)
 	}
 
-	log.Info("[poll/docker] Found %d DNS entries from all containers", len(result))
+	log.Info("%s Found %d DNS entries from all containers", p.logPrefix, len(result))
 
 	return result, nil
 }
@@ -671,7 +677,7 @@ func (p *DockerProvider) GetContainersForDomain(domain string) ([]poll.Container
 		// Get container details
 		container, err := p.client.ContainerInspect(ctx, c.ID)
 		if err != nil {
-			log.Warn("[poll/docker] Failed to inspect container '%s': %v", c.ID[:12], err)
+			log.Warn("%s Failed to inspect container '%s': %v", p.logPrefix, c.ID[:12], err)
 			continue
 		}
 
@@ -700,8 +706,8 @@ func (p *DockerProvider) GetContainersForDomain(domain string) ([]poll.Container
 		}
 	}
 
-	log.Info("[poll/docker] Found %d containers with DNS entries for domain %s",
-		len(result), domain)
+	log.Info("%s Found %d containers with DNS entries for domain %s",
+		p.logPrefix, len(result), domain)
 
 	return result, nil
 }
@@ -722,25 +728,25 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 
 	// Check through nfrastack.dns.host label for the domain
 	if hostLabel, exists := labels["nfrastack.dns.host"]; exists && hostLabel != "" {
-			// Support multiple hostnames separated by comma or space
-			splitFunc := func(r rune) bool {
-				return r == ',' || r == ' ' || r == '\t' || r == '\n'
-			}
-			for _, host := range strings.FieldsFunc(hostLabel, splitFunc) {
-				parts := strings.Split(host, ".")
-				if len(parts) >= 2 {
-					hostDomain := strings.Join(parts[len(parts)-2:], ".")
-					if hostDomain == domain {
-						shouldRegister = true
-						// Extract hostname from host label (everything before domain)
-						hostname := "@"
-						if len(parts) > 2 {
-							hostname = strings.Join(parts[:len(parts)-2], ".")
-						}
-						hostnames = append(hostnames, hostname)
+		// Support multiple hostnames separated by comma or space
+		splitFunc := func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t' || r == '\n'
+		}
+		for _, host := range strings.FieldsFunc(hostLabel, splitFunc) {
+			parts := strings.Split(host, ".")
+			if len(parts) >= 2 {
+				hostDomain := strings.Join(parts[len(parts)-2:], ".")
+				if hostDomain == domain {
+					shouldRegister = true
+					// Extract hostname from host label (everything before domain)
+					hostname := "@"
+					if len(parts) > 2 {
+						hostname = strings.Join(parts[:len(parts)-2], ".")
 					}
+					hostnames = append(hostnames, hostname)
 				}
 			}
+		}
 	}
 
 	// Also check Traefik rules for Host entries
@@ -785,8 +791,8 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 
 	// Skip if we don't have a target
 	if target == "" {
-		log.Warn("[poll/docker] container '%s' has no target for domain %s (no label set)",
-			container.ID[:12], domain)
+		log.Warn("%s container '%s' has no target for domain %s (no label set)",
+			p.logPrefix, container.ID[:12], domain)
 		return entries
 	}
 
@@ -865,7 +871,7 @@ func matchesPattern(subdomain string, patterns []string) bool {
 
 // extractDNSEntriesFromContainer extracts DNS entries from a Docker container
 func (p *DockerProvider) extractDNSEntriesFromContainer(container types.ContainerJSON) []poll.DNSEntry {
-	log.Trace("[poll/docker] domainConfigs map at entry: %v", p.domainConfigs)
+	log.Trace("%s domainConfigs map at entry: %v", p.logPrefix, p.domainConfigs)
 
 	var entries []poll.DNSEntry
 	containerName := getContainerName(container)
@@ -882,18 +888,18 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	if hasDNSLabel {
 		val := strings.ToLower(dnsLabel)
 		if val == "false" || val == "0" {
-			log.Debug("[poll/docker] Skipping container '%s' due to 'nfrastack.dns.enable' label set to false", containerName)
+			log.Debug("%s Skipping container '%s' due to 'nfrastack.dns.enable' label set to false", p.logPrefix, containerName)
 			return entries
 		}
 		if val == "true" || val == "1" {
-			log.Debug("[poll/docker] DNS enabled for container '%s' due to label override", containerName)
+			log.Debug("%s DNS enabled for container '%s' due to label override", p.logPrefix, containerName)
 			// continue processing
 		} else {
-			log.Debug("[poll/docker] Skipping container '%s' due to 'nfrastack.dns.enable' label set to unknown value '%s'", containerName, dnsLabel)
+			log.Debug("%s Skipping container '%s' due to 'nfrastack.dns.enable' label set to unknown value '%s'", p.logPrefix, containerName, dnsLabel)
 			return entries
 		}
 	} else if !p.config.ExposeContainers {
-		log.Debug("[poll/docker] Skipping container '%s' because 'expose_containers=false' and no 'nfrastack.dns.enable' label is set", containerName)
+		log.Debug("%s Skipping container '%s' because 'expose_containers=false' and no 'nfrastack.dns.enable' label is set", p.logPrefix, containerName)
 		return entries
 	}
 
@@ -915,13 +921,13 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 		}
 	}
 	if hostValue == "" {
-		log.Debug("[poll/docker] No hostname/domain found for container '%s', skipping", containerName)
+		log.Debug("%s No hostname/domain found for container '%s', skipping", p.logPrefix, containerName)
 		return entries
 	}
-	log.Debug("[poll/docker] Using label '%s=%s' for hostname/domain extraction on container '%s'", hostSource, hostValue, containerName)
+	log.Debug("%s Using label '%s=%s' for hostname/domain extraction on container '%s'", p.logPrefix, hostSource, hostValue, containerName)
 	parts := strings.Split(hostValue, ".")
 	if len(parts) < 2 {
-		log.Debug("[poll/docker] Host value '%s' is not a valid FQDN for container '%s', skipping", hostValue, containerName)
+		log.Debug("%s Host value '%s' is not a valid FQDN for container '%s', skipping", p.logPrefix, hostValue, containerName)
 		return entries
 	}
 	domain := strings.Join(parts[len(parts)-2:], ".")
@@ -938,12 +944,12 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	}
 	if len(domainCfg.IncludeSubdomains) > 0 {
 		if !matchesPattern(subdomain, domainCfg.IncludeSubdomains) {
-			log.Debug("[poll/docker] Skipping subdomain '%s' for domain '%s' (not in include_subdomains)", subdomain, domain)
+			log.Debug("%s Skipping subdomain '%s' for domain '%s' (not in include_subdomains)", p.logPrefix, subdomain, domain)
 			return entries
 		}
 	} else if len(domainCfg.ExcludeSubdomains) > 0 {
 		if matchesPattern(subdomain, domainCfg.ExcludeSubdomains) {
-			log.Debug("[poll/docker] Skipping subdomain '%s' for domain '%s' (in exclude_subdomains)", subdomain, domain)
+			log.Debug("%s Skipping subdomain '%s' for domain '%s' (in exclude_subdomains)", p.logPrefix, subdomain, domain)
 			return entries
 		}
 	}
@@ -952,24 +958,24 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	recordType := ""
 	if rt, exists := labels["nfrastack.dns.record.type"]; exists && rt != "" {
 		recordType = rt
-		log.Debug("[poll/docker] Found label 'nfrastack.dns.record.type=%s' on container '%s'", rt, containerName)
+		log.Debug("%s Found label 'nfrastack.dns.record.type=%s' on container '%s'", p.logPrefix, rt, containerName)
 	}
 	target := ""
 	if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
 		target = t
-		log.Debug("[poll/docker] Found label 'nfrastack.dns.target=%s' on container '%s'", t, containerName)
+		log.Debug("%s Found label 'nfrastack.dns.target=%s' on container '%s'", p.logPrefix, t, containerName)
 	}
 	ttl := 0
 	if ttlStr, exists := labels["nfrastack.dns.record.ttl"]; exists && ttlStr != "" {
 		if parsed, err := strconv.Atoi(ttlStr); err == nil {
-			log.Debug("[poll/docker] Found label nfrastack.dns.record.ttl=%s on container '%s'", ttlStr, containerName)
+			log.Debug("%s Found label nfrastack.dns.record.ttl=%s on container '%s'", p.logPrefix, ttlStr, containerName)
 			ttl = parsed
 		}
 	}
 	overwrite := false
 	if overwriteStr, exists := labels["nfrastack.dns.record.overwrite"]; exists {
 		if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
-			log.Debug("[poll/docker] Found label 'nfrastack.dns.record.overwrite=%s' on container '%s'", overwriteStr, containerName)
+			log.Debug("%s Found label 'nfrastack.dns.record.overwrite=%s' on container '%s'", p.logPrefix, overwriteStr, containerName)
 			overwrite = true
 		}
 	}
@@ -978,12 +984,12 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	recordTypeAMultiple := false
 	if val, exists := labels["nfrastack.dns.record.type.a.multiple"]; exists && val != "" {
 		recordTypeAMultiple = strings.ToLower(val) == "true" || val == "1"
-		log.Debug("[poll/docker] Found label 'nfrastack.dns.record.type.a.multiple=%s' on container '%s'", val, containerName)
+		log.Debug("%s Found label 'nfrastack.dns.record.type.a.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
 	}
 	recordTypeAAAAMultiple := false
 	if val, exists := labels["nfrastack.dns.record.type.aaaa.multiple"]; exists && val != "" {
 		recordTypeAAAAMultiple = strings.ToLower(val) == "true" || val == "1"
-		log.Debug("[poll/docker] Found label 'nfrastack.dns.record.type.aaaa.multiple=%s' on container '%s'", val, containerName)
+		log.Debug("%s Found label 'nfrastack.dns.record.type.aaaa.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
 	}
 
 	// Domain config fallback
@@ -991,19 +997,19 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 		for _, domainCfg := range p.domainConfigs {
 			if domainCfg.Name == domain {
 				if target == "" && domainCfg.Record.Target != "" {
-					//log.Debug("[poll/docker] Using domain config for '%s': value: 'target=%s'", domain, domainCfg.Record.Target)
+					//log.Debug("%s Using domain config for '%s': value: 'target=%s'", p.logPrefix, domain, domainCfg.Record.Target)
 					target = domainCfg.Record.Target
 				}
 				if recordType == "" && domainCfg.Record.Type != "" {
-					//log.Debug("[poll/docker] Using domain config for '%s': value: 'record_type=%s'", domain, domainCfg.Record.Type)
+					//log.Debug("%s Using domain config for '%s': value: 'record_type=%s'", p.logPrefix, domain, domainCfg.Record.Type)
 					recordType = domainCfg.Record.Type
 				}
 				if ttl == 0 && domainCfg.Record.TTL > 0 {
-					//log.Debug("[poll/docker] Using domain config for '%s': value: 'ttl=%d'", domain, domainCfg.Record.TTL)
+					//log.Debug("%s Using domain config for '%s': value: 'ttl=%d'", p.logPrefix, domain, domainCfg.Record.TTL)
 					ttl = domainCfg.Record.TTL
 				}
 				if !overwrite && domainCfg.Record.UpdateExisting {
-					//log.Debug("[poll/docker] Using domain config for '%s': value: 'record_update_existing=true'", domain)
+					//log.Debug("%s Using domain config for '%s': value: 'record_update_existing=true'", p.logPrefix, domain)
 					overwrite = true
 				}
 				break
@@ -1014,27 +1020,27 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	// Global config fallback (if still unset)
 	if target == "" && p.options != nil {
 		if globalTarget, ok := p.options["dns_record_target"]; ok && globalTarget != "" {
-			log.Debug("[poll/docker] Using global config for '%s': value: 'target=%s'", domain, globalTarget)
+			log.Debug("%s Using global config for '%s': value: 'target=%s'", p.logPrefix, domain, globalTarget)
 			target = globalTarget
 		}
 	}
 	if recordType == "" && p.options != nil {
 		if globalType, ok := p.options["dns_record_type"]; ok && globalType != "" {
-			log.Debug("[poll/docker] Using global config for '%s': value: 'dns_record_type %s'", domain, globalType)
+			log.Debug("%s Using global config for '%s': value: 'dns_record_type %s'", p.logPrefix, domain, globalType)
 			recordType = globalType
 		}
 	}
 	if ttl == 0 && p.options != nil {
 		if globalTTL, ok := p.options["dns_record_ttl"]; ok && globalTTL != "" {
 			if parsed, err := strconv.Atoi(globalTTL); err == nil {
-				log.Debug("[poll/docker] Using global config for '%s': value: 'dns_record_ttl=%d'", domain, parsed)
+				log.Debug("%s Using global config for '%s': value: 'dns_record_ttl=%d'", p.logPrefix, domain, parsed)
 				ttl = parsed
 			}
 		}
 	}
 	if !overwrite && p.options != nil {
 		if globalOverwrite, ok := p.options["record_updating_existing"]; ok && (globalOverwrite == "true" || globalOverwrite == "1") {
-			log.Debug("[poll/docker] Using global config for '%s': value: 'record_update_existing=true'", domain)
+			log.Debug("%s Using global config for '%s': value: 'record_update_existing=true'", p.logPrefix, domain)
 			overwrite = true
 		}
 	}
@@ -1058,19 +1064,19 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	// Validate target for A and AAAA records
 	if recordType == "A" && target != "" {
 		if ip := net.ParseIP(target); ip == nil || ip.To4() == nil {
-			log.Error("[poll/docker] Invalid target for A record: '%s' is not an IPv4 address. Skipping DNS entry '%s.%s'", target, hostname, domain)
+			log.Error("%s Invalid target for A record: '%s' is not an IPv4 address. Skipping DNS entry '%s.%s'", p.logPrefix, target, hostname, domain)
 			return entries
 		}
 	}
 	if recordType == "AAAA" && target != "" {
 		if ip := net.ParseIP(target); ip == nil || ip.To16() == nil || ip.To4() != nil {
-			log.Error("[poll/docker] Invalid target for AAAA record: '%s' is not an IPv6 address. Skipping DNS entry '%s.%s'", target, hostname, domain)
+			log.Error("%s Invalid target for AAAA record: '%s' is not an IPv6 address. Skipping DNS entry '%s.%s'", p.logPrefix, target, hostname, domain)
 			return entries
 		}
 	}
 
 	if target == "" {
-		log.Warn("[poll/docker] container '%s' has no target for domain '%s' (no label, domain, or global config set)", containerName, domain)
+		log.Warn("%s container '%s' has no target for domain '%s' (no label, domain, or global config set)", p.logPrefix, containerName, domain)
 		return entries
 	}
 
@@ -1106,7 +1112,7 @@ func (p *DockerProvider) extractDNSEntriesFromService(service swarm.Service) ([]
 			dnsEnabled = true
 		} else if explicitValue == "false" || explicitValue == "0" {
 			dnsEnabled = false
-			log.Debug("[poll/docker] Service '%s' has 'nfrastack.dns.enable=false' label, skipping", serviceName)
+			log.Debug("%s Service '%s' has 'nfrastack.dns.enable=false' label, skipping", p.logPrefix, serviceName)
 			return entries, nil // Return empty entries list
 		}
 	}

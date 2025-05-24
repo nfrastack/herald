@@ -1,9 +1,14 @@
+// SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
 package common
 
 import (
 	"dns-companion/pkg/config"
 	"dns-companion/pkg/log"
 
+	"regexp"
 	"strings"
 )
 
@@ -33,4 +38,25 @@ func ExtractDomainAndSubdomain(fqdn string, logPrefix string) (string, string) {
 // NormalizeDomainKey replaces dots with underscores for config key matching
 func NormalizeDomainKey(domain string) string {
 	return strings.ReplaceAll(domain, ".", "_")
+}
+
+// ExtractHostsFromRule extracts all hostnames from a rule string (used by Docker, Traefik, etc.)
+func ExtractHostsFromRule(rule string) []string {
+	var hostnames []string
+	// Regex to match Host(`...`), Host('...'), or Host("...")
+	re := regexp.MustCompile(`Host\(\s*['"` + "`" + `](.*?)['"` + "`" + `]\s*\)`)
+	matches := re.FindAllStringSubmatch(rule, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			hosts := strings.Split(match[1], ",")
+			for _, h := range hosts {
+				h = strings.TrimSpace(h)
+				h = strings.Trim(h, "'\"` ")
+				if h != "" {
+					hostnames = append(hostnames, h)
+				}
+			}
+		}
+	}
+	return hostnames
 }
