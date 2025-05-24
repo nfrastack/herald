@@ -76,8 +76,13 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 
 	recordType := providerOptions["type"]
 	target := providerOptions["target"]
+	// Only override target if state.Service is a valid FQDN or IP
 	if state.Service != "" {
-		target = state.Service
+		if ip := net.ParseIP(state.Service); ip != nil {
+			target = state.Service
+		} else if strings.Contains(state.Service, ".") {
+			target = state.Service
+		}
 	}
 	// Smart record type detection if not explicitly set
 	if recordType == "" {
