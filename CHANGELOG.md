@@ -1,6 +1,9 @@
 ## feat-poll_file (wip)
 
    ### Added
+     - (poll) Added File provider to read YAML/JSON from filesystem
+     - (poll/file) Customizable interval to poll for changes or ondemand/fsnotify
+     -
 
 ## 1.0.0 2025-05-23 <code at nfrastack dot com>
 

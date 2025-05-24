@@ -35,6 +35,14 @@
           process_existing = true;
           record_remove_on_stop = true;
         };
+        filepoller01 = {
+          type = "file";
+          source = "/var/lib/dns-companion/records.yaml";
+          format = "yaml";
+          interval = "-1"; # watch mode (default)
+          record_remove_on_stop = true;
+          process_existing = true;
+        };
       };
       providers = {
         dnsprovider01 = {
