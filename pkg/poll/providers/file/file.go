@@ -9,7 +9,7 @@ import (
 	"dns-companion/pkg/domain"
 	"dns-companion/pkg/log"
 	"dns-companion/pkg/poll"
-	"dns-companion/pkg/poll/providers/common"
+	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
 
 	"context"
 	"fmt"
@@ -39,18 +39,18 @@ type FileProvider struct {
 }
 
 func NewProvider(options map[string]string) (poll.Provider, error) {
-	parsed := common.ParsePollProviderOptions(options, common.PollProviderOptions{
+	parsed := pollCommon.ParsePollProviderOptions(options, pollCommon.PollProviderOptions{
 		Interval:           60 * time.Second,
 		ProcessExisting:    false,
 		RecordRemoveOnStop: false,
 		Name:               "file",
 	})
-	source := options["source"]
+	source := pollCommon.GetOptionOrEnv(options, "source", "FILE_SOURCE", "")
 	if source == "" {
 		log.Error("[poll/file] source option (file path) is required")
 		return nil, fmt.Errorf("[poll/file] source option (file path) is required")
 	}
-	format := options["format"]
+	format := pollCommon.GetOptionOrEnv(options, "format", "FILE_FORMAT", "")
 	if format == "" {
 		ext := strings.ToLower(filepath.Ext(source))
 		if ext == ".yaml" || ext == ".yml" {
@@ -81,10 +81,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	logPrefix := "[poll/file]"
-	if parsed.Name != "" && parsed.Name != "file" {
-		logPrefix = "[poll/file/" + parsed.Name + "]"
-	}
+	logPrefix := pollCommon.BuildLogPrefix("file", parsed.Name)
 	if watchMode {
 		log.Info("%s Initializing file provider: source=%s, format=%s, watchMode=%v", logPrefix, source, format, watchMode)
 	} else {
@@ -226,7 +223,7 @@ func (p *FileProvider) processFile() {
 			log.Trace("%s New or changed record detected: fqdn='%s', type='%s'", p.logPrefix, fqdnNoDot, recordType)
 
 			// Extract domain and subdomain like Docker/Traefik
-			domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
+			domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
 			log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", p.logPrefix, domainKey, subdomain, fqdnNoDot)
 			if domainKey == "" {
 				log.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
@@ -259,7 +256,7 @@ func (p *FileProvider) processFile() {
 				recordType := old.GetRecordType()
 				log.Info("%s Record removed: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
 				log.Trace("%s Record removed from file: fqdn='%s', type='%s'", p.logPrefix, fqdnNoDot, recordType)
-				domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
+				domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
 				log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", p.logPrefix, domainKey, subdomain, fqdnNoDot)
 				if domainKey == "" {
 					log.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
@@ -306,17 +303,17 @@ func (p *FileProvider) readFile() ([]poll.DNSEntry, error) {
 		log.Error("%s Error reading file: %v", p.logPrefix, err)
 		return nil, err
 	}
-	var records []common.FileRecord
+	var records []pollCommon.FileRecord
 	if p.format == "yaml" {
 		log.Trace("%s Parsing YAML file", p.logPrefix)
-		records, err = common.ParseRecordsYAML(data)
+		records, err = pollCommon.ParseRecordsYAML(data)
 		if err != nil {
 			log.Error("%s YAML unmarshal error: %v", p.logPrefix, err)
 			return nil, err
 		}
 	} else if p.format == "json" {
 		log.Trace("%s Parsing JSON file", p.logPrefix)
-		records, err = common.ParseRecordsJSON(data)
+		records, err = pollCommon.ParseRecordsJSON(data)
 		if err != nil {
 			log.Error("%s JSON unmarshal error: %v", p.logPrefix, err)
 			return nil, err
@@ -329,7 +326,7 @@ func (p *FileProvider) readFile() ([]poll.DNSEntry, error) {
 	if providerName == "" {
 		providerName = "file_profile"
 	}
-	entries := common.ConvertRecordsToDNSEntries(records, providerName)
+	entries := pollCommon.ConvertRecordsToDNSEntries(records, providerName)
 	log.Trace("%s Returning %d DNS entries from file", p.logPrefix, len(entries))
 	return entries, nil
 }

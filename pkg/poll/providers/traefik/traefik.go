@@ -5,66 +5,68 @@
 package traefik
 
 import (
-	"dns-companion/pkg/log"
-	"dns-companion/pkg/poll"
-	"dns-companion/pkg/poll/providers/traefik/filter"
-	"dns-companion/pkg/utils"
 	"dns-companion/pkg/dns"
 	"dns-companion/pkg/domain"
+	"dns-companion/pkg/log"
+	"dns-companion/pkg/poll"
+	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
+	"dns-companion/pkg/poll/providers/traefik/filter"
+	"dns-companion/pkg/utils"
 
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"net/url"
-	"os"
 	"regexp"
-	"strconv"
+
+	//"strconv"
 	"strings"
 	"time"
 )
 
 // Enhanced regex to support Host(), HostSNI(), HostRegexp(), and multiple hosts
 var (
-	hostRuleRegex      = regexp.MustCompile(`Host\(([^)]*)\)`)
-	hostSniRuleRegex   = regexp.MustCompile(`HostSNI\(([^)]*)\)`)
+	hostRuleRegex       = regexp.MustCompile(`Host\(([^)]*)\)`)
+	hostSniRuleRegex    = regexp.MustCompile(`HostSNI\(([^)]*)\)`)
 	hostRegexpRuleRegex = regexp.MustCompile(`HostRegexp\(([^)]*)\)`)
 )
 
 // TraefikProvider is a poll provider that monitors Traefik routers
 type TraefikProvider struct {
-	apiURL            string
-	pollInterval       time.Duration
-	running            bool
-	ctx                context.Context
-	cancel             context.CancelFunc
-	callback           func(hostnames []string) error
-	options            map[string]string
-	processExisting    bool
-	recordRemoveOnStop bool
-	routerCache        map[string]domain.RouterState
-	ticker             *time.Ticker
-	authUser           string
-	authPass           string
-	profileName        string // Store profile name for logs
-	logPrefix          string // Store log prefix for consistent logging
+	apiURL       string
+	pollInterval time.Duration
+	running      bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	callback     func(hostnames []string) error
+	options      map[string]string
+	routerCache  map[string]domain.RouterState
+	ticker       *time.Ticker
+	authUser     string
+	authPass     string
+	profileName  string // Store profile name for logs
+	logPrefix    string // Store log prefix for consistent logging
 
 	// Filters
-	filterConfig filter.FilterConfig
+	filterConfig pollCommon.FilterConfig
 
 	initialPollDone bool // Track if initial poll is complete
+
+	opts pollCommon.PollProviderOptions // Add parsed options struct
 }
 
 // NewProvider creates a new Traefik poll provider
 func NewProvider(options map[string]string) (poll.Provider, error) {
+	parsed := pollCommon.ParsePollProviderOptions(options, pollCommon.PollProviderOptions{
+		Interval:           30 * time.Second,
+		ProcessExisting:    false,
+		RecordRemoveOnStop: false,
+		Name:               "traefik",
+	})
+	profileName := pollCommon.GetOptionOrEnv(options, "name", "TRAEFIK_PROFILE_NAME", parsed.Name)
+	logPrefix := pollCommon.BuildLogPrefix("traefik", profileName)
+
 	// Trace all options keys at the start to help troubleshoot
 	log.Trace("[poll/traefik] Provider options received: %+v", options)
-
-	// Always use utils.GetProfileNameFromOptions for profile name resolution
-	profileName := utils.GetProfileNameFromOptions(options, "default")
-	logPrefix := fmt.Sprintf("[poll/traefik/%s]", profileName)
 
 	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
 
@@ -89,33 +91,12 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 
 	// Get api URL from options
-	apiURL := options["api_url"]
-	if apiURL == "" {
-		apiURL = "http://localhost:8080/api/http/routers"
-		log.Debug("%s No URL specified, using default: %s", logPrefix, apiURL)
-	} else {
-		log.Debug("%s Using configured URL: %s", logPrefix, apiURL)
-	}
+	apiURL := pollCommon.GetOptionOrEnv(options, "api_url", "TRAEFIK_API_URL", "http://localhost:8080/api/http/routers")
+	log.Debug("%s Using configured URL: %s", logPrefix, apiURL)
+
 	// Get basic auth credentials if provided
-	authUser := options["api_auth_user"]
-	authPass := options["api_auth_pass"]
-
-	// Try to get credentials from environment variables as fallback
-	if authUser == "" {
-		envUser := os.Getenv("TRAEFIK_API_AUTH_USER")
-		if envUser != "" {
-			authUser = envUser
-			log.Debug("%s Using basic auth user from environment variable", logPrefix)
-		}
-	}
-
-	if authPass == "" {
-		envPass := os.Getenv("TRAEFIK_API_AUTH_PASS")
-		if envPass != "" {
-			authPass = envPass
-			log.Debug("%s Using basic auth password from environment variable", logPrefix)
-		}
-	}
+	authUser := pollCommon.GetOptionOrEnv(options, "api_auth_user", "TRAEFIK_API_AUTH_USER", "")
+	authPass := pollCommon.GetOptionOrEnv(options, "api_auth_pass", "TRAEFIK_API_AUTH_PASS", "")
 
 	// Log whether auth credentials were found
 	if authUser != "" {
@@ -129,63 +110,18 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		log.Debug("%s No basic auth user found in options or environment. Available keys: %v", logPrefix, utils.GetMapKeys(options))
 	}
 
-	// Get poll interval from options
-	pollInterval := 60 * time.Second
-	if interval := options["interval"]; interval != "" {
-		parsed, err := time.ParseDuration(interval)
-		if err == nil {
-			pollInterval = parsed
-		} else if i, err := strconv.Atoi(interval); err == nil {
-			pollInterval = time.Duration(i) * time.Second
-		}
-	} else if interval := options["poll_interval"]; interval != "" {
-		// Backward compatibility
-		parsed, err := time.ParseDuration(interval)
-		if err == nil {
-			pollInterval = parsed
-		} else if i, err := strconv.Atoi(interval); err == nil {
-			pollInterval = time.Duration(i) * time.Second
-		}
-	}
-
-	processExisting := false
-	if val, ok := options["process_existing"]; ok {
-		processExisting = strings.ToLower(val) == "true" || val == "1"
-	}
-	recordRemoveOnStop := false
-	if val, ok := options["record_remove_on_stop"]; ok {
-		recordRemoveOnStop = strings.ToLower(val) == "true" || val == "1"
-	}
-
-	// Support environment variables for process_existing and record_remove_on_stop
-	// POLL_<PROFILENAME>_PROCESS_EXISTING and POLL_<PROFILENAME>_RECORD_REMOVE_ON_STOP
-	if !processExisting {
-		envKey := fmt.Sprintf("POLL_%s_PROCESS_EXISTING", strings.ToUpper(profileName))
-		if envVal := os.Getenv(envKey); envVal != "" {
-			processExisting = strings.ToLower(envVal) == "true" || envVal == "1"
-			log.Debug("%s Using process_existing from environment variable %s: %v", logPrefix, envKey, processExisting)
-		}
-	}
-	if !recordRemoveOnStop {
-		envKey := fmt.Sprintf("POLL_%s_RECORD_REMOVE_ON_STOP", strings.ToUpper(profileName))
-		if envVal := os.Getenv(envKey); envVal != "" {
-			recordRemoveOnStop = strings.ToLower(envVal) == "true" || envVal == "1"
-			log.Debug("%s Using record_remove_on_stop from environment variable %s: %v", logPrefix, envKey, recordRemoveOnStop)
-		}
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	log.Trace("%s Created context with cancel function", logPrefix)
 
 	// Set up filters from options (no FixTraefikFilterConfig)
-	filterConfig, err := filter.NewFilterFromOptions(options)
+	filterConfig, err := pollCommon.NewFilterFromOptions(options)
 	if err != nil {
 		log.Error("%s Error setting up filters: %v", logPrefix, err)
 		return nil, fmt.Errorf("[poll/traefik] filter setup error: %w", err)
 	}
 
 	// Check if we have active filters (not just "none" filter)
-	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == filter.FilterTypeNone)
+	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == pollCommon.FilterTypeNone)
 
 	if hasActiveFilters {
 		log.Debug("%s Filter configuration: %d active filters", logPrefix, len(filterConfig.Filters))
@@ -198,21 +134,20 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 
 	provider := &TraefikProvider{
-		apiURL:            apiURL,
-		pollInterval:       pollInterval,
-		running:            false,
-		ctx:                ctx,
-		cancel:             cancel,
-		options:            options,
-		processExisting:    processExisting,
-		recordRemoveOnStop: recordRemoveOnStop,
-		routerCache:        make(map[string]domain.RouterState),
-		authUser:           authUser,
-		authPass:           authPass,
-		profileName:        profileName,
-		logPrefix:          logPrefix,
-		filterConfig:       filterConfig,
-		initialPollDone:    false,
+		apiURL:          apiURL,
+		pollInterval:    parsed.Interval,
+		running:         false,
+		ctx:             ctx,
+		cancel:          cancel,
+		options:         options,
+		routerCache:     make(map[string]domain.RouterState),
+		authUser:        authUser,
+		authPass:        authPass,
+		profileName:     profileName,
+		logPrefix:       logPrefix,
+		filterConfig:    filterConfig,
+		initialPollDone: false,
+		opts:            parsed, // Store parsed options
 	}
 
 	log.Info("%s Successfully created new Traefik provider", logPrefix)
@@ -323,74 +258,11 @@ func (t *TraefikProvider) pollLoop() {
 func (t *TraefikProvider) processTraefikRouters() error {
 	log.Debug("%s Processing Traefik routers from API", t.logPrefix)
 
-	// Create HTTP request
-	log.Trace("%s Creating HTTP request to %s", t.logPrefix, t.apiURL)
-	req, err := http.NewRequestWithContext(t.ctx, "GET", t.apiURL, nil)
+	// Fetch data from Traefik API using pollCommon.FetchRemoteResource
+	body, err := t.fetchTraefikAPI(t.apiURL, t.authUser, t.authPass, t.logPrefix)
 	if err != nil {
-		log.Error("%s Failed to create HTTP request: %v", t.logPrefix, err)
-		return fmt.Errorf("[poll/traefik] failed to create request: %w", err)
-	}
-
-	// Add basic auth if credentials are provided
-	if t.authUser != "" {
-		log.Trace("%s Adding basic auth credentials to request for user: %s", t.logPrefix, t.authUser)
-		req.SetBasicAuth(t.authUser, t.authPass)
-	} else {
-		log.Trace("%s No basic auth credentials configured", t.logPrefix)
-	}
-
-	// Send request
-	log.Trace("%s Sending HTTP request to %s", t.logPrefix, t.apiURL) // Increased log level to DEBUG for visibility
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSHandshakeTimeout: 5 * time.Second,
-		},
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		// Check for common DNS or connection errors
-		if dnsErr, ok := err.(*net.DNSError); ok && dnsErr.IsNotFound {
-			log.Error("%s Cannot reach Traefik API: Hostname '%s' does not exist or cannot be resolved. Please ensure that appropriate DNS records are in place and the host is accessible, or check your api_url configuration.", t.logPrefix, t.apiURL)
-		} else if urlErr, ok := err.(*url.Error); ok {
-			// Look for DNS errors inside URL errors or check error message
-			if dnsErr, ok := urlErr.Err.(*net.DNSError); ok && dnsErr.IsNotFound {
-				log.Error("%s Cannot reach Traefik API: Hostname '%s' does not exist or cannot be resolved. Please ensure that appropriate DNS records are in place and the host is accessible, or check your api_url configuration.", t.logPrefix, t.apiURL)
-			} else if urlErr.Error() != "" && (urlErr.Unwrap() != nil && urlErr.Unwrap().Error() != "") && (strings.Contains(urlErr.Error(), "no such host") || strings.Contains(urlErr.Unwrap().Error(), "no such host")) {
-				log.Error("%s Cannot reach Traefik API: Hostname '%s' does not exist or cannot be resolved. Please ensure that appropriate DNS records are in place and the host is accessible, or check your api_url configuration.", t.logPrefix, t.apiURL)
-			} else {
-				log.Error("%s Cannot connect to Traefik API at %s: %v. Please verify the URL and that Traefik is running.", t.logPrefix, t.apiURL, urlErr.Err)
-			}
-		} else {
-			log.Error("%s Failed to connect to %s: %v", t.logPrefix, t.apiURL, err)
-		}
-		return fmt.Errorf("[poll/traefik] connection error: %w", err)
-	}
-	log.Debug("%s Received HTTP response from %s with status code: %d", t.logPrefix, t.apiURL, resp.StatusCode)
-	defer resp.Body.Close()
-	//log.Trace("%s Received HTTP response with status code: %d", t.logPrefix, resp.StatusCode)
-
-	// Read response
-	// log.Trace("%s Reading response body", t.logPrefix)
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error("%s Failed to read response body: %v", t.logPrefix, err)
-		return fmt.Errorf("[poll/traefik] failed to read response: %w", err)
-	}
-	// log.Trace("%s Response body size: %d bytes", t.logPrefix, len(body))
-
-	// Always log the response body for debugging purposes
-	// bodyStr := string(body)
-	// log.Trace("%s Response body: %s", t.logPrefix, bodyStr)
-
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusUnauthorized {
-			log.Error("%s Authentication failed (401 Unauthorized). Please configure basic auth with 'api_auth_user' and 'api_auth_pass' options", t.logPrefix)
-			return fmt.Errorf("[poll/traefik] authentication failed: configure basic auth with api_auth_user and api_auth_pass options")
-		}
-		log.Error("%s Unexpected HTTP status code: %d", t.logPrefix, resp.StatusCode)
-		return fmt.Errorf("[poll/traefik] unexpected status code: %d", resp.StatusCode)
+		log.Error("%s Failed to fetch data from Traefik API: %v", t.logPrefix, err)
+		return fmt.Errorf("[poll/traefik] failed to fetch data: %w", err)
 	}
 
 	// Parse JSON response
@@ -422,7 +294,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 	filteredRouters := make([]map[string]interface{}, 0, len(routersArray))
 	initialLog := !t.initialPollDone
 	for _, router := range routersArray {
-		shouldProcess, _ := t.filterConfig.ShouldProcessRouter(router)
+		shouldProcess, _ := filter.ShouldProcessRouter(t.filterConfig, router)
 		routerName := ""
 		if name, ok := router["name"].(string); ok {
 			routerName = name
@@ -578,6 +450,11 @@ func (t *TraefikProvider) processTraefikRouters() error {
 	return nil
 }
 
+// fetchTraefikAPI fetches data from the Traefik API using pollCommon.FetchRemoteResource
+func (p *TraefikProvider) fetchTraefikAPI(url, user, pass, logPrefix string) ([]byte, error) {
+	return pollCommon.FetchRemoteResource(url, user, pass, logPrefix)
+}
+
 // routerStatesEqual compares two RouterState structs for equality
 func routerStatesEqual(a, b domain.RouterState) bool {
 	if a.Name != b.Name || a.Rule != b.Rule || a.Service != b.Service {
@@ -604,8 +481,8 @@ func (p *TraefikProvider) pollRouters() error {
 		currentMap[r.Name] = r
 	}
 
-	// On first run, if processExisting is true, just populate cache
-	if len(p.routerCache) == 0 && p.processExisting {
+	// On first run, if opts.ProcessExisting is true, just populate cache
+	if len(p.routerCache) == 0 && p.opts.ProcessExisting {
 		for k, v := range currentMap {
 			p.routerCache[k] = v
 		}
@@ -631,7 +508,7 @@ func (p *TraefikProvider) pollRouters() error {
 	for name := range p.routerCache {
 		if _, exists := currentMap[name]; !exists {
 			log.Info("[poll/traefik] Router removed: %s", name)
-			if p.recordRemoveOnStop {
+			if p.opts.RecordRemoveOnStop {
 				p.processRouterRemove(p.routerCache[name])
 			}
 		}
@@ -687,7 +564,7 @@ func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
 		if state.Name == "" {
 			state.Name = fqdn
 		}
-		if t.recordRemoveOnStop {
+		if t.opts.RecordRemoveOnStop {
 			err := domain.EnsureDNSRemoveForRouterState(getDomainFromHostname(fqdn), fqdn, state)
 			if err != nil {
 				log.Error("%s Failed to remove DNS for '%s': %v", t.logPrefix, fqdn, err)

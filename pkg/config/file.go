@@ -218,7 +218,7 @@ func getIncludePath(basePath, incFile string) string {
 	return dir + "/" + incFile
 }
 
-// FindConfigFile searches for the config file in the current directory and common variants
+// FindConfigFile searches for the config file in the current directory and pollCommonvariants
 func FindConfigFile(requested string) (string, error) {
 	candidates := []string{}
 	if requested != "" {

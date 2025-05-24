@@ -10,7 +10,7 @@ import (
 	"dns-companion/pkg/domain"
 	"dns-companion/pkg/log"
 	"dns-companion/pkg/poll"
-	"dns-companion/pkg/poll/providers/docker/filter"
+	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
 	"dns-companion/pkg/utils"
 
 	"context"
@@ -37,7 +37,7 @@ type DockerProvider struct {
 	dnsProvider        dns.Provider
 	domainConfigs      map[string]config.DomainConfig
 	exposeContainers   bool
-	filterConfig       filter.FilterConfig
+	filterConfig       pollCommon.FilterConfig
 	lastContainerIDs   map[string]bool
 	logPrefix          string
 	options            map[string]string
@@ -45,6 +45,7 @@ type DockerProvider struct {
 	recordRemoveOnStop bool
 	running            bool
 	swarmMode          bool
+	opts               pollCommon.PollProviderOptions
 }
 
 // Config defines configuration for the Docker provider
@@ -88,23 +89,28 @@ func (c *DockerContainerInfo) GetTarget() string {
 
 // extractHostsFromRule extracts all hostnames from a Traefik rule string
 func extractHostsFromRule(rule string) []string {
-    hosts := []string{}
-    // Regex to match Host(`...`), Host('...'), or Host("...")
-    re := regexp.MustCompile(`Host\(\s*['"` + "`" + `](.*?)['"` + "`" + `]\s*\)`)
-    matches := re.FindAllStringSubmatch(rule, -1)
-    for _, match := range matches {
-        if len(match) > 1 {
-            hosts = append(hosts, match[1])
-        }
-    }
-    return hosts
+	hosts := []string{}
+	// Regex to match Host(`...`), Host('...'), or Host("...")
+	re := regexp.MustCompile(`Host\(\s*['"` + "`" + `](.*?)['"` + "`" + `]\s*\)`)
+	matches := re.FindAllStringSubmatch(rule, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			hosts = append(hosts, match[1])
+		}
+	}
+	return hosts
 }
 
 // NewProvider creates a new Docker poll provider
 func NewProvider(options map[string]string) (poll.Provider, error) {
-	// Always use utils.GetProfileNameFromOptions for profile name resolution
-	profileName := utils.GetProfileNameFromOptions(options, "default")
-	logPrefix := fmt.Sprintf("[poll/docker/%s]", profileName)
+	parsed := pollCommon.ParsePollProviderOptions(options, pollCommon.PollProviderOptions{
+		Interval:           30 * time.Second,
+		ProcessExisting:    false,
+		RecordRemoveOnStop: false,
+		Name:               "docker",
+	})
+	profileName := pollCommon.GetOptionOrEnv(options, "name", "DOCKER_PROFILE_NAME", parsed.Name)
+	logPrefix := pollCommon.BuildLogPrefix("docker", profileName)
 
 	// Log resolved profile name at trace level only
 	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
@@ -113,10 +119,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	clientOpts := []client.Opt{client.FromEnv}
 
 	// Only use api_url and API_URL env var for Docker API endpoint
-	apiURL := options["api_url"]
-	if apiURL == "" {
-		apiURL = utils.GetEnvDefault("API_URL", "unix:///var/run/docker.sock")
-	}
+	apiURL := pollCommon.GetOptionOrEnv(options, "api_url", "API_URL", "unix:///var/run/docker.sock")
 	if apiURL != "" {
 		log.Debug("%s Using Docker API URL: %s", logPrefix, apiURL)
 		clientOpts = append(clientOpts, client.WithHost(apiURL))
@@ -146,14 +149,8 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 
 	// Parse API auth options
-	apiAuthUser := options["api_auth_user"]
-	apiAuthPass := options["api_auth_pass"]
-	if apiAuthUser == "" {
-		apiAuthUser = utils.GetEnvDefault("DOCKER_API_AUTH_USER", "")
-	}
-	if apiAuthPass == "" {
-		apiAuthPass = utils.GetEnvDefault("DOCKER_API_AUTH_PASS", "")
-	}
+	apiAuthUser := pollCommon.GetOptionOrEnv(options, "api_auth_user", "DOCKER_API_AUTH_USER", "")
+	apiAuthPass := pollCommon.GetOptionOrEnv(options, "api_auth_pass", "DOCKER_API_AUTH_PASS", "")
 	if apiAuthUser != "" {
 		log.Debug("%s Using Docker API basic auth user: %s", logPrefix, apiAuthUser)
 		if apiAuthPass != "" {
@@ -179,6 +176,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		logPrefix:        logPrefix,
 		apiAuthUser:      apiAuthUser,
 		apiAuthPass:      apiAuthPass,
+		opts:             parsed,
 	}
 
 	// Parse configuration
@@ -189,7 +187,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	config.APIAuthUser = apiAuthUser
 	config.APIURL = apiURL
 	config.ExposeContainers = false
-	config.ProcessExisting = false
+	config.ProcessExisting = parsed.ProcessExisting
 	config.SwarmMode = false
 
 	// Log all available options for debugging
@@ -231,10 +229,10 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 
 	// Create filter configuration
-	filterConfig, err := filter.NewFilterFromOptions(options)
+	filterConfig, err := pollCommon.NewFilterFromOptions(options)
 	if err != nil {
 		log.Info("%s Error creating filter configuration: %v, using default", logPrefix, err)
-		filterConfig = filter.DefaultFilterConfig()
+		filterConfig = pollCommon.DefaultFilterConfig()
 	}
 
 	// Store the config and filter config in the provider
@@ -242,9 +240,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	provider.filterConfig = filterConfig
 
 	// Parse record_remove_on_stop option
-	if val, exists := options["record_remove_on_stop"]; exists {
-		provider.recordRemoveOnStop = strings.ToLower(val) == "true" || val == "1"
-	}
+	provider.recordRemoveOnStop = parsed.RecordRemoveOnStop
 
 	// Log the actual filterConfig.Filters slice for diagnosis
 	log.Debug("%s Filter Configuration: %+v", logPrefix, filterConfig.Filters)
@@ -488,6 +484,16 @@ func (p *DockerProvider) processRunningServices(ctx context.Context) {
 	}
 }
 
+// matchDockerFilter is a provider-specific match function for Docker filters
+func matchDockerFilter(filter pollCommon.Filter, entry any) bool {
+	container, ok := entry.(types.ContainerJSON)
+	if !ok {
+		return false
+	}
+	// Implement match logic for Docker filters
+	return strings.Contains(container.Name, filter.Value)
+}
+
 // shouldProcessContainer determines if the container should be processed based on labels and configuration
 func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) bool {
 	// Ensure container name doesn't have slash prefix
@@ -497,7 +503,7 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 	}
 
 	// First, check if the container passes our filter configuration
-	if !p.filterConfig.ShouldProcessContainer(container) {
+	if !p.filterConfig.Evaluate(container, matchDockerFilter) {
 		log.Debug("%s Skipping container '%s' because it does not match filter criteria", p.logPrefix, containerName)
 		return false
 	}
@@ -722,25 +728,25 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 
 	// Check through nfrastack.dns.host label for the domain
 	if hostLabel, exists := labels["nfrastack.dns.host"]; exists && hostLabel != "" {
-			// Support multiple hostnames separated by comma or space
-			splitFunc := func(r rune) bool {
-				return r == ',' || r == ' ' || r == '\t' || r == '\n'
-			}
-			for _, host := range strings.FieldsFunc(hostLabel, splitFunc) {
-				parts := strings.Split(host, ".")
-				if len(parts) >= 2 {
-					hostDomain := strings.Join(parts[len(parts)-2:], ".")
-					if hostDomain == domain {
-						shouldRegister = true
-						// Extract hostname from host label (everything before domain)
-						hostname := "@"
-						if len(parts) > 2 {
-							hostname = strings.Join(parts[:len(parts)-2], ".")
-						}
-						hostnames = append(hostnames, hostname)
+		// Support multiple hostnames separated by comma or space
+		splitFunc := func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t' || r == '\n'
+		}
+		for _, host := range strings.FieldsFunc(hostLabel, splitFunc) {
+			parts := strings.Split(host, ".")
+			if len(parts) >= 2 {
+				hostDomain := strings.Join(parts[len(parts)-2:], ".")
+				if hostDomain == domain {
+					shouldRegister = true
+					// Extract hostname from host label (everything before domain)
+					hostname := "@"
+					if len(parts) > 2 {
+						hostname = strings.Join(parts[:len(parts)-2], ".")
 					}
+					hostnames = append(hostnames, hostname)
 				}
 			}
+		}
 	}
 
 	// Also check Traefik rules for Host entries
