@@ -1,13 +1,14 @@
-## feat-refactor_poll_providers (wip)
+## feat-logging (wip)
 
    ### Added
+     - Add log_level VERBOSE sitting in the middle of debug and info. This is the new default if not explicit in config.
      - (poll) Added File provider to read YAML/JSON from filesystem
      - (poll/file) Customizable interval to poll for changes or ondemand/fsnotify
      - (poll) Added Remote provider to read YAML/JSON from a HTTP/HTTPS source with basic authentication supported
 
    ### Changed
      - Created pollCommonfunctions for poll providers (http, records management, options, processing of parsed,received data, filter logic for easier implementation of future pollers)
-     -
+     - Many log entries from DEBUG -> VERBOSE
 
 ## 1.0.0 2025-05-23 <code at nfrastack dot com>
 

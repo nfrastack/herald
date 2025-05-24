@@ -18,13 +18,13 @@ import (
 )
 
 // Log levels
-// TODO: Probably need a verbose in the middle of INFO and DEBUG
 const (
-	LevelTrace = "trace"
-	LevelDebug = "debug"
-	LevelInfo  = "info"
-	LevelWarn  = "warn"
-	LevelError = "error"
+	LevelTrace   = "trace"
+	LevelDebug   = "debug"
+	LevelVerbose = "verbose"
+	LevelInfo    = "info"
+	LevelWarn    = "warn"
+	LevelError   = "error"
 )
 
 // Logger provides logging functionality for the application
@@ -42,7 +42,6 @@ var (
 	defaultLogger *Logger
 	once          sync.Once
 )
-
 
 // Initialize creates the default logger with the specified level and timestamp visibility
 func Initialize(level string, showTimestamps bool) {
@@ -117,6 +116,8 @@ func (l *Logger) SetLevel(level string) {
 		l.level = LevelTrace
 	case LevelDebug:
 		l.level = LevelDebug
+	case LevelVerbose:
+		l.level = LevelVerbose
 	case LevelInfo:
 		l.level = LevelInfo
 	case LevelWarn:
@@ -124,7 +125,7 @@ func (l *Logger) SetLevel(level string) {
 	case LevelError:
 		l.level = LevelError
 	default:
-		l.level = LevelInfo
+		l.level = LevelVerbose // default to verbose
 	}
 }
 
@@ -156,9 +157,23 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 	}
 }
 
+// Verbose logs a verbose message with optional formatting
+func (l *Logger) Verbose(format string, args ...interface{}) {
+	if l.level == LevelVerbose || l.level == LevelDebug || l.level == LevelTrace {
+		message := fmt.Sprintf(format, args...)
+		if l.showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s VERBOSE %s", timestamp, message)
+		} else {
+			message = fmt.Sprintf("VERBOSE %s", message)
+		}
+		l.infoLogger.Output(2, message)
+	}
+}
+
 // Info logs an info message with optional formatting
 func (l *Logger) Info(format string, args ...interface{}) {
-	if l.level == LevelDebug || l.level == LevelInfo || l.level == LevelTrace {
+	if l.level == LevelDebug || l.level == LevelInfo || l.level == LevelVerbose || l.level == LevelTrace {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
@@ -172,7 +187,7 @@ func (l *Logger) Info(format string, args ...interface{}) {
 
 // Warn logs a warning message with optional formatting
 func (l *Logger) Warn(format string, args ...interface{}) {
-	if l.level == LevelDebug || l.level == LevelInfo || l.level == LevelWarn || l.level == LevelTrace {
+	if l.level == LevelDebug || l.level == LevelInfo || l.level == LevelVerbose || l.level == LevelWarn || l.level == LevelTrace {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
@@ -244,6 +259,11 @@ func Debug(format string, args ...interface{}) {
 	GetLogger().Debug(format, args...)
 }
 
+// Verbose logs a verbose message with the default logger
+func Verbose(format string, args ...interface{}) {
+	GetLogger().Verbose(format, args...)
+}
+
 // Info logs an info message with the default logger
 func Info(format string, args ...interface{}) {
 	GetLogger().Info(format, args...)
@@ -272,7 +292,7 @@ func Trace(format string, args ...interface{}) {
 // DumpState logs the current state of an object for debugging
 func DumpState(prefix string, obj interface{}) {
 	logger := GetLogger()
-	if logger.level != LevelDebug && logger.level != LevelTrace {
+	if logger.level != LevelDebug && logger.level != LevelVerbose && logger.level != LevelTrace {
 		return
 	}
 
@@ -294,7 +314,7 @@ func DumpState(prefix string, obj interface{}) {
 // TracePath logs the execution path with caller information
 func TracePath(path string, args ...interface{}) {
 	logger := GetLogger()
-	if logger.level != LevelDebug && logger.level != LevelTrace {
+	if logger.level != LevelDebug && logger.level != LevelVerbose && logger.level != LevelTrace {
 		return
 	}
 

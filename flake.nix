@@ -6,7 +6,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "feat-poll_remote";
+      version = "feat-logging";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -123,11 +123,11 @@
             general = lib.mkOption {
               type = lib.types.attrsOf lib.types.anything;
               default = {
-                log_level = "info";
+                log_level = "verbose";
                 log_timestamps = false;
               };
               example = {
-                log_level = "info";
+                log_level = "verbose";
                 log_timestamps = true;
                 dry_run = false;
                 poll_profiles = [ "docker" ];
