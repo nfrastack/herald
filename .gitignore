@@ -10,3 +10,6 @@ devenv.local.nix
 
 bin/
 dns-companion.conf
+dns-companion.yaml
+dns-companion.yml
+result/
