@@ -6,7 +6,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "feat-poll_file";
+      version = "feat-poll_remote";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -47,7 +47,7 @@
              "-X main.BuildTime=$BUILD_DATE"
            ];
 
-            vendorHash = "sha256-nN0lt1FLx4KeRKlAEzIDv5ejcQWaIcu/myOtaGwtj0I=";
+            vendorHash = "sha256-EzZTKLMpIBu9gC1lXyv9ePkvxFnRsVKzDe4zRCuxIhQ=";
           };
         });
 
@@ -178,12 +178,21 @@
                 };
                 file = {
                   type = "file";
-                  name = "file_example";
                   source = "/var/lib/dns-companion/records.yaml";
                   format = "yaml";
                   interval = "-1";
                   record_remove_on_stop = true;
                   process_existing = true;
+                };
+                remote = {
+                  type = "remote";
+                  remote_url = "https://example.com/records.yaml";
+                  format = "yaml";
+                  interval = "30s";
+                  process_existing = true;
+                  record_remove_on_stop = true;
+                  remote_auth_user = "myuser";
+                  remote_auth_pass = "mypassword";
                 };
               };
               description = "Poll profiles for service/container discovery. Each key is the poller name, and the value is an attribute set of options for that poller. TLS options for Docker are nested under 'tls'.";
