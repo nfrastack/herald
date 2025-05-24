@@ -6,7 +6,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "1.0.0";
+      version = "feat-poll_file";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
