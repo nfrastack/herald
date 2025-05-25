@@ -6,7 +6,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "feat-logging";
+      version = "dev";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -232,6 +232,36 @@
                 include = [ "/etc/dns-companion/extra1.yml" "/etc/dns-companion/extra2.yml" ];
                 Included files are merged into the main config. Later files override earlier ones.
               '';
+            };
+
+            hosts = {
+              enable = lib.mkOption {
+                type = lib.types.bool;
+                default = false;
+                description = ''
+                  Enable the hosts DNS provider. Writes A/AAAA records to a hosts file. CNAMEs are flattened automatically.
+                '';
+              };
+              source = lib.mkOption {
+                type = lib.types.str;
+                default = "./dns-companion.hosts";
+                description = "Path to the hosts file to manage.";
+              };
+              user = lib.mkOption {
+                type = lib.types.str;
+                default = "";
+                description = "Username or UID to own the file (optional).";
+              };
+              group = lib.mkOption {
+                type = lib.types.str;
+                default = "";
+                description = "Group name or GID to own the file (optional).";
+              };
+              mode = lib.mkOption {
+                type = lib.types.int;
+                default = 420; # 0644
+                description = "File permissions (e.g., 420 for 0644).";
+              };
             };
           };
 

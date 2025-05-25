@@ -17,11 +17,19 @@ defaults:
     allow_multiple: false
 
 providers:
-  providerexample:
+  cf_example:
     type: "cloudflare"
     api_token: "your_scoped_api_token_here"
     #api_email: "youremail@if.using.global.api"
     #api_key: "global_api_key_here"
+
+  hosts_example:
+    type: "hosts"
+    source: "./hosts"            # Path to the hosts file to manage
+    user: nobody                 # (optional) Username or UID to own the file
+    group: nogroup               # (optional) Group name or GID to own the file
+    mode: 0644                   # (optional) File permissions (octal, e.g. 0644)
+    # Only A and AAAA records are supported. CNAMEs are automatically flattened.
 
 polls:
   pollexample:
@@ -65,13 +73,6 @@ polls:
     record_remove_on_stop: true
     remote_auth_user: myuser # Optional HTTP Basic Auth
     remote_auth_pass: mypassword # Optional HTTP Basic Auth
-
-services:
-  traefik-poller:
-    api_url: http://traefik:8080/api/http/routers
-    api_auth_user: admin
-    api_auth_pass: password
-    interval: 15s
 
 domains:
   domainexample:

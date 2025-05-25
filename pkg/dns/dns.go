@@ -77,12 +77,23 @@ func RegisterProvider(name string, factory ProviderFactory) {
 // GetProvider returns a provider by name
 func GetProvider(name string, options map[string]string) (Provider, error) {
 	providersMu.RLock()
+	log.Debug("[dns] GetProvider called with name='%s'. Registered providers: %v", name, getProviderKeys())
 	factory, ok := providers[name]
 	providersMu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("[dns] DNS provider not found: %s", name)
 	}
 	return factory(options)
+}
+
+func getProviderKeys() []string {
+	providersMu.RLock()
+	defer providersMu.RUnlock()
+	keys := make([]string, 0, len(providers))
+	for k := range providers {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // LoadProviderFromConfig loads a DNS provider from configuration

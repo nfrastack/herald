@@ -59,6 +59,13 @@
           type = "cloudflare";
           api_token = "abcdef1234567890abcdef1234567890abcdef1234";
         };
+        dnsprovider02 = {
+          enable = true;
+          source = "./dns-companion/hosts";
+          user = "nobody";    # optional
+          group = "nogroup";  # optional
+          mode = 420;          # 0644 in decimal, optional
+        };
       };
       domains = {
         domain01 = {

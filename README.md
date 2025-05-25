@@ -73,6 +73,7 @@ nfrastack <code@nfrastack.com>
     - [Supported Providers](#supported-providers)
     - [Provider Configuration (YAML)](#provider-configuration-yaml)
     - [Provider Environment Variables](#provider-environment-variables)
+- [Hosts DNS Provider](#hosts-dns-provider)
   - [Domains](#domains)
     - [Domain Environment Variables](#domain-environment-variables)
 - [Support](#support)
@@ -698,6 +699,7 @@ Providers are components that manage DNS records. Each provider has its own conf
 #### Supported Providers
 
 - **Cloudflare**: Manage DNS records via Cloudflare API.
+- **hosts**: Write A/AAAA records to a hosts file (e.g. /etc/hosts). Supports file ownership and permissions. CNAMEs are flattened to A/AAAA records automatically.
 
 #### Provider Configuration (YAML)
 
@@ -720,6 +722,36 @@ providers:
 | `PROVIDER_<PROFILENAME>_API_KEY`                  | API key                          |
 | `PROVIDER_<PROFILENAME>_API_EMAIL`                | API email                        |
 | `PROVIDER_<PROFILENAME>_<PROVIDER-TYPE>_<OPTION>` | Provider-specific options        |
+
+
+## Hosts DNS Provider
+
+The `hosts` DNS provider writes A/AAAA records to a hosts file (e.g. `dns-companion.hosts`).
+CNAMEs are automatically flattened to A/AAAA records. Only A and AAAA records are supported.
+
+Example NixOS configuration:
+
+```nix
+services.dns-companion.dns.providers.hosts = {
+  enable = true;
+  source = "/etc/hosts";
+  user = "nobody";    # optional
+  group = "nogroup";  # optional
+  mode = 420;          # 0644 in decimal, optional
+};
+```
+
+Options:
+
+* `source` (string): Path to the hosts file to manage. Default: ./hosts
+* `user` (string): Username or UID to own the file. Optional.
+* `group` (string): Group name or GID to own the file. Optional.
+* `mode` (int): File permissions (e.g., 420 for 0644). Optional, default: 420 (0644).
+
+The file will be created if it does not exist, and ownership/permissions will be set as configured.
+
+* The hosts provider will flatten CNAME records to A/AAAA records automatically.
+* Only A and AAAA records are supported in the hosts file format.
 
 ### Domains
 
