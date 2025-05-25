@@ -121,7 +121,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	// Only use api_url and API_URL env var for Docker API endpoint
 	apiURL := pollCommon.GetOptionOrEnv(options, "api_url", "API_URL", "unix:///var/run/docker.sock")
 	if apiURL != "" {
-		log.Debug("%s Using Docker API URL: %s", logPrefix, apiURL)
+		log.Verbose("%s Using Docker API URL: %s", logPrefix, apiURL)
 		clientOpts = append(clientOpts, client.WithHost(apiURL))
 	}
 
@@ -346,7 +346,7 @@ func (p *DockerProvider) StartPolling() error {
 	}()
 
 	if p.config.ProcessExisting {
-		log.Info("%s Processing existing containers and services", p.logPrefix)
+		log.Verbose("%s Processing existing containers and services", p.logPrefix)
 		// Process existing containers in a goroutine to not block startup
 		go p.processRunningContainers(ctx)
 
@@ -379,7 +379,7 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 		containerName = containerName[1:]
 	}
 
-	log.Debug("%s Container event: '%s' - name: '%s' - id: '%s'", p.logPrefix, event.Action, containerName, containerID[:12])
+	log.Verbose("%s Container event: '%s' - name: '%s' - id: '%s'", p.logPrefix, event.Action, containerName, containerID[:12])
 
 	// Process based on event action
 	switch event.Action {
@@ -443,8 +443,6 @@ func (p *DockerProvider) handleServiceEvent(ctx context.Context, event events.Me
 
 // processRunningContainers processes all currently running containers
 func (p *DockerProvider) processRunningContainers(ctx context.Context) {
-	log.Info("%s Processing running containers", p.logPrefix)
-
 	// List containers
 	containers, err := p.client.ContainerList(ctx, types.ContainerListOptions{})
 	if err != nil {
@@ -476,7 +474,7 @@ func (p *DockerProvider) processRunningServices(ctx context.Context) {
 		return
 	}
 
-	log.Info("%s Found %d services", p.logPrefix, len(services))
+	log.Verbose("%s Found %d services", p.logPrefix, len(services))
 
 	// Process each service
 	for _, service := range services {
@@ -513,7 +511,7 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 
 	// If the label is explicitly set to "false", always skip the container
 	if hasLabel && (strings.ToLower(enableDNS) == "false" || enableDNS == "0") {
-		log.Debug("%s Skipping container '%s' because it has an explicit 'nfrastack.dns.enable=false' label", p.logPrefix, containerName)
+		log.Verbose("%s Skipping container '%s' because it has an explicit 'nfrastack.dns.enable=false' label", p.logPrefix, containerName)
 		return false
 	}
 
@@ -531,12 +529,12 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 
 	// If expose_containers is false but label exists and is true, process the container
 	if strings.ToLower(enableDNS) == "true" || enableDNS == "1" {
-		log.Debug("%s Processing container '%s' because it has 'nfrastack.dns.enable=true' label (overriding expose_containers=false)", p.logPrefix, containerName)
+		log.Verbose("%s Processing container '%s' because it has 'nfrastack.dns.enable=true' label (overriding expose_containers=false)", p.logPrefix, containerName)
 		return true
 	}
 
 	// If we get here, label exists but is not true or false (some other value)
-	log.Debug("%s Skipping container '%s' because it has 'nfrastack.dns.enable=%s' (not 'true') and 'expose_containers=false'", p.logPrefix, containerName, enableDNS)
+	log.Warn("%s Skipping container '%s' because it has 'nfrastack.dns.enable=%s' (not 'true') and 'expose_containers=false'", p.logPrefix, containerName, enableDNS)
 	return false
 }
 
@@ -587,7 +585,7 @@ func (p *DockerProvider) processService(ctx context.Context, serviceID string) {
 
 	// If we found DNS entries, process them
 	if len(entries) > 0 {
-		log.Info("%s Found %d DNS entries for service %s", p.logPrefix, len(entries), serviceName)
+		log.Verbose("%s Found %d DNS entries for service %s", p.logPrefix, len(entries), serviceName)
 		p.processDNSEntries(entries, false)
 	} else {
 		log.Debug("%s No DNS entries found for service %s", p.logPrefix, serviceName)
@@ -888,14 +886,14 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	if hasDNSLabel {
 		val := strings.ToLower(dnsLabel)
 		if val == "false" || val == "0" {
-			log.Debug("%s Skipping container '%s' due to 'nfrastack.dns.enable' label set to false", p.logPrefix, containerName)
+			log.Verbose("%s Skipping container '%s' due to 'nfrastack.dns.enable' label set to false", p.logPrefix, containerName)
 			return entries
 		}
 		if val == "true" || val == "1" {
-			log.Debug("%s DNS enabled for container '%s' due to label override", p.logPrefix, containerName)
+			log.Verbose("%s DNS enabled for container '%s' due to label override", p.logPrefix, containerName)
 			// continue processing
 		} else {
-			log.Debug("%s Skipping container '%s' due to 'nfrastack.dns.enable' label set to unknown value '%s'", p.logPrefix, containerName, dnsLabel)
+			log.Warn("%s Skipping container '%s' due to 'nfrastack.dns.enable' label set to unknown value '%s'", p.logPrefix, containerName, dnsLabel)
 			return entries
 		}
 	} else if !p.config.ExposeContainers {
@@ -924,10 +922,10 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 		log.Debug("%s No hostname/domain found for container '%s', skipping", p.logPrefix, containerName)
 		return entries
 	}
-	log.Debug("%s Using label '%s=%s' for hostname/domain extraction on container '%s'", p.logPrefix, hostSource, hostValue, containerName)
+	log.Verbose("%s Using label '%s=%s' for hostname/domain extraction on container '%s'", p.logPrefix, hostSource, hostValue, containerName)
 	parts := strings.Split(hostValue, ".")
 	if len(parts) < 2 {
-		log.Debug("%s Host value '%s' is not a valid FQDN for container '%s', skipping", p.logPrefix, hostValue, containerName)
+		log.Verbose("%s Host value '%s' is not a valid FQDN for container '%s', skipping", p.logPrefix, hostValue, containerName)
 		return entries
 	}
 	domain := strings.Join(parts[len(parts)-2:], ".")
@@ -944,12 +942,12 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	}
 	if len(domainCfg.IncludeSubdomains) > 0 {
 		if !matchesPattern(subdomain, domainCfg.IncludeSubdomains) {
-			log.Debug("%s Skipping subdomain '%s' for domain '%s' (not in include_subdomains)", p.logPrefix, subdomain, domain)
+			log.Verbose("%s Skipping subdomain '%s' for domain '%s' (not in include_subdomains)", p.logPrefix, subdomain, domain)
 			return entries
 		}
 	} else if len(domainCfg.ExcludeSubdomains) > 0 {
 		if matchesPattern(subdomain, domainCfg.ExcludeSubdomains) {
-			log.Debug("%s Skipping subdomain '%s' for domain '%s' (in exclude_subdomains)", p.logPrefix, subdomain, domain)
+			log.Verbose("%s Skipping subdomain '%s' for domain '%s' (in exclude_subdomains)", p.logPrefix, subdomain, domain)
 			return entries
 		}
 	}
@@ -958,24 +956,24 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	recordType := ""
 	if rt, exists := labels["nfrastack.dns.record.type"]; exists && rt != "" {
 		recordType = rt
-		log.Debug("%s Found label 'nfrastack.dns.record.type=%s' on container '%s'", p.logPrefix, rt, containerName)
+		log.Verbose("%s Found label 'nfrastack.dns.record.type=%s' on container '%s'", p.logPrefix, rt, containerName)
 	}
 	target := ""
 	if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
 		target = t
-		log.Debug("%s Found label 'nfrastack.dns.target=%s' on container '%s'", p.logPrefix, t, containerName)
+		log.Verbose("%s Found label 'nfrastack.dns.target=%s' on container '%s'", p.logPrefix, t, containerName)
 	}
 	ttl := 0
 	if ttlStr, exists := labels["nfrastack.dns.record.ttl"]; exists && ttlStr != "" {
 		if parsed, err := strconv.Atoi(ttlStr); err == nil {
-			log.Debug("%s Found label nfrastack.dns.record.ttl=%s on container '%s'", p.logPrefix, ttlStr, containerName)
+			log.Verbose("%s Found label nfrastack.dns.record.ttl=%s on container '%s'", p.logPrefix, ttlStr, containerName)
 			ttl = parsed
 		}
 	}
 	overwrite := false
 	if overwriteStr, exists := labels["nfrastack.dns.record.overwrite"]; exists {
 		if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
-			log.Debug("%s Found label 'nfrastack.dns.record.overwrite=%s' on container '%s'", p.logPrefix, overwriteStr, containerName)
+			log.Verbose("%s Found label 'nfrastack.dns.record.overwrite=%s' on container '%s'", p.logPrefix, overwriteStr, containerName)
 			overwrite = true
 		}
 	}
@@ -984,12 +982,12 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	recordTypeAMultiple := false
 	if val, exists := labels["nfrastack.dns.record.type.a.multiple"]; exists && val != "" {
 		recordTypeAMultiple = strings.ToLower(val) == "true" || val == "1"
-		log.Debug("%s Found label 'nfrastack.dns.record.type.a.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
+		log.Verbose("%s Found label 'nfrastack.dns.record.type.a.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
 	}
 	recordTypeAAAAMultiple := false
 	if val, exists := labels["nfrastack.dns.record.type.aaaa.multiple"]; exists && val != "" {
 		recordTypeAAAAMultiple = strings.ToLower(val) == "true" || val == "1"
-		log.Debug("%s Found label 'nfrastack.dns.record.type.aaaa.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
+		log.Verbose("%s Found label 'nfrastack.dns.record.type.aaaa.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
 	}
 
 	// Domain config fallback
