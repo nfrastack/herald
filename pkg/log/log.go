@@ -149,9 +149,9 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
-			message = fmt.Sprintf("%s DEBUG %s", timestamp, message)
+			message = fmt.Sprintf("%s   DEBUG %s", timestamp, message)
 		} else {
-			message = fmt.Sprintf("DEBUG %s", message)
+			message = fmt.Sprintf("  DEBUG %s", message)
 		}
 		l.debugLogger.Output(2, message)
 	}
@@ -177,9 +177,9 @@ func (l *Logger) Info(format string, args ...interface{}) {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
-			message = fmt.Sprintf("%s INFO %s", timestamp, message)
+			message = fmt.Sprintf("%s    INFO %s", timestamp, message)
 		} else {
-			message = fmt.Sprintf("INFO %s", message)
+			message = fmt.Sprintf("   INFO %s", message)
 		}
 		l.infoLogger.Output(2, message)
 	}
@@ -191,9 +191,9 @@ func (l *Logger) Warn(format string, args ...interface{}) {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
-			message = fmt.Sprintf("%s WARN %s", timestamp, message)
+			message = fmt.Sprintf("%s    WARN %s", timestamp, message)
 		} else {
-			message = fmt.Sprintf("WARN %s", message)
+			message = fmt.Sprintf("   WARN %s", message)
 		}
 		l.warnLogger.Output(2, message)
 	}
@@ -204,9 +204,9 @@ func (l *Logger) Error(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	if l.showTimestamps {
 		timestamp := time.Now().Format("2006-01-02 15:04:05")
-		message = fmt.Sprintf("%s ERROR %s", timestamp, message)
+		message = fmt.Sprintf("%s   ERROR %s", timestamp, message)
 	} else {
-		message = fmt.Sprintf("ERROR %s", message)
+		message = fmt.Sprintf("  ERROR %s", message)
 	}
 	l.errorLogger.Output(2, message)
 }
@@ -216,9 +216,9 @@ func (l *Logger) Fatal(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	if l.showTimestamps {
 		timestamp := time.Now().Format("2006-01-02 15:04:05")
-		message = fmt.Sprintf("%s FATAL %s", timestamp, message)
+		message = fmt.Sprintf("%s   FATAL %s", timestamp, message)
 	} else {
-		message = fmt.Sprintf("FATAL %s", message)
+		message = fmt.Sprintf("  FATAL %s", message)
 	}
 	l.errorLogger.Output(2, message)
 	os.Exit(1)
@@ -230,9 +230,9 @@ func (l *Logger) Trace(format string, args ...interface{}) {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
-			message = fmt.Sprintf("%s TRACE %s", timestamp, message)
+			message = fmt.Sprintf("%s   TRACE %s", timestamp, message)
 		} else {
-			message = fmt.Sprintf("TRACE %s", message)
+			message = fmt.Sprintf("  TRACE %s", message)
 		}
 		l.debugLogger.Output(2, message)
 	}

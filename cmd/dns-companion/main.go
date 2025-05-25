@@ -255,7 +255,7 @@ func main() {
 		// Store normalized domain name as key (domain keys are already normalized in the config)
 		domainConfigs[domainKey] = domainMap
 
-		log.Debug("[domain] Loaded domain config for '%s'", domainCfg.Name)
+		log.Verbose("[domain] Loaded domain config for '%s'", domainCfg.Name)
 		log.Trace("[domain] Settings: %v", domainMap)
 	}
 
@@ -283,7 +283,7 @@ func main() {
 			pollProviderType = pollProfileName
 		}
 
-		log.Info("[poll] Initializing poll provider: '%s'", pollProfileName)
+		log.Verbose("[poll] Initializing poll provider: '%s'", pollProfileName)
 		// Create options map for the provider, passing through ALL options from the config
 		providerOptions := pollProviderConfig.GetOptions(pollProfileName)
 
