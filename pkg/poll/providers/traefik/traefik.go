@@ -147,7 +147,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		logPrefix:       logPrefix,
 		filterConfig:    filterConfig,
 		initialPollDone: false,
-		opts:            parsed, // Store parsed options
+		opts:            parsed,
 	}
 
 	log.Info("%s Successfully created new Traefik provider", logPrefix)
@@ -224,7 +224,7 @@ func (t *TraefikProvider) pollLoop() {
 	log.Debug("%s Starting poll loop", t.logPrefix)
 
 	// Process existing routers first
-	log.Trace("%s Performing initial processing of Traefik routers", t.logPrefix)
+	log.Verbose("%s Performing initial processing of Traefik routers", t.logPrefix)
 	if err := t.processTraefikRouters(); err != nil {
 		// Error is already logged in processTraefikRouters, no need to log it again
 		log.Trace("%s Initial processing encountered an error (see above logs)", t.logPrefix)

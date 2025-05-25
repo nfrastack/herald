@@ -89,7 +89,7 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 		log.Error("%s No target specified for domain '%s' (fqdn: %s, service: %s)", logPrefix, domain, fqdn, state.Service)
 		return fmt.Errorf("no target specified for domain %s (fqdn: %s, service: %s)", domain, fqdn, state.Service)
 	}
-  
+
 	// Smart record type detection if not explicitly set
 	if recordType == "" {
 		if ip := net.ParseIP(target); ip != nil {
@@ -119,7 +119,17 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	} else if strings.HasSuffix(fqdn, "."+domain) {
 		hostname = strings.TrimSuffix(fqdn, "."+domain)
 	}
-	log.Debug("%s DNS params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d, update=%v, container=%s", logPrefix, domain, recordType, hostname, target, ttl, overwrite, state.Name)
+	// Process the source type for proper labeling
+	label := state.SourceType
+	if strings.Contains(label, "|") {
+		parts := strings.SplitN(label, "|", 2)
+		label = parts[0]
+	}
+	if label == "" {
+		label = "container"
+	}
+
+	log.Debug("%s DNS params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d, update=%v, %s=%s", logPrefix, domain, recordType, hostname, target, ttl, overwrite, label, state.Name)
 
 	dnsProvider, err := dns.LoadProviderFromConfig(providerKey, providerOptions)
 	if err != nil {
@@ -136,10 +146,6 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	}
 	if err != nil {
 		return err
-	}
-	label := state.SourceType
-	if label == "" {
-		label = "container"
 	}
 	return nil
 }
@@ -214,8 +220,14 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 		return err
 	}
 	label := state.SourceType
+	if strings.Contains(label, "|") {
+		parts := strings.SplitN(label, "|", 2)
+		label = parts[0]
+		// name := parts[1] // removed unused variable
+	}
 	if label == "" {
 		label = "container"
 	}
+	// Use label and name for logging in provider
 	return nil
 }

@@ -1,13 +1,15 @@
 ## patch-records_error (wip)
+>>>>>>> main
 
    ### Added
+     - Add log_level VERBOSE sitting in the middle of debug and info. This is the new default if not explicit in config.
      - (poll) Added File provider to read YAML/JSON from filesystem
      - (poll/file) Customizable interval to poll for changes or ondemand/fsnotify
      - (poll) Added Remote provider to read YAML/JSON from a HTTP/HTTPS source with basic authentication supported
 
    ### Changed
      - Created pollCommonfunctions for poll providers (http, records management, options, processing of parsed,received data, filter logic for easier implementation of future pollers)
-     -
+     - Many log entries from DEBUG -> VERBOSE
 
    ### Fixed
      - Issue where record targets weren't being read correctly with the traefik poll provider

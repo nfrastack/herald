@@ -196,7 +196,7 @@ Global settings for the application. These can be set in the `general` section o
 
 **Options:**
 
-- `log_level` (string): Logging level for the application (e.g., `debug`, `info`, `warn`, `error`).
+- `log_level` (string): Logging level for the application (e.g., `trace`, `debug`, `verbose`, `info`, `warn`, `error`).
 - `log_timestamps` (bool): Whether to include timestamps in log output.
 - `dry_run` (bool): If true, perform a test run without making DNS changes.
 - `poll_profiles` (list of strings): List of poller profiles to use (e.g., `docker`, `traefik`).
@@ -205,7 +205,7 @@ Global settings for the application. These can be set in the `general` section o
 
 ```yaml
 general:
-  log_level: info
+  log_level: verbose
   log_timestamps: true
   dry_run: false
   poll_profiles:
@@ -221,7 +221,7 @@ The following environment variables can be used to configure DNS Companion:
 | Variable         | Description                                       | Default |
 | ---------------- | ------------------------------------------------- | ------- |
 | `DRY_RUN`        | If true, do not perform actual DNS updates        | `false` |
-| `LOG_LEVEL`      | Set log level (`trace` `debug`, `info`)           | `info`  |
+| `LOG_LEVEL`      | Set log level (`trace` `debug`, `verbose`, `info`)           | `verbose`  |
 | `LOG_TIMESTAMPS` | Include timestamps in log output (`true`/`false`) | `true`  |
 
 ### Default Options

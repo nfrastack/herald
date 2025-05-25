@@ -17,16 +17,16 @@ import (
 func ProcessEntries(
 	fetchEntries func() ([]poll.DNSEntry, error),
 	lastRecordsPtr *map[string]poll.DNSEntry,
-	providerName string,
-	logPrefix string,
+	sourceType string,
+	profileName string,
 	recordRemoveOnStop bool,
 ) {
 	entries, err := fetchEntries()
 	if err != nil {
-		log.Error("%s Failed to fetch entries: %v", logPrefix, err)
+		log.Error("%s Failed to fetch entries: %v", profileName, err)
 		return
 	}
-	log.Debug("%s Processing %d DNS entries", logPrefix, len(entries))
+	log.Debug("%s Processing %d DNS entries", profileName, len(entries))
 	current := make(map[string]poll.DNSEntry)
 	for _, e := range entries {
 		fqdn := e.GetFQDN()
@@ -35,25 +35,25 @@ func ProcessEntries(
 		current[key] = e
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		if _, ok := (*lastRecordsPtr)[key]; !ok {
-			log.Info("%s New record detected: %s (%s)", logPrefix, fqdnNoDot, recordType)
-			domainKey, subdomain := ExtractDomainAndSubdomain(fqdnNoDot, logPrefix)
-			log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", logPrefix, domainKey, subdomain, fqdnNoDot)
+			log.Info("%s New record detected: %s (%s)", profileName, fqdnNoDot, recordType)
+			domainKey, subdomain := ExtractDomainAndSubdomain(fqdnNoDot, profileName)
+			log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", profileName, domainKey, subdomain, fqdnNoDot)
 			if domainKey == "" {
-				log.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", logPrefix, fqdnNoDot)
+				log.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", profileName, fqdnNoDot)
 				continue
 			}
 			domainCfg, ok := config.GlobalConfig.Domains[domainKey]
 			if !ok {
-				log.Error("%s Domain '%s' not found in config for fqdn='%s'", logPrefix, domainKey, fqdnNoDot)
+				log.Error("%s Domain '%s' not found in config for fqdn='%s'", profileName, domainKey, fqdnNoDot)
 				continue
 			}
 			realDomain := domainCfg.Name
-			log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", logPrefix, realDomain, domainKey)
-			state := domain.RouterState{SourceType: providerName, Name: providerName, Service: e.Target}
-			log.Trace("%s Calling EnsureDNSForRouterState(domain='%s', fqdn='%s', state=%+v)", logPrefix, realDomain, fqdnNoDot, state)
+			log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", profileName, realDomain, domainKey)
+			state := domain.RouterState{SourceType: sourceType, Name: profileName, Service: e.Target}
+			log.Trace("%s Calling EnsureDNSForRouterState(domain='%s', fqdn='%s', state=%+v)", profileName, realDomain, fqdnNoDot, state)
 			err := domain.EnsureDNSForRouterState(realDomain, fqdnNoDot, state)
 			if err != nil {
-				log.Error("%s Failed to ensure DNS for '%s': %v", logPrefix, fqdnNoDot, err)
+				log.Error("%s Failed to ensure DNS for '%s': %v", profileName, fqdnNoDot, err)
 			}
 		}
 	}
@@ -63,25 +63,25 @@ func ProcessEntries(
 				fqdn := old.GetFQDN()
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				recordType := old.GetRecordType()
-				log.Info("%s Record removed: %s (%s)", logPrefix, fqdnNoDot, recordType)
-				domainKey, subdomain := ExtractDomainAndSubdomain(fqdnNoDot, logPrefix)
-				log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", logPrefix, domainKey, subdomain, fqdnNoDot)
+				log.Info("%s Record removed: %s (%s)", profileName, fqdnNoDot, recordType)
+				domainKey, subdomain := ExtractDomainAndSubdomain(fqdnNoDot, profileName)
+				log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", profileName, domainKey, subdomain, fqdnNoDot)
 				if domainKey == "" {
-					log.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", logPrefix, fqdnNoDot)
+					log.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", profileName, fqdnNoDot)
 					continue
 				}
 				domainCfg, ok := config.GlobalConfig.Domains[domainKey]
 				if !ok {
-					log.Error("%s Domain '%s' not found in config for fqdn='%s' (removal)", logPrefix, domainKey, fqdnNoDot)
+					log.Error("%s Domain '%s' not found in config for fqdn='%s' (removal)", profileName, domainKey, fqdnNoDot)
 					continue
 				}
 				realDomain := domainCfg.Name
-				log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", logPrefix, realDomain, domainKey)
-				state := domain.RouterState{SourceType: providerName, Name: providerName, Service: old.Target}
-				log.Trace("%s Calling EnsureDNSRemoveForRouterState(domain='%s', fqdn='%s', state=%+v)", logPrefix, realDomain, fqdnNoDot, state)
+				log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", profileName, realDomain, domainKey)
+				state := domain.RouterState{SourceType: sourceType, Name: profileName, Service: old.Target}
+				log.Trace("%s Calling EnsureDNSRemoveForRouterState(domain='%s', fqdn='%s', state=%+v)", profileName, realDomain, fqdnNoDot, state)
 				err := domain.EnsureDNSRemoveForRouterState(realDomain, fqdnNoDot, state)
 				if err != nil {
-					log.Error("%s Failed to remove DNS for '%s': %v", logPrefix, fqdnNoDot, err)
+					log.Error("%s Failed to remove DNS for '%s': %v", profileName, fqdnNoDot, err)
 				}
 			}
 		}

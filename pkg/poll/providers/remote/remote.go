@@ -89,11 +89,15 @@ func (p *RemoteProvider) pollLoop() {
 }
 
 func (p *RemoteProvider) processRemote() {
+	providerName := p.options["name"]
+	if providerName == "" {
+		providerName = "remote_profile"
+	}
 	pollCommon.ProcessEntries(
 		p.readRemote,
 		&p.lastRecords,
-		p.opts.Name,
-		p.logPrefix,
+		"remote_profile",
+		providerName,
 		p.opts.RecordRemoveOnStop,
 	)
 }
@@ -109,9 +113,9 @@ func (p *RemoteProvider) readRemote() ([]poll.DNSEntry, error) {
 	}
 	log.Trace("%s Fetched %d bytes from %s", p.logPrefix, len(data), p.remoteURL)
 	if p.format == "yaml" {
-		log.Debug("%s Parsing as YAML", p.logPrefix)
+		log.Trace("%s Parsing as YAML", p.logPrefix)
 	} else {
-		log.Debug("%s Parsing as JSON", p.logPrefix)
+		log.Trace("%s Parsing as JSON", p.logPrefix)
 	}
 	var records []pollCommon.FileRecord
 	if p.format == "yaml" {
@@ -123,9 +127,7 @@ func (p *RemoteProvider) readRemote() ([]poll.DNSEntry, error) {
 		log.Error("%s Failed to parse %s as %s: %v", p.logPrefix, p.remoteURL, p.format, err)
 		return nil, err
 	}
-	log.Debug("%s Parsed %d DNS records from remote source", p.logPrefix, len(records))
 	entries := pollCommon.ConvertRecordsToDNSEntries(records, p.opts.Name)
-	log.Trace("%s Returning %d DNS entries from remote", p.logPrefix, len(entries))
 	return entries, nil
 }
 

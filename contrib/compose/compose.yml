@@ -10,9 +10,9 @@ services:
       - TIMEZONE=America/Vancouver
 
       - LOG_TYPE=BOTH
-      - LOG_LEVEL=info
+      - LOG_LEVEL=verbose
       - LOG_PATH=/logs
-      - LOG_FILE=cdc.log
+      - LOG_FILE=dns-companion.log
       - LOG_TIMESTAMPS=TRUE
 
       # Provider example (Cloudflare)

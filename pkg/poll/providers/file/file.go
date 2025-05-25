@@ -83,9 +83,9 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if watchMode {
-		log.Info("%s Initializing file provider: source=%s, format=%s, watchMode=%v", logPrefix, source, format, watchMode)
+		log.Info("%s Initializing file provider: name: %s source=%s, format=%s, watchMode=%v", logPrefix, parsed.Name, source, format, watchMode)
 	} else {
-		log.Info("%s Initializing file provider: source=%s, format=%s, interval=%v, watchMode=%v", logPrefix, source, format, parsed.Interval, watchMode)
+		log.Info("%s Initializing file provider: name: %s source=%s, format=%s, interval=%v, watchMode=%v", logPrefix, parsed.Name, source, format, parsed.Interval, watchMode)
 	}
 	return &FileProvider{
 		source:             source,
@@ -107,7 +107,7 @@ func (p *FileProvider) StartPolling() error {
 		log.Warn("%s StartPolling called but already running", p.logPrefix)
 		return nil
 	}
-	log.Info("%s Starting polling loop", p.logPrefix)
+	log.Debug("%s Starting polling loop", p.logPrefix)
 	p.running = true
 	if p.watchMode {
 		go p.watchLoop()
@@ -158,7 +158,7 @@ func (p *FileProvider) pollLoop() {
 }
 
 func (p *FileProvider) watchLoop() {
-	log.Info("%s Starting file watch mode", p.logPrefix)
+	log.Verbose("%s Starting file watch mode", p.logPrefix)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Error("%s Failed to create file watcher: %v", p.logPrefix, err)
@@ -186,7 +186,7 @@ func (p *FileProvider) watchLoop() {
 			absSource, _ := filepath.Abs(p.source)
 			absEvent, _ := filepath.Abs(event.Name)
 			if absEvent == absSource && (event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) != 0) {
-				log.Trace("%s File changed: %s (op: %v)", p.logPrefix, event.Name, event.Op)
+				log.Verbose("%s File changed: %s (op: %v)", p.logPrefix, event.Name, event.Op)
 				p.processFile()
 			}
 		case err, ok := <-watcher.Errors:
@@ -205,7 +205,7 @@ func (p *FileProvider) processFile() {
 		log.Error("%s Failed to read file: %v", p.logPrefix, err)
 		return
 	}
-	log.Debug("%s Processing %d DNS entries from file", p.logPrefix, len(entries))
+	log.Verbose("%s Processing %d DNS entries from file", p.logPrefix, len(entries))
 	log.Trace("%s Available domains in config: %v", p.logPrefix, keys(config.GlobalConfig.Domains))
 	current := make(map[string]poll.DNSEntry)
 	for _, e := range entries {
@@ -327,7 +327,6 @@ func (p *FileProvider) readFile() ([]poll.DNSEntry, error) {
 		providerName = "file_profile"
 	}
 	entries := pollCommon.ConvertRecordsToDNSEntries(records, providerName)
-	log.Trace("%s Returning %d DNS entries from file", p.logPrefix, len(entries))
 	return entries, nil
 }
 

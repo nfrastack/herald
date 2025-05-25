@@ -7,7 +7,7 @@
     dns-companion = {
       enable = true;
       general = {
-        log_level = "info";
+        log_level = "verbose";
       };
       defaults = {
         record = {

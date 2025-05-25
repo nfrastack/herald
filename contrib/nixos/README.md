@@ -117,7 +117,7 @@ Here are the available options for the NixOS module (services.dns-companion):
 * `configFile` (str): Path to the YAML configuration file. Default: `dns-companion.yml`
 * `package` (package): The package to use for the service. Default: the flake's Go build.
 * `general` (attrs): General application settings. Example:
-  * `log_level` (str): Logging level ("info", "debug", etc.).
+  * `log_level` (str): Logging level ("info", "debug", "verbose", etc.).
   * `log_timestamps` (bool): Show timestamps in logs.
   * `poll_profiles` (list of str): List of poll profiles to use.
 * `defaults` (attrs): Default DNS record settings. Example:
