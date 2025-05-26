@@ -5,7 +5,7 @@
 package filter
 
 import (
-	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
+	pollCommon "dns-companion/pkg/poll/providers/common"
 
 	"path/filepath"
 	"regexp"

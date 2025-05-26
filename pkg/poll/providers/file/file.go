@@ -240,7 +240,12 @@ func (p *FileProvider) processFile() {
 			if providerName == "" {
 				providerName = "file_profile"
 			}
-			state := domain.RouterState{SourceType: "file_profile", Name: providerName, Service: e.Target}
+			state := domain.RouterState{
+				SourceType: "file_profile",
+				Name:       providerName,
+				Service:    e.Target,
+				RecordType: recordType, // Set the actual DNS record type
+			}
 			log.Trace("%s Calling EnsureDNSForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
 			err := domain.EnsureDNSForRouterState(realDomain, fqdnNoDot, state)
 			if err != nil {
@@ -273,7 +278,12 @@ func (p *FileProvider) processFile() {
 				if providerName == "" {
 					providerName = "file_profile"
 				}
-				state := domain.RouterState{SourceType: "file_profile", Name: providerName, Service: old.Target}
+				state := domain.RouterState{
+					SourceType: "file_profile",
+					Name:       providerName,
+					Service:    old.Target,
+					RecordType: recordType, // Set the actual DNS record type
+				}
 				log.Trace("%s Calling EnsureDNSRemoveForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
 				err := domain.EnsureDNSRemoveForRouterState(realDomain, fqdnNoDot, state)
 				if err != nil {
