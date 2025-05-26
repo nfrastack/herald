@@ -244,7 +244,6 @@
               };
               source = lib.mkOption {
                 type = lib.types.str;
-                default = "./dns-companion.hosts";
                 description = "Path to the hosts file to manage.";
               };
               user = lib.mkOption {

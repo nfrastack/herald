@@ -29,6 +29,8 @@ providers:
     user: nobody                 # (optional) Username or UID to own the file
     group: nogroup               # (optional) Group name or GID to own the file
     mode: 0644                   # (optional) File permissions (octal, e.g. 0644)
+    enable_ipv4: true            # (optional) Enable IPv4 A records (default: true)
+    enable_ipv6: true            # (optional) Enable IPv6 AAAA records (default: true)
     # Only A and AAAA records are supported. CNAMEs are automatically flattened.
 
 polls:

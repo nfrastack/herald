@@ -39,6 +39,11 @@ nfrastack <code@nfrastack.com>
   - [Overview](#overview)
     - [Precedence Order](#precedence-order)
   - [Example Configuration File](#example-configuration-file)
+  - [Configuration Examples and Files](#configuration-examples-and-files)
+    - [YAML Configuration Examples](#yaml-configuration-examples)
+    - [Container Configuration](#container-configuration)
+  - [NixOS Integration](#nixos-integration)
+    - [Using the NixOS Module](#using-the-nixos-module)
     - [Multiple File Loading \& Includes](#multiple-file-loading--includes)
     - [Example: Multiple Config Files](#example-multiple-config-files)
     - [Example: YAML Include](#example-yaml-include)
@@ -168,7 +173,76 @@ DNS Companion supports flexible configuration via YAML files, environment variab
 
 ### Example Configuration File
 
-See the sample in [`contrib/config/dns-companion.yaml`](contrib/config/dns-companion.yaml) for a full example.
+See the sample configurations in the [`contrib/config/`](contrib/config/) directory for comprehensive examples:
+
+- [`dns-companion.yaml.sample`](contrib/config/dns-companion.yaml.sample) - Complete configuration example with all options
+- [`env.sample`](contrib/config/env.sample) - Environment variable configuration examples
+
+### Configuration Examples and Files
+
+The repository includes several configuration examples to help you get started:
+
+#### YAML Configuration Examples
+
+Located in [`contrib/config/`](contrib/config/):
+- **Complete example**: [`dns-companion.yaml.sample`](contrib/config/dns-companion.yaml.sample) - Shows all configuration options including providers, polls, and domains
+- **Environment variables**: [`env.sample`](contrib/config/env.sample) - Demonstrates environment-based configuration
+
+#### Container Configuration
+
+For container deployments, see [`container/README.md`](container/README.md) which includes:
+- Docker environment variable configuration
+- Container-specific examples
+- Docker Compose setup examples
+
+### NixOS Integration
+
+DNS Companion provides native NixOS integration through a Nix flake and NixOS module.
+
+#### Using the NixOS Module
+
+The flake provides a comprehensive NixOS module that allows declarative configuration. See [`contrib/nixos/README.md`](contrib/nixos/README.md) for complete documentation including:
+
+- How to add the flake as an input to your configuration
+- Full NixOS module options reference
+- Example configurations for all supported providers and pollers
+- Integration with systemd services
+
+Key NixOS module features:
+- Declarative YAML configuration generation
+- Systemd service management
+- Support for all DNS providers (Cloudflare, hosts file)
+- Support for all poll providers (Docker, Traefik, file, remote)
+- File includes and multi-file configuration support
+
+Example NixOS configuration snippet:
+
+```nix
+{
+  imports = [
+    inputs.dns-companion.nixosModules.default
+  ];
+
+  services.dns-companion = {
+    enable = true;
+    general.poll_profiles = [ "docker" ];
+    providers.cloudflare = {
+      type = "cloudflare";
+      api_token = "your-token-here";
+    };
+    providers.hosts = {
+      type = "hosts";
+      source = "/etc/hosts.dns-companion";
+      enable_ipv4 = true;
+      enable_ipv6 = false;
+    };
+    domains.example_com = {
+      name = "example.com";
+      provider = "cloudflare";
+    };
+  };
+}
+```
 
 #### Multiple File Loading & Includes
 
@@ -729,29 +803,46 @@ providers:
 The `hosts` DNS provider writes A/AAAA records to a hosts file (e.g. `dns-companion.hosts`).
 CNAMEs are automatically flattened to A/AAAA records. Only A and AAAA records are supported.
 
-Example NixOS configuration:
+**Configuration options:**
 
-```nix
-services.dns-companion.dns.providers.hosts = {
-  enable = true;
-  source = "/etc/hosts";
-  user = "nobody";    # optional
-  group = "nogroup";  # optional
-  mode = 420;          # 0644 in decimal, optional
-};
+- `source` (string): Path to the hosts file to manage. Default: `./hosts`
+- `user` (string): Username or UID to own the file. Optional.
+- `group` (string): Group name or GID to own the file. Optional.
+- `mode` (int): File permissions (e.g., 0644). Optional, default: 0644.
+- `enable_ipv4` (bool): Whether to write IPv4 A records. Default: `true`
+- `enable_ipv6` (bool): Whether to write IPv6 AAAA records. Default: `true`
+
+**YAML Example:**
+
+```yaml
+providers:
+  hosts_example:
+    type: "hosts"
+    source: "./hosts"
+    user: nobody
+    group: nogroup
+    mode: 0644
+    enable_ipv4: true
+    enable_ipv6: false  # Skip IPv6 records
 ```
 
-Options:
+**Environment Variables:**
 
-* `source` (string): Path to the hosts file to manage. Default: ./hosts
-* `user` (string): Username or UID to own the file. Optional.
-* `group` (string): Group name or GID to own the file. Optional.
-* `mode` (int): File permissions (e.g., 420 for 0644). Optional, default: 420 (0644).
+| Variable                            | Description                      | Default |
+| ----------------------------------- | -------------------------------- | ------- |
+| `PROVIDER_HOSTS_SOURCE`             | Path to hosts file               | `./hosts` |
+| `PROVIDER_HOSTS_USER`               | File owner (user)                |         |
+| `PROVIDER_HOSTS_GROUP`              | File owner (group)               |         |
+| `PROVIDER_HOSTS_MODE`               | File permissions (octal)         | `0644`  |
+| `PROVIDER_HOSTS_ENABLE_IPV4`        | Enable IPv4 A records            | `true`  |
+| `PROVIDER_HOSTS_ENABLE_IPV6`        | Enable IPv6 AAAA records         | `true`  |
 
-The file will be created if it does not exist, and ownership/permissions will be set as configured.
+**Features:**
 
-* The hosts provider will flatten CNAME records to A/AAAA records automatically.
-* Only A and AAAA records are supported in the hosts file format.
+- The file will be created if it does not exist, and ownership/permissions will be set as configured.
+- The hosts provider will flatten CNAME records to A/AAAA records automatically.
+- Only A and AAAA records are supported in the hosts file format.
+- IPv4/IPv6 filtering allows fine-grained control over which IP types are written.
 
 ### Domains
 
