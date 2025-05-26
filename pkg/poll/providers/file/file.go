@@ -36,6 +36,7 @@ type FileProvider struct {
 	ctx                context.Context
 	cancel             context.CancelFunc
 	logPrefix          string
+	isInitialLoad      bool
 }
 
 func NewProvider(options map[string]string) (poll.Provider, error) {
@@ -99,6 +100,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		ctx:                ctx,
 		cancel:             cancel,
 		logPrefix:          logPrefix,
+		isInitialLoad:      true,
 	}, nil
 }
 
@@ -186,7 +188,18 @@ func (p *FileProvider) watchLoop() {
 			absSource, _ := filepath.Abs(p.source)
 			absEvent, _ := filepath.Abs(event.Name)
 			if absEvent == absSource && (event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) != 0) {
-				log.Verbose("%s File changed: %s (op: %v)", p.logPrefix, event.Name, event.Op)
+				switch {
+				case event.Op&fsnotify.Write != 0:
+					log.Verbose("%s File modified: '%s'", p.logPrefix, event.Name)
+				case event.Op&fsnotify.Create != 0:
+					log.Verbose("%s File created: '%s'", p.logPrefix, event.Name)
+				case event.Op&fsnotify.Rename != 0:
+					log.Verbose("%s File renamed: '%s'", p.logPrefix, event.Name)
+				case event.Op&fsnotify.Remove != 0:
+					log.Verbose("%s File removed: '%s'", p.logPrefix, event.Name)
+				default:
+					log.Verbose("%s File changed: '%s' (op: '%v')", p.logPrefix, event.Name, event.Op)
+				}
 				p.processFile()
 			}
 		case err, ok := <-watcher.Errors:
@@ -199,13 +212,12 @@ func (p *FileProvider) watchLoop() {
 }
 
 func (p *FileProvider) processFile() {
-	initialRun := len(p.lastRecords) == 0
 	entries, err := p.readFile()
 	if err != nil {
 		log.Error("%s Failed to read file: %v", p.logPrefix, err)
 		return
 	}
-	log.Verbose("%s Processing %d DNS entries from file", p.logPrefix, len(entries))
+	log.Debug("%s Processing %d DNS entries from file", p.logPrefix, len(entries))
 	log.Trace("%s Available domains in config: %v", p.logPrefix, keys(config.GlobalConfig.Domains))
 	current := make(map[string]poll.DNSEntry)
 	for _, e := range entries {
@@ -215,7 +227,7 @@ func (p *FileProvider) processFile() {
 		current[key] = e
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		if _, ok := p.lastRecords[key]; !ok {
-			if initialRun {
+			if p.isInitialLoad {
 				log.Info("%s Initial record detected: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
 			} else {
 				log.Info("%s New record detected: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
@@ -240,7 +252,12 @@ func (p *FileProvider) processFile() {
 			if providerName == "" {
 				providerName = "file_profile"
 			}
-			state := domain.RouterState{SourceType: "file_profile", Name: providerName, Service: e.Target}
+			state := domain.RouterState{
+				SourceType: "file_profile",
+				Name:       providerName,
+				Service:    e.Target,
+				RecordType: recordType, // Set the actual DNS record type
+			}
 			log.Trace("%s Calling EnsureDNSForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
 			err := domain.EnsureDNSForRouterState(realDomain, fqdnNoDot, state)
 			if err != nil {
@@ -273,7 +290,12 @@ func (p *FileProvider) processFile() {
 				if providerName == "" {
 					providerName = "file_profile"
 				}
-				state := domain.RouterState{SourceType: "file_profile", Name: providerName, Service: old.Target}
+				state := domain.RouterState{
+					SourceType: "file_profile",
+					Name:       providerName,
+					Service:    old.Target,
+					RecordType: recordType, // Set the actual DNS record type
+				}
 				log.Trace("%s Calling EnsureDNSRemoveForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
 				err := domain.EnsureDNSRemoveForRouterState(realDomain, fqdnNoDot, state)
 				if err != nil {
@@ -284,6 +306,7 @@ func (p *FileProvider) processFile() {
 	}
 	p.mutex.Lock()
 	p.lastRecords = current
+	p.isInitialLoad = false // Mark that we've completed the initial load
 	p.mutex.Unlock()
 }
 

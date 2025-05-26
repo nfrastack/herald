@@ -70,7 +70,7 @@ func RegisterProvider(name string, factory ProviderFactory) {
 	if _, dup := providers[name]; dup {
 		log.Fatal("[dns] RegisterProvider called twice for provider %s", name)
 	}
-	log.Verbose("[dns] Registering DNS provider: '%s'", name)
+
 	providers[name] = factory
 }
 
@@ -87,8 +87,42 @@ func GetProvider(name string, options map[string]string) (Provider, error) {
 
 // LoadProviderFromConfig loads a DNS provider from configuration
 func LoadProviderFromConfig(name string, config map[string]string) (Provider, error) {
-	// Load provider with provided options
-	return GetProvider(name, config)
+	profileName := name // Use the profile name passed in
+	if v, ok := config["profile_name"]; ok && v != "" {
+		profileName = v
+	}
+
+	// Get the actual provider type from config - use provider_type not type
+	providerType := ""
+	if v, ok := config["provider_type"]; ok && v != "" {
+		providerType = v
+	} else {
+		// Last fallback: try to determine provider type from known providers
+		if name == "cloudflare" || name == "hosts" {
+			providerType = name
+		} else {
+			// This might be a profile name, so we need to infer the type
+			providerType = name
+		}
+	}
+
+	log.Trace("[dns] Loading DNS Provider: %s (%s)", profileName, providerType)
+	log.Trace("[dns] Provider config: %+v", config)
+	return GetProvider(providerType, config)
+}
+
+// MergeProviderOptions merges provider-specific config into the options map
+func MergeProviderOptions(global map[string]string, provider map[string]interface{}) map[string]string {
+	merged := make(map[string]string)
+	for k, v := range global {
+		merged[k] = v
+	}
+	for k, v := range provider {
+		if str, ok := v.(string); ok {
+			merged[k] = str
+		}
+	}
+	return merged
 }
 
 // JoinHostWithDomain joins a hostname with a domain

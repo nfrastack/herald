@@ -9,9 +9,9 @@ import (
 
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
-	"reflect"
 )
 
 type ConfigFile struct {
@@ -173,8 +173,19 @@ func GetGlobalPollers() []string {
 func (dpc *DNSProviderConfig) GetOptions() map[string]string {
 	options := make(map[string]string)
 	for k, v := range dpc.Options {
-		if strVal, ok := v.(string); ok {
-			options[k] = strVal
+		switch val := v.(type) {
+		case string:
+			options[k] = val
+		case int:
+			options[k] = fmt.Sprintf("%d", val)
+		case int64:
+			options[k] = fmt.Sprintf("%d", val)
+		case float64:
+			options[k] = fmt.Sprintf("%v", val)
+		case bool:
+			options[k] = fmt.Sprintf("%t", val)
+		default:
+			options[k] = fmt.Sprintf("%v", val)
 		}
 	}
 	if dpc.APIToken != "" {
@@ -189,6 +200,7 @@ func (dpc *DNSProviderConfig) GetOptions() map[string]string {
 	if dpc.ZoneID != "" {
 		options["zone_id"] = dpc.ZoneID
 	}
+	// Always include type field - this is critical for provider loading
 	if dpc.Type != "" {
 		options["type"] = dpc.Type
 	}
@@ -207,7 +219,7 @@ func (ppc *PollProviderConfig) GetOptions(profileName string) map[string]string 
 		key := field.Tag.Get("yaml")
 		if key == "" {
 			key = strings.ToLower(field.Name)
-		 }
+		}
 		// Skip the "options" field since we handle it separately
 		if key == ",inline" {
 			continue
