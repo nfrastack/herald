@@ -168,10 +168,10 @@ func main() {
 	var dnsProviderName string
 	if len(providerNames) == 1 {
 		dnsProviderName = providerNames[0]
-		log.Debug("[provider] Only one DNS provider defined, using: %s", dnsProviderName)
+		log.Debug("[dns/provider] Only one DNS provider defined, using: %s", dnsProviderName)
 	} else {
 		// If more than one provider, require explicit provider selection per domain
-		log.Debug("[provider] Multiple DNS providers defined. Each domain must specify its provider explicitly.")
+		log.Debug("[dns/provider] Multiple DNS providers defined. Each domain must specify its provider explicitly.")
 	}
 
 	// Get the provider configuration (if only one provider, or for each domain as needed)
@@ -180,47 +180,24 @@ func main() {
 		var ok bool
 		providerConfig, ok = cfg.Providers[dnsProviderName]
 		if !ok {
-			log.Fatal("[provider] Provider configuration not found for: %s", dnsProviderName)
+			log.Fatal("[dns/provider] Provider configuration not found for: %s", dnsProviderName)
 		}
 	}
 
 	// Use DNSProviderConfig fields and Options
 	providerOptions := make(map[string]string)
 	if dnsProviderName != "" {
-		for k, v := range providerConfig.Options {
-			if strVal, ok := v.(string); ok {
-				providerOptions[k] = strVal
-			}
-		}
-		// Add known fields
-		if providerConfig.APIToken != "" {
-			providerOptions["api_token"] = providerConfig.APIToken
-		}
-		if providerConfig.APIKey != "" {
-			providerOptions["api_key"] = providerConfig.APIKey
-		}
-		if providerConfig.APIEmail != "" {
-			providerOptions["api_email"] = providerConfig.APIEmail
-		}
-		if providerConfig.ZoneID != "" {
-			providerOptions["zone_id"] = providerConfig.ZoneID
-		}
-		if providerConfig.Type != "" {
-			providerOptions["type"] = providerConfig.Type
-		}
-
-		// Add profile name for consistent logging
-		providerOptions["profile_name"] = dnsProviderName
-		providerOptions["name"] = dnsProviderName
-		log.Debug("[provider] Adding profile_name=%s to DNS provider options", dnsProviderName)
+		providerOptions = providerConfig.GetOptions()
+		log.Debug("[dns/provider] Using providerConfig.GetOptions() for DNS provider options: %v", providerOptions)
 	}
 
 	// Initialize DNS provider if only one is defined
 	var dnsProvider dns.Provider
 	if dnsProviderName != "" {
+		log.Info("[dns] Initializing DNS provider: %s", dnsProviderName)
 		dnsProvider, err = dns.LoadProviderFromConfig(dnsProviderName, providerOptions)
 		if err != nil {
-			log.Fatal("[provider] Failed to initialize DNS provider: %v", err)
+			log.Fatal("[dns/provider] Failed to initialize DNS provider: %v", err)
 		}
 	}
 
@@ -237,7 +214,9 @@ func main() {
 		}
 
 		// Map all fields from RecordConfig
-		domainMap["type"] = domainCfg.Record.Type
+		if domainCfg.Record.Type != "" {
+			domainMap["record_type"] = domainCfg.Record.Type // Use record_type to avoid conflict
+		}
 		if domainCfg.Record.TTL > 0 {
 			domainMap["ttl"] = fmt.Sprintf("%d", domainCfg.Record.TTL)
 		}
@@ -250,6 +229,19 @@ func main() {
 		// Add additional options
 		for k, v := range domainCfg.Options {
 			domainMap[k] = v
+		}
+
+		// IMPORTANT: Include the provider's type field in the domain config
+		if providerCfg, exists := cfg.Providers[domainCfg.Provider]; exists {
+			if providerCfg.Type != "" {
+				domainMap["provider_type"] = providerCfg.Type
+			}
+			// Merge provider-specific options
+			for k, v := range providerCfg.Options {
+				if strVal, ok := v.(string); ok {
+					domainMap[k] = strVal
+				}
+			}
 		}
 
 		// Store normalized domain name as key (domain keys are already normalized in the config)

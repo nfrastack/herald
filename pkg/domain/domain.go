@@ -17,7 +17,8 @@ type RouterState struct {
 	Rule        string
 	EntryPoints []string
 	Service     string
-	SourceType  string // e.g. "container", "router", etc.
+	SourceType  string // e.g. "container", "router", file, remote, etc.
+	RecordType  string // DNS record type (A, AAAA, CNAME) - from poll provider
 }
 
 // EnsureDNSForRouterState merges config, validates, and performs DNS add/update for a router event
@@ -62,6 +63,12 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	for k, v := range domainConfig {
 		providerOptions[k] = v
 	}
+
+	// Ensure the provider type is set correctly
+	if providerCfg.Type != "" {
+		providerOptions["provider_type"] = providerCfg.Type
+	}
+
 	// Mask sensitive values before logging
 	maskedProviderOptions := utils.MaskSensitiveOptions(providerOptions)
 	log.Trace("%s Merged providerOptions: %v", logPrefix, maskedProviderOptions)
@@ -74,7 +81,11 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 		}
 	}
 
-	recordType := providerOptions["type"]
+	// Get the record type from RouterState first, fallback to domain config
+	recordType := state.RecordType // Use record type from poll provider
+	if recordType == "" {
+		recordType = providerOptions["record_type"] // Use record_type from domain config as fallback
+	}
 	target := providerOptions["target"]
 	// Only override target if state.Service is a valid FQDN or IP
 	if state.Service != "" {
@@ -131,7 +142,17 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 
 	log.Debug("%s DNS params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d, update=%v, %s=%s", logPrefix, domain, recordType, hostname, target, ttl, overwrite, label, state.Name)
 
-	dnsProvider, err := dns.LoadProviderFromConfig(providerKey, providerOptions)
+	// Before calling LoadProviderFromConfig, merge global and provider-specific options
+	providerOptionsIface := make(map[string]interface{})
+	for k, v := range providerOptions {
+		providerOptionsIface[k] = v
+	}
+	providerCfg = config.GlobalConfig.Providers[providerKey]
+	globalOptions := (&providerCfg).GetOptions()
+	mergedOptions := dns.MergeProviderOptions(globalOptions, providerOptionsIface)
+
+	log.Trace("%s Loading DNS provider '%s' for domain operation", logPrefix, providerKey)
+	dnsProvider, err := dns.LoadProviderFromConfig(providerKey, mergedOptions)
 	if err != nil {
 		log.Error("%s Failed to load DNS provider '%s': %v", logPrefix, providerKey, err)
 		return err
@@ -178,7 +199,7 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 	maskedProviderOptions := utils.MaskSensitiveOptions(providerOptions)
 	log.Debug("%s Merged providerOptions for removal: %v", logPrefix, maskedProviderOptions)
 
-	recordType := providerOptions["type"]
+	recordType := providerOptions["record_type"] // Use record_type instead of type
 	target := providerOptions["target"]
 	if state.Service != "" {
 		target = state.Service
@@ -203,7 +224,17 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 	}
 	log.Debug("%s Final DNS removal params: domain=%s, recordType=%s, hostname=%s", logPrefix, domain, recordType, hostname)
 
-	dnsProvider, err := dns.LoadProviderFromConfig(providerKey, providerOptions)
+	// Before calling LoadProviderFromConfig, merge global and provider-specific options
+	providerOptionsIface2 := make(map[string]interface{})
+	for k, v := range providerOptions {
+		providerOptionsIface2[k] = v
+	}
+	providerCfg2 := config.GlobalConfig.Providers[providerKey]
+	globalOptions2 := (&providerCfg2).GetOptions()
+	mergedOptions2 := dns.MergeProviderOptions(globalOptions2, providerOptionsIface2)
+
+	log.Trace("%s Loading DNS provider '%s' for domain removal", logPrefix, providerKey)
+	dnsProvider, err := dns.LoadProviderFromConfig(providerKey, mergedOptions2)
 	if err != nil {
 		log.Error("%s Failed to load DNS provider '%s': %v", logPrefix, providerKey, err)
 		return err

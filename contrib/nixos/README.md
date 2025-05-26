@@ -84,6 +84,15 @@ This flake provides a NixOS module that allows you to configure and run the DNS 
         type = "cloudflare";
         api_token = "your-api-token";
       };
+      hosts = {
+        type = "hosts";
+        source = "/var/lib/dns-companion/hosts";
+        user = "dns-companion";
+        group = "dns-companion";
+        mode = 420; # 0644
+        enable_ipv4 = true;
+        enable_ipv6 = true;
+      };
     };
     domains = {
       example_com = {
@@ -99,6 +108,16 @@ This flake provides a NixOS module that allows you to configure and run the DNS 
         };
         include_subdomains = [ "api" "internal" ];
         exclude_subdomains = [ "dev" "staging" ];
+      };
+      local_domain = {
+        name = "local.test";
+        provider = "hosts";
+        record = {
+          type = "A";
+          ttl = 300;
+          update_existing = true;
+          allow_multiple = false;
+        };
       };
     };
     include = [
@@ -166,6 +185,12 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `api_token` (str): Cloudflare API token.
     * `api_email` (str): Cloudflare API email.
     * `api_key` (str): Cloudflare API Global Key
+  * `hosts` (attrs):
+    * `enable` (bool): Enable or disable the hosts provider.
+    * `source` (string): Path to the hosts file to manage.
+    * `user` (string): Username or UID to own the file. Optional.
+    * `group` (string): Group name or GID to own the file. Optional.
+    * `mode` (int): File permissions (e.g., 420 for 0644). Optional, default: 420 (0644).
 * `domains` (attrs): Domain profiles. Example:
   * `example_com` (attrs):
     * `name` (str): Domain name.
@@ -180,6 +205,5 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `include_subdomains` (list of str): Subdomains to include.
     * `exclude_subdomains` (list of str): Subdomains to exclude.
 * `include` (str or list of str): One or more YAML files to include into the main configuration.
-
 
 This setup allows you to fully configure and manage the DNS Companion service declaratively using NixOS.

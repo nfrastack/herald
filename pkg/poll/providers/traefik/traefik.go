@@ -340,6 +340,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 			EntryPoints: entryPoints,
 			Service:     service,
 			SourceType:  "router",
+			RecordType:  "CNAME", // Traefik routers typically create CNAME records
 		}
 		hosts := extractHostsFromRule(rule)
 		for _, h := range hosts {

@@ -1,4 +1,4 @@
-## patch-records_error (wip)
+## WIP
 >>>>>>> main
 
    ### Added
@@ -6,6 +6,8 @@
      - (poll) Added File provider to read YAML/JSON from filesystem
      - (poll/file) Customizable interval to poll for changes or ondemand/fsnotify
      - (poll) Added Remote provider to read YAML/JSON from a HTTP/HTTPS source with basic authentication supported
+     - (dns) support multiple providers
+     - (dns) Add DNS provider to write to local hosts file
 
    ### Changed
      - Created pollCommonfunctions for poll providers (http, records management, options, processing of parsed,received data, filter logic for easier implementation of future pollers)

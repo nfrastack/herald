@@ -603,6 +603,7 @@ func (p *DockerProvider) processDNSEntries(entries []poll.DNSEntry, remove bool)
 			Service:     entry.Target,
 			Rule:        "docker",
 			EntryPoints: nil,
+			RecordType:  entry.RecordType, // Set the actual DNS record type
 		}
 		if remove {
 			if err := domain.EnsureDNSRemoveForRouterState(domainName, fqdn, state); err != nil {

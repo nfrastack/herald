@@ -376,22 +376,6 @@ func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 
 // CleanConfigSections removes invalid keys from DNS providers and poll providers after merging includes
 func CleanConfigSections(cfg *ConfigFile) {
-	// Define valid keys for DNS providers - poll providers should accept any options
-	validDNSProviderKeys := map[string]struct{}{
-		"type": {}, "api_token": {}, "api_key": {}, "api_email": {}, "zone_id": {},
-	}
-
-	// Clean DNS providers
-	for name, provider := range cfg.Providers {
-		for k := range provider.Options {
-			if _, ok := validDNSProviderKeys[k]; !ok {
-				log.Debug("[config/clean] Removing invalid DNS provider key '%s' from provider '%s'", k, name)
-				delete(provider.Options, k)
-			}
-		}
-		cfg.Providers[name] = provider
-	}
-
-	// No cleaning for poll providers - pass all options through
+	// No cleaning for DNS providers - pass all options through
 	// This allows providers to handle their own options and filtering
 }

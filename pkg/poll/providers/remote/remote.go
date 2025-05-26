@@ -1,11 +1,14 @@
 package remote
 
 import (
+	"dns-companion/pkg/config"
+	"dns-companion/pkg/domain"
 	"dns-companion/pkg/log"
 	"dns-companion/pkg/poll"
 	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
 
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -89,17 +92,111 @@ func (p *RemoteProvider) pollLoop() {
 }
 
 func (p *RemoteProvider) processRemote() {
-	providerName := p.options["name"]
-	if providerName == "" {
-		providerName = "remote_profile"
+	isInitialLoad := len(p.lastRecords) == 0
+	entries, err := p.readRemote()
+	if err != nil {
+		log.Error("%s Failed to read remote: %v", p.logPrefix, err)
+		return
 	}
-	pollCommon.ProcessEntries(
-		p.readRemote,
-		&p.lastRecords,
-		"remote_profile",
-		providerName,
-		p.opts.RecordRemoveOnStop,
-	)
+	log.Verbose("%s Processing %d DNS entries from remote", p.logPrefix, len(entries))
+
+	current := make(map[string]poll.DNSEntry)
+	for _, e := range entries {
+		fqdn := e.GetFQDN()
+		recordType := e.GetRecordType()
+		key := fqdn + ":" + recordType
+		current[key] = e
+		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+		if _, ok := p.lastRecords[key]; !ok {
+			if isInitialLoad {
+				log.Info("%s Initial record detected: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
+			} else {
+				log.Info("%s New record detected: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
+			}
+
+			// Extract domain and subdomain
+			domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
+			log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", p.logPrefix, domainKey, subdomain, fqdnNoDot)
+			if domainKey == "" {
+				log.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
+				continue
+			}
+
+			domainCfg, ok := config.GlobalConfig.Domains[domainKey]
+			if !ok {
+				log.Error("%s Domain '%s' not found in config for fqdn='%s'", p.logPrefix, domainKey, fqdnNoDot)
+				continue
+			}
+
+			realDomain := domainCfg.Name
+			log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
+
+			providerName := p.options["name"]
+			if providerName == "" {
+				providerName = "remote_profile"
+			}
+
+			state := domain.RouterState{
+				SourceType: "remote_profile",
+				Name:       providerName,
+				Service:    e.Target,
+				RecordType: recordType,
+			}
+
+			log.Trace("%s Calling EnsureDNSForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+			err := domain.EnsureDNSForRouterState(realDomain, fqdnNoDot, state)
+			if err != nil {
+				log.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
+			}
+		}
+	}
+
+	if p.opts.RecordRemoveOnStop {
+		for key, old := range p.lastRecords {
+			if _, ok := current[key]; !ok {
+				fqdn := old.GetFQDN()
+				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+				recordType := old.GetRecordType()
+				log.Info("%s Record removed: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
+
+				domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
+				log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", p.logPrefix, domainKey, subdomain, fqdnNoDot)
+				if domainKey == "" {
+					log.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
+					continue
+				}
+
+				domainCfg, ok := config.GlobalConfig.Domains[domainKey]
+				if !ok {
+					log.Error("%s Domain '%s' not found in config for fqdn='%s' (removal)", p.logPrefix, domainKey, fqdnNoDot)
+					continue
+				}
+
+				realDomain := domainCfg.Name
+				log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", p.logPrefix, realDomain, domainKey)
+
+				providerName := p.options["name"]
+				if providerName == "" {
+					providerName = "remote_profile"
+				}
+
+				state := domain.RouterState{
+					SourceType: "remote_profile",
+					Name:       providerName,
+					Service:    old.Target,
+					RecordType: recordType,
+				}
+
+				log.Trace("%s Calling EnsureDNSRemoveForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+				err := domain.EnsureDNSRemoveForRouterState(realDomain, fqdnNoDot, state)
+				if err != nil {
+					log.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
+				}
+			}
+		}
+	}
+
+	p.lastRecords = current
 }
 
 func (p *RemoteProvider) readRemote() ([]poll.DNSEntry, error) {
