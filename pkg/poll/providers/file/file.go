@@ -217,7 +217,7 @@ func (p *FileProvider) processFile() {
 		log.Error("%s Failed to read file: %v", p.logPrefix, err)
 		return
 	}
-	log.Verbose("%s Processing %d DNS entries from file", p.logPrefix, len(entries))
+	log.Debug("%s Processing %d DNS entries from file", p.logPrefix, len(entries))
 	log.Trace("%s Available domains in config: %v", p.logPrefix, keys(config.GlobalConfig.Domains))
 	current := make(map[string]poll.DNSEntry)
 	for _, e := range entries {
