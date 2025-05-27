@@ -1,0 +1,30 @@
+; Example DNS zone file for example.com
+; Only A, AAAA, and CNAME records are used by dns-companion. Other records are required for zone file validity but are ignored.
+
+$ORIGIN example.com.
+
+; SOA record (required for zone file validity, ignored by dns-companion)
+@   IN  SOA ns1.example.com. admin.example.com. (
+        2025052712  ; Serial
+        3600        ; Refresh
+        900         ; Retry
+        604800      ; Expire
+        300         ; Minimum
+)
+
+; NS records (required for zone file validity, ignored by dns-companion)
+@   IN  NS  ns1.example.com.
+@   IN  NS  ns2.example.com.
+
+; --- Records below are actually used by dns-companion ---
+
+; A record
+www     300 IN A     192.0.2.10        ; used
+
+; AAAA record
+ipv6    120 IN AAAA  2001:db8::1       ; used
+
+; CNAME record
+api     120 IN CNAME www.example.com   ; used
+
+; MX, TXT, and other records are ignored by dns-companion
