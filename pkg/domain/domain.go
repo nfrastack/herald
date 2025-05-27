@@ -4,6 +4,7 @@ import (
 	"dns-companion/pkg/config"
 	"dns-companion/pkg/dns"
 	"dns-companion/pkg/log"
+	"dns-companion/pkg/output"
 	"dns-companion/pkg/utils"
 
 	"fmt"
@@ -168,6 +169,32 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	if err != nil {
 		return err
 	}
+
+	// Call output providers after successful DNS operation
+	log.Debug("%s Attempting to call output providers", logPrefix)
+	outputManager := output.GetOutputManager()
+	if outputManager != nil {
+		log.Debug("%s Output manager found, writing record", logPrefix)
+		// Use the actual domain name for output providers, not the normalized key
+		log.Debug("%s Using domain '%s' for output providers", logPrefix, domain)
+		outputErr := outputManager.WriteRecordWithSource(domain, hostname, target, recordType, ttl, state.SourceType)
+		if outputErr != nil {
+			log.Warn("%s Failed to write to output providers: %v", logPrefix, outputErr)
+			// Don't fail the DNS operation if output fails
+		} else {
+			log.Debug("%s Successfully wrote to output providers", logPrefix)
+			// Sync the outputs to write files to disk
+			syncErr := outputManager.SyncAll()
+			if syncErr != nil {
+				log.Warn("%s Failed to sync output providers: %v", logPrefix, syncErr)
+			} else {
+				log.Trace("%s Successfully synced output providers to disk", logPrefix)
+			}
+		}
+	} else {
+		log.Debug("%s No output manager found", logPrefix)
+	}
+
 	return nil
 }
 
@@ -250,6 +277,23 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 		log.Error("%s Failed to delete DNS record for '%s': %v", logPrefix, fqdn, err)
 		return err
 	}
+
+	// Call output providers after successful DNS record removal
+	outputManager := output.GetOutputManager()
+	if outputManager != nil {
+		outputErr := outputManager.RemoveRecord(domain, hostname, recordType)
+		if outputErr != nil {
+			log.Warn("%s Failed to remove from output providers: %v", logPrefix, outputErr)
+			// Don't fail the DNS operation if output fails
+		} else {
+			// Sync the outputs to write files to disk
+			syncErr := outputManager.SyncAll()
+			if syncErr != nil {
+				log.Warn("%s Failed to sync output providers after removal: %v", logPrefix, syncErr)
+			}
+		}
+	}
+
 	label := state.SourceType
 	if strings.Contains(label, "|") {
 		parts := strings.SplitN(label, "|", 2)
