@@ -184,10 +184,14 @@ func (p *FileProvider) watchLoop() {
 			if !ok {
 				return
 			}
-			log.Trace("%s fsnotify event: Name='%s', Op=%v", p.logPrefix, event.Name, event.Op)
+
+			// Check if this event is for our actual source file
 			absSource, _ := filepath.Abs(p.source)
 			absEvent, _ := filepath.Abs(event.Name)
+
+			// Only log and process events for our actual source file, not other files in directory
 			if absEvent == absSource && (event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) != 0) {
+				log.Trace("%s fsnotify event: Name='%s', Op=%v", p.logPrefix, event.Name, event.Op)
 				switch {
 				case event.Op&fsnotify.Write != 0:
 					log.Verbose("%s File modified: '%s'", p.logPrefix, event.Name)

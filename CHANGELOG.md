@@ -7,7 +7,9 @@
      - (poll/file) Customizable interval to poll for changes or ondemand/fsnotify
      - (poll) Added Remote provider to read YAML/JSON from a HTTP/HTTPS source with basic authentication supported
      - (dns) support multiple providers
-     - (dns) Add DNS provider to write to local hosts file
+     - (output) Add functionality to output records to various files (hosts, json, yaml, zone)
+     - (output/hosts) auto flatten cnames to accomodate for deficiencies in host file format
+     - (output) implement smart %template% logic for filename writing
 
    ### Changed
      - Created pollCommonfunctions for poll providers (http, records management, options, processing of parsed,received data, filter logic for easier implementation of future pollers)

@@ -6,6 +6,7 @@ package config
 
 import (
 	"dns-companion/pkg/log"
+	"dns-companion/pkg/output"
 
 	"fmt"
 	"os"
@@ -20,6 +21,7 @@ type ConfigFile struct {
 	Providers map[string]DNSProviderConfig  `yaml:"providers"`
 	Polls     map[string]PollProviderConfig `yaml:"polls"`
 	Domains   map[string]DomainConfig       `yaml:"domains"`
+	Outputs   map[string]interface{}        `yaml:"outputs" json:"outputs"`
 }
 
 type GeneralConfig struct {
@@ -59,13 +61,14 @@ type PollProviderConfig struct {
 }
 
 type DomainConfig struct {
-	Name              string            `yaml:"name"`
-	Provider          string            `yaml:"provider"`
-	ZoneID            string            `yaml:"zone_id"`
-	Record            RecordConfig      `yaml:"record"`
-	Options           map[string]string `yaml:"options"`
-	ExcludeSubdomains []string          `yaml:"exclude_subdomains"`
-	IncludeSubdomains []string          `yaml:"include_subdomains"`
+	Name              string                            `yaml:"name"`
+	Provider          string                            `yaml:"provider"`
+	ZoneID            string                            `yaml:"zone_id"`
+	Record            RecordConfig                      `yaml:"record"`
+	Options           map[string]string                 `yaml:"options"`
+	ExcludeSubdomains []string                          `yaml:"exclude_subdomains"`
+	IncludeSubdomains []string                          `yaml:"include_subdomains"`
+	Outputs           map[string]map[string]interface{} `yaml:"outputs"`
 }
 
 // Global domain configuration storage
@@ -251,4 +254,65 @@ func (ppc *PollProviderConfig) GetOptions(profileName string) map[string]string 
 	options["name"] = profileName
 
 	return options
+}
+
+// InitializeOutputManager initializes the output manager with profiles from config
+func InitializeOutputManager() error {
+	outputManager := output.NewOutputManager()
+
+	log.Trace("[config/output] Starting output manager initialization")
+
+	if GlobalConfig.Outputs != nil {
+		log.Debug("[config/output] Found outputs configuration")
+		// Treat everything under outputs as profile names directly
+		for profileName, profileConfig := range GlobalConfig.Outputs {
+			log.Debug("[config/output] Processing profile: %s", profileName)
+			if configMap, ok := profileConfig.(map[string]interface{}); ok {
+				format, _ := configMap["format"].(string)
+				path, _ := configMap["path"].(string)
+				domainsRaw := configMap["domains"]
+
+				log.Trace("[config/output] Output Profile %s: format=%s, path=%s, domains=%v", profileName, format, path, domainsRaw)
+
+				var domains []string
+				switch v := domainsRaw.(type) {
+				case string:
+					if v == "ALL" {
+						domains = []string{"ALL"}
+					} else {
+						domains = []string{v}
+					}
+				case []interface{}:
+					for _, d := range v {
+						if ds, ok := d.(string); ok {
+							domains = append(domains, ds)
+						}
+					}
+				}
+
+				// Remove known keys to get the rest of the config
+				profileConfigCopy := make(map[string]interface{})
+				for k, v := range configMap {
+					if k != "format" && k != "path" && k != "domains" {
+						profileConfigCopy[k] = v
+					}
+				}
+
+				err := outputManager.AddProfile(profileName, format, path, domains, profileConfigCopy)
+				if err != nil {
+					log.Error("[output] Failed to add output profile '%s': %v", profileName, err)
+					return err
+				} else {
+					log.Verbose("[output] Registered output profile '%s' (%s)", profileName, format)
+				}
+			} else {
+				log.Warn("[config/output] Profile '%s' has invalid configuration type", profileName)
+			}
+		}
+	} else {
+		log.Debug("[config/output] No outputs configuration found")
+	}
+
+	output.SetGlobalOutputManager(outputManager)
+	return nil
 }

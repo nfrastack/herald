@@ -217,7 +217,47 @@
                   exclude_subdomains = [ "dev" "staging" ];
                 };
               };
-              description = "Domain profiles. Each key is the domain profile name, and the value is an attribute set of options for that domain.";
+              description = ''
+                Domain profiles. Each key is the domain profile name, and the value is an attribute set of options for that domain.
+                Output configuration is now handled separately via the outputs.profiles section.
+              '';
+            };
+
+            outputs = lib.mkOption {
+              type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
+              default = {};
+              example = {
+                hosts_export = {
+                  format = "hosts";
+                  path = "/etc/hosts.dns-companion";
+                  domains = [ "all" ];
+                  user = "root";
+                  group = "root";
+                  mode = 420; # 0644
+                  enable_ipv4 = true;
+                  enable_ipv6 = false;
+                  header_comment = "Managed by DNS Companion";
+                };
+                json_export = {
+                  format = "json";
+                  path = "/var/lib/dns-companion/records.json";
+                  domains = [ "example.com" "test.com" ];
+                  user = "dns-companion";
+                  group = "dns-companion";
+                  mode = 420;
+                  generator = "dns-companion-nixos";
+                  hostname = "nixos-server";
+                  comment = "Exported DNS records";
+                  indent = true;
+                };
+              };
+              description = ''
+                Output profile system. Configure multiple independent output profiles
+                that can target specific domains, multiple domains, or all domains ("all").
+
+                Each profile supports format-specific options like SOA records for zone files,
+                metadata for YAML/JSON exports, and file ownership settings.
+              '';
             };
 
             include = lib.mkOption {
@@ -233,35 +273,6 @@
                 Included files are merged into the main config. Later files override earlier ones.
               '';
             };
-
-            hosts = {
-              enable = lib.mkOption {
-                type = lib.types.bool;
-                default = false;
-                description = ''
-                  Enable the hosts DNS provider. Writes A/AAAA records to a hosts file. CNAMEs are flattened automatically.
-                '';
-              };
-              source = lib.mkOption {
-                type = lib.types.str;
-                description = "Path to the hosts file to manage.";
-              };
-              user = lib.mkOption {
-                type = lib.types.str;
-                default = "";
-                description = "Username or UID to own the file (optional).";
-              };
-              group = lib.mkOption {
-                type = lib.types.str;
-                default = "";
-                description = "Group name or GID to own the file (optional).";
-              };
-              mode = lib.mkOption {
-                type = lib.types.int;
-                default = 420; # 0644
-                description = "File permissions (e.g., 420 for 0644).";
-              };
-            };
           };
 
           config = lib.mkIf cfg.enable {
@@ -276,6 +287,7 @@
                   // (if cfg.polls != {} then { polls = reorderSection cfg.polls; } else {})
                   // (if cfg.providers != {} then { providers = reorderSection cfg.providers; } else {})
                   // (if cfg.domains != {} then { domains = cfg.domains; } else {})
+                  // (if cfg.outputs != {} then { outputs = cfg.outputs; } else {})
                   // (if cfg.include != null then { include = cfg.include; } else {});
               in yaml.generate "dns-companion.yml" configData;
 
