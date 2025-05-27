@@ -14,34 +14,35 @@ import (
 	"github.com/docker/docker/api/types"
 )
 
-// matchFilter checks if a container matches a single filter
-func matchFilter(filter pollCommon.Filter, container types.ContainerJSON) bool {
+// MatchDockerFilter checks if a container matches a pollCommon.Filter
+func MatchDockerFilter(filter pollCommon.Filter, container types.ContainerJSON) bool {
+	// Handle all filter types
 	switch filter.Type {
 	case pollCommon.FilterTypeNone:
 		return true
-
 	case pollCommon.FilterTypeLabel:
 		return matchLabelFilter(filter.Value, container)
-
 	case pollCommon.FilterTypeName:
 		return matchNameFilter(filter.Value, container)
-
 	case pollCommon.FilterTypeNetwork:
 		return matchNetworkFilter(filter.Value, container)
-
 	case pollCommon.FilterTypeImage:
 		return matchImageFilter(filter.Value, container)
-
-	case pollCommon.FilterTypeService:
-		return matchServiceFilter(filter.Value, container)
-
-	case pollCommon.FilterTypeHealth:
-		return matchHealthFilter(filter.Value, container)
-
+	// For service and health, use pollCommon logic if needed in the future
 	default:
-		// Unknown filter type, don't match
 		return false
 	}
+}
+
+// EvaluateDockerFilters applies a FilterConfig to a Docker container
+func EvaluateDockerFilters(fc pollCommon.FilterConfig, container types.ContainerJSON) bool {
+	return fc.Evaluate(container, func(f pollCommon.Filter, entry any) bool {
+		c, ok := entry.(types.ContainerJSON)
+		if !ok {
+			return false
+		}
+		return MatchDockerFilter(f, c)
+	})
 }
 
 // matchLabelFilter checks if a container matches a label filter
@@ -146,46 +147,4 @@ func matchImageFilter(filterValue string, container types.ContainerJSON) bool {
 	}
 
 	return false
-}
-
-// matchServiceFilter checks if a container belongs to a specific service (Swarm)
-func matchServiceFilter(filterValue string, container types.ContainerJSON) bool {
-	// Check for Docker Swarm service labels
-	serviceName, hasServiceName := container.Config.Labels["com.docker.swarm.service.name"]
-	if !hasServiceName {
-		return false
-	}
-
-	// Check for direct match
-	if serviceName == filterValue {
-		return true
-	}
-
-	// Check for wildcard match
-	if strings.Contains(filterValue, "*") || strings.Contains(filterValue, "?") {
-		matched, err := filepath.Match(filterValue, serviceName)
-		if err != nil {
-			// If pattern is invalid, fall back to direct comparison
-			return serviceName == filterValue
-		}
-		return matched
-	}
-
-	return false
-}
-
-// matchHealthFilter checks if a container's health status matches the filter
-func matchHealthFilter(filterValue string, container types.ContainerJSON) bool {
-	if container.State == nil {
-		return false
-	}
-
-	// If container has no health check, return true only if filter value is "none"
-	if container.State.Health == nil {
-		return strings.ToLower(filterValue) == "none"
-	}
-
-	// Check health status
-	healthStatus := container.State.Health.Status
-	return strings.ToLower(healthStatus) == strings.ToLower(filterValue)
 }

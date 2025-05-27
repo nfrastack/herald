@@ -17,7 +17,6 @@ DNS Companion is an independent project and is not affiliated with, endorsed by,
 
 nfrastack <code@nfrastack.com>
 
-
 ## Table of Contents
 
 - [About](#about)
@@ -26,66 +25,13 @@ nfrastack <code@nfrastack.com>
 - [Table of Contents](#table-of-contents)
 - [Prerequisites and Assumptions](#prerequisites-and-assumptions)
 - [Installing](#installing)
-  - [From Source](#from-source)
-  - [Precompiled Binaries](#precompiled-binaries)
-    - [Supported Architectures](#supported-architectures)
-    - [How to Download](#how-to-download)
-    - [How to Use](#how-to-use)
-    - [Running in Background](#running-in-background)
-  - [Containers](#containers)
-  - [Distributions](#distributions)
-    - [NixOS](#nixos)
 - [Configuration](#configuration)
-  - [Overview](#overview)
-    - [Precedence Order](#precedence-order)
-  - [Example Configuration File](#example-configuration-file)
-  - [Configuration Examples and Files](#configuration-examples-and-files)
-    - [YAML Configuration Examples](#yaml-configuration-examples)
-    - [Container Configuration](#container-configuration)
-  - [NixOS Integration](#nixos-integration)
-    - [Using the NixOS Module](#using-the-nixos-module)
-    - [Multiple File Loading \& Includes](#multiple-file-loading--includes)
-    - [Example: Multiple Config Files](#example-multiple-config-files)
-    - [Example: YAML Include](#example-yaml-include)
-  - [General Options](#general-options)
 - [Environment Variables](#environment-variables)
-  - [Default Options](#default-options)
-  - [Pollers](#pollers)
-    - [Docker Poller](#docker-poller)
-      - [Config File](#config-file)
-      - [Environment Variables](#environment-variables-1)
-      - [Usage of Docker Provider](#usage-of-docker-provider)
-      - [Creating Records with Container Labels](#creating-records-with-container-labels)
-        - [Examples](#examples)
-        - [Docker Label Configuration](#docker-label-configuration)
-      - [Optional Record Configuration](#optional-record-configuration)
-        - [Examples](#examples-1)
-        - [Example: AAAA Record (IPv6)](#example-aaaa-record-ipv6)
-        - [Example: Auto-detect AAAA Record](#example-auto-detect-aaaa-record)
-        - [Example: Multiple A/AAAA Record Labels](#example-multiple-aaaaa-record-labels)
-      - [Traefik Integration](#traefik-integration)
-      - [Docker Container Filtering](#docker-container-filtering)
-    - [Traefik Poller](#traefik-poller)
-  - [Simple filter (single filter)](#simple-filter-single-filter)
-  - [Advanced filters (multiple, AND/OR/NOT/Negate)](#advanced-filters-multiple-andornotnegate)
-      - [Poller Traefik Configuration File](#poller-traefik-configuration-file)
-      - [Poller Traefik Environment Variables](#poller-traefik-environment-variables)
-  - [Poller File Provider](#poller-file-provider)
-  - [Remote Provider](#remote-provider)
-    - [Example configuration](#example-configuration)
-    - [Options](#options)
-  - [Providers](#providers)
-    - [Supported Providers](#supported-providers)
-    - [Provider Configuration (YAML)](#provider-configuration-yaml)
-    - [Provider Environment Variables](#provider-environment-variables)
-- [Hosts DNS Provider](#hosts-dns-provider)
-  - [Domains](#domains)
-    - [Domain Environment Variables](#domain-environment-variables)
+- [Pollers](#pollers)
+- [Providers](#providers)
+- [Domains](#domains)
+- [Output Providers](#output-providers)
 - [Support](#support)
-  - [Usage](#usage)
-  - [Bugfixes](#bugfixes)
-  - [Feature Requests](#feature-requests)
-  - [Updates](#updates)
 - [License](#license)
 
 ## Prerequisites and Assumptions
@@ -185,12 +131,14 @@ The repository includes several configuration examples to help you get started:
 #### YAML Configuration Examples
 
 Located in [`contrib/config/`](contrib/config/):
+
 - **Complete example**: [`dns-companion.yaml.sample`](contrib/config/dns-companion.yaml.sample) - Shows all configuration options including providers, polls, and domains
 - **Environment variables**: [`env.sample`](contrib/config/env.sample) - Demonstrates environment-based configuration
 
 #### Container Configuration
 
 For container deployments, see [`container/README.md`](container/README.md) which includes:
+
 - Docker environment variable configuration
 - Container-specific examples
 - Docker Compose setup examples
@@ -207,42 +155,6 @@ The flake provides a comprehensive NixOS module that allows declarative configur
 - Full NixOS module options reference
 - Example configurations for all supported providers and pollers
 - Integration with systemd services
-
-Key NixOS module features:
-- Declarative YAML configuration generation
-- Systemd service management
-- Support for all DNS providers (Cloudflare, hosts file)
-- Support for all poll providers (Docker, Traefik, file, remote)
-- File includes and multi-file configuration support
-
-Example NixOS configuration snippet:
-
-```nix
-{
-  imports = [
-    inputs.dns-companion.nixosModules.default
-  ];
-
-  services.dns-companion = {
-    enable = true;
-    general.poll_profiles = [ "docker" ];
-    providers.cloudflare = {
-      type = "cloudflare";
-      api_token = "your-token-here";
-    };
-    providers.hosts = {
-      type = "hosts";
-      source = "/etc/hosts.dns-companion";
-      enable_ipv4 = true;
-      enable_ipv6 = false;
-    };
-    domains.example_com = {
-      name = "example.com";
-      provider = "cloudflare";
-    };
-  };
-}
-```
 
 #### Multiple File Loading & Includes
 
@@ -293,11 +205,11 @@ Provider, poll, and domain-specific environment variables are also supported. Se
 
 The following environment variables can be used to configure DNS Companion:
 
-| Variable         | Description                                       | Default |
-| ---------------- | ------------------------------------------------- | ------- |
-| `DRY_RUN`        | If true, do not perform actual DNS updates        | `false` |
-| `LOG_LEVEL`      | Set log level (`trace` `debug`, `verbose`, `info`)           | `verbose`  |
-| `LOG_TIMESTAMPS` | Include timestamps in log output (`true`/`false`) | `true`  |
+| Variable         | Description                                        | Default   |
+| ---------------- | -------------------------------------------------- | --------- |
+| `DRY_RUN`        | If true, do not perform actual DNS updates         | `false`   |
+| `LOG_LEVEL`      | Set log level (`trace` `debug`, `verbose`, `info`) | `verbose` |
+| `LOG_TIMESTAMPS` | Include timestamps in log output (`true`/`false`)  | `true`    |
 
 ### Default Options
 
@@ -371,28 +283,28 @@ polls:
     record_remove_on_stop: true
 ```
 
-##### Environment Variables
+##### Docker Poller Environment Variables
 
-| Variable                                 | Description                                                      | Default                       |
-| ---------------------------------------- | ---------------------------------------------------------------- | ----------------------------- |
-| `API_URL`                                | Docker API endpoint (e.g., `tcp://111.222.111.32:2376`)          | `unix:///var/run/docker.sock` |
-| `API_AUTH_USER`                          | Username for basic auth to the Docker API                       |                               |
-| `API_AUTH_PASS`                          | Password for basic auth to the Docker API                       |                               |
-| `PROCESS_EXISTING`                       | Process existing containers on startup                           | `false`                       |
-| `EXPOSE_CONTAINERS`                      | Expose all containers without requiring explicit labels           | `false`                       |
-| `SWARM_MODE`                             | Enable Docker Swarm Mode                                          | `false`                       |
-| `RECORD_REMOVE_ON_STOP`                  | Remove DNS records when container stops                           | `false`                       |
+| Variable                | Description                                             | Default                       |
+| ----------------------- | ------------------------------------------------------- | ----------------------------- |
+| `API_URL`               | Docker API endpoint (e.g., `tcp://111.222.111.32:2376`) | `unix:///var/run/docker.sock` |
+| `API_AUTH_USER`         | Username for basic auth to the Docker API               |                               |
+| `API_AUTH_PASS`         | Password for basic auth to the Docker API               |                               |
+| `PROCESS_EXISTING`      | Process existing containers on startup                  | `false`                       |
+| `EXPOSE_CONTAINERS`     | Expose all containers without requiring explicit labels | `false`                       |
+| `SWARM_MODE`            | Enable Docker Swarm Mode                                | `false`                       |
+| `RECORD_REMOVE_ON_STOP` | Remove DNS records when container stops                 | `false`                       |
 
-| Variable                                   | Description                                                      | Default                       |
-| ------------------------------------------ | ---------------------------------------------------------------- | ----------------------------- |
-| `POLL_<PROFILENAME>_TYPE`                  | Poller type (docker, traefik, etc.)                              |                               |
-| `POLL_<PROFILENAME>_API_URL`               | Docker API endpoint                                              |                               |
-| `POLL_<PROFILENAME>_API_AUTH_USER`         | Username for basic auth to the Docker API                       |                               |
-| `POLL_<PROFILENAME>_API_AUTH_PASS`         | Password for basic auth to the Docker API                       |                               |
-| `POLL_<PROFILENAME>_PROCESS_EXISTING`      | Process existing containers on startup                           |                               |
-| `POLL_<PROFILENAME>_EXPOSE_CONTAINERS`     | Expose containers (true/false)                                   |                               |
-| `POLL_<PROFILENAME>_SWARM_MODE`            | Enable Docker Swarm mode                                         |                               |
-| `POLL_<PROFILENAME>_RECORD_REMOVE_ON_STOP` | Remove DNS on stop (true/false)                                  |                               |
+| Variable                                   | Description                               | Default |
+| ------------------------------------------ | ----------------------------------------- | ------- |
+| `POLL_<PROFILENAME>_TYPE`                  | Poller type (docker, traefik, etc.)       |         |
+| `POLL_<PROFILENAME>_API_URL`               | Docker API endpoint                       |         |
+| `POLL_<PROFILENAME>_API_AUTH_USER`         | Username for basic auth to the Docker API |         |
+| `POLL_<PROFILENAME>_API_AUTH_PASS`         | Password for basic auth to the Docker API |         |
+| `POLL_<PROFILENAME>_PROCESS_EXISTING`      | Process existing containers on startup    |         |
+| `POLL_<PROFILENAME>_EXPOSE_CONTAINERS`     | Expose containers (true/false)            |         |
+| `POLL_<PROFILENAME>_SWARM_MODE`            | Enable Docker Swarm mode                  |         |
+| `POLL_<PROFILENAME>_RECORD_REMOVE_ON_STOP` | Remove DNS on stop (true/false)           |         |
 
 ##### Usage of Docker Provider
 
@@ -630,7 +542,6 @@ polls:
 - `api_auth_user`: Username for basic auth to the Traefik API (optional).
 - `api_auth_pass`: Password for basic auth to the Traefik API (optional).
 - `interval`: How often to poll the Traefik API for updates (e.g., `15s`, `1m`, `1h`).
-- `config_path`: (string) Path to the Traefik configuration file or directory to scan for routes and hostnames (for file-based config reading).
 
 **Filter options:**
 
@@ -675,6 +586,7 @@ You can use either style—**the loader will dynamically handle both**.
 **Environment variables:**
 
 Environment variables can also be used for authentication:
+
 - `TRAEFIK_API_AUTH_USER`: Basic auth username
 - `TRAEFIK_API_AUTH_PASS`: Basic auth password
 
@@ -691,12 +603,12 @@ polls:
 
 ##### Poller Traefik Environment Variables
 
-| Variable                                   | Description                                                      |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| `POLL_<PROFILENAME>_TYPE`                  | Value should be `traefik`                                        |
-| `POLL_<PROFILENAME>_API_URL`               | Traefik API URL                                                  |
-| `POLL_<PROFILENAME>_INTERVAL`              | Poll interval (supports units, e.g., `15s`, `1m`, `60` for 60 seconds) |
-| `POLL_<PROFILENAME>_CONFIG_PATH`           | Path to Traefik configuration file or directory (file-based)     |
+| Variable                         | Description                                                            |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| `POLL_<PROFILENAME>_TYPE`        | Value should be `traefik`                                              |
+| `POLL_<PROFILENAME>_API_URL`     | Traefik API URL                                                        |
+| `POLL_<PROFILENAME>_INTERVAL`    | Poll interval (supports units, e.g., `15s`, `1m`, `60` for 60 seconds) |
+| `POLL_<PROFILENAME>_CONFIG_PATH` | Path to Traefik configuration file or directory (file-based)           |
 
 ### Poller File Provider
 
@@ -716,6 +628,7 @@ poll:
 ```
 
 **File format (YAML):**
+
 ```yaml
 records:
   - host: www.example.com
@@ -728,6 +641,7 @@ records:
 ```
 
 **Options:**
+
 - `source` (required): Path to the file.
 - `format`: `yaml` (default) or `json`.
 - `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
@@ -773,7 +687,6 @@ Providers are components that manage DNS records. Each provider has its own conf
 #### Supported Providers
 
 - **Cloudflare**: Manage DNS records via Cloudflare API.
-- **hosts**: Write A/AAAA records to a hosts file (e.g. /etc/hosts). Supports file ownership and permissions. CNAMEs are flattened to A/AAAA records automatically.
 
 #### Provider Configuration (YAML)
 
@@ -797,56 +710,9 @@ providers:
 | `PROVIDER_<PROFILENAME>_API_EMAIL`                | API email                        |
 | `PROVIDER_<PROFILENAME>_<PROVIDER-TYPE>_<OPTION>` | Provider-specific options        |
 
-
-## Hosts DNS Provider
-
-The `hosts` DNS provider writes A/AAAA records to a hosts file (e.g. `dns-companion.hosts`).
-CNAMEs are automatically flattened to A/AAAA records. Only A and AAAA records are supported.
-
-**Configuration options:**
-
-- `source` (string): Path to the hosts file to manage. Default: `./hosts`
-- `user` (string): Username or UID to own the file. Optional.
-- `group` (string): Group name or GID to own the file. Optional.
-- `mode` (int): File permissions (e.g., 0644). Optional, default: 0644.
-- `enable_ipv4` (bool): Whether to write IPv4 A records. Default: `true`
-- `enable_ipv6` (bool): Whether to write IPv6 AAAA records. Default: `true`
-
-**YAML Example:**
-
-```yaml
-providers:
-  hosts_example:
-    type: "hosts"
-    source: "./hosts"
-    user: nobody
-    group: nogroup
-    mode: 0644
-    enable_ipv4: true
-    enable_ipv6: false  # Skip IPv6 records
-```
-
-**Environment Variables:**
-
-| Variable                            | Description                      | Default |
-| ----------------------------------- | -------------------------------- | ------- |
-| `PROVIDER_HOSTS_SOURCE`             | Path to hosts file               | `./hosts` |
-| `PROVIDER_HOSTS_USER`               | File owner (user)                |         |
-| `PROVIDER_HOSTS_GROUP`              | File owner (group)               |         |
-| `PROVIDER_HOSTS_MODE`               | File permissions (octal)         | `0644`  |
-| `PROVIDER_HOSTS_ENABLE_IPV4`        | Enable IPv4 A records            | `true`  |
-| `PROVIDER_HOSTS_ENABLE_IPV6`        | Enable IPv6 AAAA records         | `true`  |
-
-**Features:**
-
-- The file will be created if it does not exist, and ownership/permissions will be set as configured.
-- The hosts provider will flatten CNAME records to A/AAAA records automatically.
-- Only A and AAAA records are supported in the hosts file format.
-- IPv4/IPv6 filtering allows fine-grained control over which IP types are written.
-
 ### Domains
 
-Domains define per-domain configuration, including which provider to use, zone ID, and record options. Each domain can override defaults and specify subdomain filters.
+Domains define per-domain configuration, including which provider to use, zone ID, record options, and output providers. Each domain can override defaults and specify subdomain filters.
 
 **Options:**
 
@@ -884,20 +750,387 @@ domains:
       - staging
 ```
 
-#### Domain Environment Variables
+### Output Providers
 
-| Variable                                   | Description                            |
-| ------------------------------------------ | -------------------------------------- |
-| `DOMAIN_<PROFILENAME>_NAME`                | Domain name                            |
-| `DOMAIN_<PROFILENAME>_ZONE_ID`             | Zone ID for the domain                 |
-| `DOMAIN_<PROFILENAME>_PROVIDER`            | DNS provider for the domain            |
-| `DOMAIN_<PROFILENAME>_TTL`                 | TTL for the domain                     |
-| `DOMAIN_<PROFILENAME>_TARGET`              | Target for the domain                  |
-| `DOMAIN_<PROFILENAME>_RECORD_TYPE`         | Record type for the domain             |
-| `DOMAIN_<PROFILENAME>_PROXIED`             | (Cloudflare) Proxied setting           |
-| `DOMAIN_<PROFILENAME>_UPDATE_EXISTING`     | Update existing records for the domain |
-| `DOMAIN_<PROFILENAME>_EXCLUDED_SUBDOMAINS` | Excluded subdomains                    |
-| `DOMAIN_<PROFILENAME>_OPTION_<key>`        | Custom domain option                   |
+DNS Companion supports multiple output formats for exporting DNS records to files alongside live DNS management. This allows you to maintain local backups, serve data via APIs, or integrate with other DNS systems.
+
+#### Output Types
+
+- **Hosts File**: Standard hosts file format with A/AAAA records (CNAMEs are flattened)
+- **JSON Export**: Structured JSON with metadata
+- **YAML Export**: Structured YAML with metadata
+- **Zone Files**: RFC1035-compliant BIND zone files
+
+#### Common Features
+
+- **File Ownership Control**: Set user, group, and permissions
+- **Live Updates**: Files are updated in real-time as DNS records change
+- **Multi-Domain Support**: Target specific domains, multiple domains, or all domains
+- **Profile-Based**: Configure multiple independent output profiles
+- **Domain Targeting**: Target specific domains, multiple domains, or ALL domains
+- **Templatable Paths**: Use templates like `%domain%`, `%date%`, `%profile%` in file paths
+- **Format Independence**: Any format can target any domain combination (with zone file constraints)
+
+#### Output Configuration System
+
+DNS Companion uses a profile-based output system that provides flexibility in targeting domains and generating output files.
+
+```yaml
+outputs:
+  profile_name:
+    format: "yaml|json|zone|hosts"
+    path: "/path/with/%templates%"
+    domains: "example.com" | ["domain1", "domain2"] | "all"
+    # ... format-specific options
+```
+
+##### Template Variables
+
+- `%domain%` → Domain name (filesystem-safe: `example_com`)
+- `%profile%` → Profile name
+- `%date%` → Current date (`YYYY-MM-DD`)
+- `%datetime%` → Current datetime (`YYYY-MM-DD_HH-MM-SS`)
+- `%timestamp%` → Unix timestamp
+- `%env:VAR%` → Environment variables
+
+##### Domain Targeting
+
+- **Default behavior**: If no `domains` are specified, the profile defaults to all domains
+- **Explicit targeting**: Specify exact domain names to limit the profile to those domains
+- **Universal aliases**: Use `"all"`, `"any"`, or `"*"` to target all domains
+
+```yaml
+outputs:
+  # Defaults to ALL domains (no domains specified)
+  default_export:
+    format: "json"
+    path: "./exports/all-domains.json"
+
+  # Explicitly target all domains
+  universal_export:
+    format: "yaml"
+    path: "./exports/everything.yaml"
+    domains: "all"  # or "any", "*", "ALL"
+
+  # Target specific domains only
+  specific_export:
+    format: "hosts"
+    path: "./exports/specific.hosts"
+    domains: ["example.com", "test.com"]
+
+  # Mixed targeting (specific + all)
+  mixed_export:
+    format: "zone"
+    path: "./exports/%domain%.zone"
+    domains: ["example.com", "any"]  # example.com + all other domains
+```
+
+---
+
+### Supported Output Types
+
+#### Hosts File Output
+
+The hosts file output format generates standard `/etc/hosts` format files for local DNS resolution. Only A and AAAA records are supported; CNAME records are automatically flattened to their target IPs.
+
+**Configuration Example:**
+
+```yaml
+outputs:
+  hosts:
+    path: "/etc/hosts.dns-companion"
+    user: "root"
+    group: "root"
+    mode: 644
+    enable_ipv4: true
+    enable_ipv6: false
+    header_comment: "DNS Companion managed hosts"
+```
+
+**Options:**
+
+- `path` (required): File path for the hosts file
+- `user`, `group`, `mode`: File ownership/permissions
+- `enable_ipv4`: Include IPv4 A records (default: true)
+- `enable_ipv6`: Include IPv6 AAAA records (default: true)
+- `header_comment`: Custom header comment (default: "Generated by dns-companion")
+
+**Example Output:**
+
+```
+# DNS Companion managed hosts
+# Generated at: 2025-01-15 10:30:00 UTC
+
+192.0.2.10    www.example.com
+192.0.2.11    api.example.com
+192.0.2.12    app.example.com
+```
+
+---
+
+#### JSON Export Output
+
+The JSON export provider creates structured JSON files with rich metadata for DNS records. These files are perfect for API integration, web services, and machine-readable backups.
+
+**Configuration Example:**
+
+```yaml
+outputs:
+  json:
+    path: "/var/www/api/dns/example.com.json"
+    user: "www-data"
+    group: "www-data"
+    mode: 644
+    generator: "dns-companion"
+    hostname: "api-server.example.com"
+    comment: "API-accessible DNS records"
+    indent: true
+```
+
+**Options:**
+
+- `path` (required): File path for the JSON export
+- `user`, `group`, `mode`: File ownership/permissions
+- `generator`: Custom generator identifier (default: "dns-companion")
+- `hostname`: Hostname identifier for this instance (auto-detected if not specified)
+- `comment`: Global comment for the export
+- `indent`: Pretty print JSON with indentation (default: true)
+
+**Example Output:**
+
+```json
+{
+  "metadata": {
+    "generator": "dns-companion",
+    "hostname": "api-server.example.com",
+    "domain": "example.com",
+    "generated_at": "2025-01-27T10:30:00Z",
+    "comment": "API-accessible DNS records",
+    "version": "1.0"
+  },
+  "domain": {
+    "name": "example.com",
+    "records": [
+      {
+        "name": "www",
+        "type": "A",
+        "value": "192.0.2.1",
+        "ttl": 300,
+        "created_at": "2025-01-27T09:15:00Z",
+        "updated_at": "2025-01-27T10:30:00Z",
+        "source": "docker-container-webapp"
+      },
+      {
+        "name": "api",
+        "type": "A",
+        "value": "192.0.2.2",
+        "ttl": 300,
+        "created_at": "2025-01-27T09:20:00Z",
+        "updated_at": "2025-01-27T09:20:00Z",
+        "source": "docker-container-api"
+      },
+      {
+        "name": "mail",
+        "type": "CNAME",
+        "value": "mail.provider.com",
+        "ttl": 3600,
+        "created_at": "2025-01-27T08:45:00Z",
+        "updated_at": "2025-01-27T08:45:00Z",
+        "source": "manual-config"
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### YAML Export Output
+
+The YAML export provider creates structured YAML files with rich metadata for DNS records. These files are ideal for backups, configuration management, and integration with other tools.
+
+**Configuration Example:**
+
+```yaml
+outputs:
+  yaml:
+    path: "/backup/dns/example.com.yaml"
+    user: "dns-backup"
+    group: "dns-backup"
+    mode: 644
+    generator: "dns-companion-prod"
+    hostname: "server01.example.com"
+    comment: "Production DNS records for example.com"
+```
+
+**Options:**
+
+- `path` (required): File path for the YAML export
+- `user`, `group`, `mode`: File ownership/permissions
+- `generator`: Custom generator identifier (default: "dns-companion")
+- `hostname`: Hostname identifier for this instance (auto-detected if not specified)
+- `comment`: Global comment for the export
+
+**Example Output:**
+
+```yaml
+# DNS records for example.com
+# Generated by dns-companion-prod on server01.example.com
+# Production DNS records for example.com
+
+metadata:
+  generator: "dns-companion-prod"
+  hostname: "server01.example.com"
+  domain: "example.com"
+  generated_at: "2025-01-27T10:30:00Z"
+  comment: "Production DNS records for example.com"
+  version: "1.0"
+
+domain:
+  name: "example.com"
+  records:
+    - name: "www"
+      type: "A"
+      value: "192.0.2.1"
+      ttl: 300
+      created_at: "2025-01-27T09:15:00Z"
+      updated_at: "2025-01-27T10:30:00Z"
+      source: "docker-container-webapp"
+    - name: "api"
+      type: "A"
+      value: "192.0.2.2"
+      ttl: 300
+      created_at: "2025-01-27T09:20:00Z"
+      updated_at: "2025-01-27T09:20:00Z"
+      source: "docker-container-api"
+    - name: "mail"
+      type: "CNAME"
+      value: "mail.provider.com"
+      ttl: 3600
+      created_at: "2025-01-27T08:45:00Z"
+      updated_at: "2025-01-27T08:45:00Z"
+      source: "manual-config"
+```
+
+---
+
+#### Zone File Output
+
+The zone file output format generates RFC1035-compliant BIND zone files with proper SOA and NS records. These files can be used directly with BIND or other DNS servers.
+
+**Configuration Example:**
+
+```yaml
+outputs:
+  example_zone:
+    format: "zone"
+    path: "/var/named/example.com.zone"
+    domains: "example.com"
+    user: "named"
+    group: "named"
+    mode: 644
+    soa:
+      primary_ns: "ns1.example.com"
+      admin_email: "admin@example.com"
+      serial: "auto"
+      refresh: 3600
+      retry: 900
+      expire: 604800
+      minimum: 300
+    ns_records:
+      - "ns1.example.com"
+      - "ns2.example.com"
+```
+
+**Multiple Domains with Templates:**
+
+```yaml
+outputs:
+  all_zones:
+    format: "zone"
+    path: "/var/named/%domain%.zone"
+    domains: "ALL"
+    user: "named"
+    group: "named"
+    mode: 644
+    soa:
+      primary_ns: "ns1.example.com"
+      admin_email: "admin@example.com"
+      serial: "auto"
+      refresh: 3600
+      retry: 900
+      expire: 604800
+      minimum: 300
+    ns_records:
+      - "ns1.example.com"
+      - "ns2.example.com"
+```
+
+**Options:**
+
+- `format`: Must be "zone"
+- `path`: File path (must include `%domain%` for multiple domains)
+- `domains`: Target domain(s)
+- `user`, `group`, `mode`: File ownership/permissions
+- `soa`: SOA record configuration
+- `ns_records`: List of authoritative nameservers
+
+**SOA Record Options:**
+
+- `primary_ns` (required)
+- `admin_email` (required)
+- `serial`: "auto" for auto-increment or specific number
+- `refresh`, `retry`, `expire`, `minimum`: SOA timing values
+
+**Path Templates:**
+When using multiple domains, you MUST use the `%domain%` template in the path.
+
+**Example Output:**
+
+```bind
+; Zone file for example.com
+; Generated by dns-companion at 2025-01-27T10:30:00Z
+
+$ORIGIN example.com.
+
+example.com.    IN    SOA    ns1.example.com. admin.example.com. (
+                              2025012710001    ; Serial (auto-generated)
+                              3600             ; Refresh
+                              900              ; Retry
+                              604800           ; Expire
+                              300              ; Minimum
+                              )
+
+; NS Records
+example.com.    IN    NS     ns1.example.com.
+example.com.    IN    NS     ns2.example.com.
+
+; DNS Records managed by dns-companion
+www             300   IN    A      192.0.2.1
+api             300   IN    A      192.0.2.2
+mail            300   IN    A      192.0.2.3
+```
+
+---
+
+#### Metadata Fields (YAML/JSON)
+
+- `generator`: Identifies the DNS Companion instance that created the file
+- `hostname`: Hostname of the server running DNS Companion
+- `domain`: The domain name this file represents
+- `generated_at`: Timestamp when the file was last generated
+- `comment`: Optional global comment
+- `version`: Schema version (currently "1.0")
+
+**Record-Level Metadata:**
+
+- `name`: The record name (subdomain or "@" for apex)
+- `type`: DNS record type (A, AAAA, CNAME, etc.)
+- `value`: The record value (IP address, hostname, etc.)
+- `ttl`: Time-to-live in seconds
+- `created_at`: When this record was first created
+- `updated_at`: When this record was last modified
+- `source`: Which poller or source created this record
 
 ## Support
 
