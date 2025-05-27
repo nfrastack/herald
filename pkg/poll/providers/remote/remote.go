@@ -208,7 +208,7 @@ func (p *RemoteProvider) readRemote() ([]poll.DNSEntry, error) {
 		log.Error("%v", err)
 		return nil, err
 	}
-	log.Trace("%s Fetched %d bytes from %s", p.logPrefix, len(data), p.remoteURL)
+	log.Trace("%s Fetched %d bytes from %s", p.logPrefix, p.remoteURL)
 	if p.format == "yaml" {
 		log.Trace("%s Parsing as YAML", p.logPrefix)
 	} else {
