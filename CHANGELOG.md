@@ -3,9 +3,9 @@
 
    ### Added
      - Add log_level VERBOSE sitting in the middle of debug and info. This is the new default if not explicit in config.
-     - (poll) Added File provider to read YAML/JSON from filesystem
+     - (poll) Added File provider to read YAML/JSON/Hosts/Zonefile from filesystem
      - (poll/file) Customizable interval to poll for changes or ondemand/fsnotify
-     - (poll) Added Remote provider to read YAML/JSON from a HTTP/HTTPS source with basic authentication supported
+     - (poll) Added Remote provider to read YAML/JSON/Hosts/Zonefile from a HTTP/HTTPS source with basic authentication supported
      - (dns) support multiple providers
      - (output) Add functionality to output records to various files (hosts, json, yaml, zone)
      - (output/hosts) auto flatten cnames to accomodate for deficiencies in host file format

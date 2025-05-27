@@ -614,6 +614,8 @@ polls:
 
 The file provider allows you to manage DNS records by reading from a YAML or JSON file. It supports real-time file watching (default) or interval-based polling.
 
+- **File and Remote Providers** now support reading DNS records from `hosts` and `zone` files, in addition to `yaml` and `json`.
+
 **Example configuration:**
 
 ```yaml
