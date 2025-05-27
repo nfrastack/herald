@@ -273,6 +273,14 @@
                 Included files are merged into the main config. Later files override earlier ones.
               '';
             };
+
+            format = lib.mkOption {
+              type = lib.types.str;
+              default = "yaml";
+              description = ''
+                File format for DNS records. Supported: "yaml", "json", "hosts", "zone".
+              '';
+            };
           };
 
           config = lib.mkIf cfg.enable {
