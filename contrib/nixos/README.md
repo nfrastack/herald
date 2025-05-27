@@ -58,7 +58,7 @@ Here are the available options for the NixOS module (services.dns-companion):
   * `file` (attrs):
     * `type` (str): "file"
     * `source` (str): Path to the YAML or JSON file.
-    * `format` (str): "yaml" (default) or "json".
+    * `format` (string): File format. Supported: `yaml`, `json`, `hosts`, `zone`.
     * `interval` (str): Poll interval (e.g., "-1" for watch mode, or "30s").
     * `process_existing` (bool): Process all records on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when removed from file.

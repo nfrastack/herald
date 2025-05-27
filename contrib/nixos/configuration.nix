@@ -42,6 +42,14 @@
           interval = "-1"; # watch mode (default)
           record_remove_on_stop = true;
           process_existing = true;
+
+          # Supported formats: yaml, json, hosts, zone
+          # Example for YAML format (default):
+          #   format = "yaml";
+          # Example for hosts file:
+          #   format = "hosts";
+          # Example for zone file:
+          #   format = "zone";
         };
         remotepoller01 = {
           type = "remote";
