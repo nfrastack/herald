@@ -209,20 +209,32 @@ func (p *RemoteProvider) readRemote() ([]poll.DNSEntry, error) {
 		return nil, err
 	}
 	log.Trace("%s Fetched %d bytes from %s", p.logPrefix, p.remoteURL)
-	if p.format == "yaml" {
-		log.Trace("%s Parsing as YAML", p.logPrefix)
-	} else {
-		log.Trace("%s Parsing as JSON", p.logPrefix)
-	}
+
 	var records []pollCommon.FileRecord
 	if p.format == "yaml" {
+		log.Trace("%s Parsing YAML from remote", p.logPrefix)
 		records, err = pollCommon.ParseRecordsYAML(data)
-	} else {
+		if err != nil {
+			log.Error("%s YAML unmarshal error: %v", p.logPrefix, err)
+			return nil, err
+		}
+	} else if p.format == "json" {
+		log.Trace("%s Parsing JSON from remote", p.logPrefix)
 		records, err = pollCommon.ParseRecordsJSON(data)
-	}
-	if err != nil {
-		log.Error("%s Failed to parse %s as %s: %v", p.logPrefix, p.remoteURL, p.format, err)
-		return nil, err
+		if err != nil {
+			log.Error("%s JSON unmarshal error: %v", p.logPrefix, err)
+			return nil, err
+		}
+	} else if p.format == "hosts" {
+		log.Trace("%s Parsing hosts file from remote", p.logPrefix)
+		records, err = pollCommon.ParseHostsFile(data)
+		if err != nil {
+			log.Error("%s Hosts file parse error: %v", p.logPrefix, err)
+			return nil, err
+		}
+	} else {
+		log.Error("%s Unsupported remote file format: %s", p.logPrefix, p.format)
+		return nil, fmt.Errorf("unsupported remote file format: %s", p.format)
 	}
 	entries := pollCommon.ConvertRecordsToDNSEntries(records, p.opts.Name)
 	return entries, nil

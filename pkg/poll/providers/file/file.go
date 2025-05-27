@@ -345,6 +345,13 @@ func (p *FileProvider) readFile() ([]poll.DNSEntry, error) {
 			log.Error("%s JSON unmarshal error: %v", p.logPrefix, err)
 			return nil, err
 		}
+	} else if p.format == "hosts" {
+		log.Trace("%s Parsing hosts file", p.logPrefix)
+		records, err = pollCommon.ParseHostsFile(data)
+		if err != nil {
+			log.Error("%s Hosts file parse error: %v", p.logPrefix, err)
+			return nil, err
+		}
 	} else {
 		log.Error("%s Unsupported file format: %s", p.logPrefix, p.format)
 		return nil, fmt.Errorf("unsupported file format: %s", p.format)
