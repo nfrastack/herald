@@ -18,115 +18,7 @@ To use this flake as an input in your own flake, add the following to your `flak
 
 ### NixOS Module
 
-This flake provides a NixOS module that allows you to configure and run the DNS Companion as a systemd service. To use it, add the following to your `configuration.nix`:
-
-```nix
-{
-  imports = [
-    inputs.dns-companion.nixosModules.default
-  ];
-
-  services.dns-companion = {
-    enable = true;
-    configFile = "dns-companion.yml";
-    general = {
-      log_level = "info";
-      log_timestamps = true;
-      poll_profiles = [ "docker" ];
-    };
-    defaults = {
-      record = {
-        type = "A";
-        ttl = 300;
-        update_existing = true;
-        allow_multiple = false;
-      };
-    };
-    polls = {
-      d_example = {
-        type = "docker";
-        host = "unix:///var/run/docker.sock";
-        expose_containers = true;
-        filter_type = "none";
-        record_remove_on_stop = false;
-      };
-      t_example = {
-        type = "traefik";
-        api_url = "http://traefik:8080/api/http/routers";
-        api_auth_user = "admin";
-        api_auth_pass = "password";
-        interval = "15s";
-        process_existing = true;
-        record_remove_on_stop = true;
-      };
-      f_example = {
-        type = "file";
-        name = "file_example";
-        source = "/var/lib/dns-companion/records.yaml";
-        format = "yaml";
-        interval = "-1";
-        record_remove_on_stop = true;
-        process_existing = true;
-      };
-      r_example = {
-          type = "remote";
-          source = "https://example.com/records.json";
-          format = "json";
-          interval = "30s";
-          process_existing = true;
-          record_remove_on_stop = true;
-          http_user = "myuser";
-          http_pass = "mypassword";
-      };
-    };
-    providers = {
-      cloudflare = {
-        type = "cloudflare";
-        api_token = "your-api-token";
-      };
-      hosts = {
-        type = "hosts";
-        source = "/var/lib/dns-companion/hosts";
-        user = "dns-companion";
-        group = "dns-companion";
-        mode = 420; # 0644
-        enable_ipv4 = true;
-        enable_ipv6 = true;
-      };
-    };
-    domains = {
-      example_com = {
-        name = "example.com";
-        provider = "cloudflare";
-        zone_id = "your_zone_id_here";
-        record = {
-          type = "A";
-          ttl = 60;
-          target = "192.0.2.1";
-          update_existing = true;
-          allow_multiple = true;
-        };
-        include_subdomains = [ "api" "internal" ];
-        exclude_subdomains = [ "dev" "staging" ];
-      };
-      local_domain = {
-        name = "local.test";
-        provider = "hosts";
-        record = {
-          type = "A";
-          ttl = 300;
-          update_existing = true;
-          allow_multiple = false;
-        };
-      };
-    };
-    include = [
-      "/etc/dns-companion/extra1.yml"
-      "/etc/dns-companion/extra2.yml"
-    ];
-  };
-}
-```
+This flake provides a NixOS module that allows you to configure and run the DNS Companion as a systemd service. To use it, add the following to your `configuration.nix`. See [example](./configuration.nix)
 
 #### Available Options
 
@@ -204,6 +96,24 @@ Here are the available options for the NixOS module (services.dns-companion):
       * `allow_multiple` (bool): Allow multiple records.
     * `include_subdomains` (list of str): Subdomains to include.
     * `exclude_subdomains` (list of str): Subdomains to exclude.
+* `outputs` (attrs): Output profile definitions. Example:
+  * `hosts_export` (attrs):
+    * `format` (str): Output format. One of "hosts", "json", "yaml", "zone".
+    * `path` (str): Path to the output file.
+    * `domains` (list of str or str): Domains this output applies to. Use "all", "ALL", "any", or "*" for all domains. If omitted, defaults to all domains. Lowercase "all" is preferred for style.
+    * `user` (string, optional): File owner (username or UID).
+    * `group` (string, optional): File group (group name or GID).
+    * `mode` (int, optional): File permissions (e.g., 420 for 0644). Default: 420 (0644).
+    * `enable_ipv4` (bool, hosts only): Write IPv4 A records. Default: true.
+    * `enable_ipv6` (bool, hosts only): Write IPv6 AAAA records. Default: true.
+    * `header_comment` (string, hosts only): Custom header comment.
+    * `generator` (string, yaml/json): Custom generator identifier.
+    * `hostname` (string, yaml/json): Hostname identifier for this export.
+    * `comment` (string, yaml/json): Global comment for the export.
+    * `indent` (bool, json only): Pretty print JSON output. Default: true.
+    * `default_ttl` (int, zone only): Default TTL for zone records.
+    * `soa` (attr, zone only): SOA record configuration.
+    * `ns_records` (list, zone only): List of authoritative nameservers.
 * `include` (str or list of str): One or more YAML files to include into the main configuration.
 
 This setup allows you to fully configure and manage the DNS Companion service declaratively using NixOS.
