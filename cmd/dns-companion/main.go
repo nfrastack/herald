@@ -5,6 +5,15 @@
 package main
 
 import (
+	"dns-companion/pkg/config"
+	"dns-companion/pkg/dns"
+	"dns-companion/pkg/dns/providers"
+	"dns-companion/pkg/log"
+	"dns-companion/pkg/output"
+	_ "dns-companion/pkg/output/formats"
+	"dns-companion/pkg/poll"
+	_ "dns-companion/pkg/poll/providers"
+
 	"flag"
 	"fmt"
 	"os"
@@ -12,15 +21,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"dns-companion/pkg/config"
-	"dns-companion/pkg/dns"
-	"dns-companion/pkg/dns/providers"
-	"dns-companion/pkg/log"
-	"dns-companion/pkg/poll"
-
-	// Import the polling providers to ensure they register
-	_ "dns-companion/pkg/poll/providers"
 )
 
 // Version information
@@ -253,6 +253,11 @@ func main() {
 
 	// Store domain configs in a global config location
 	config.SetDomainConfigs(domainConfigs)
+
+	// Initialize output manager with profiles from config
+	if err := output.InitializeOutputManager(cfg.Outputs); err != nil {
+		log.Fatal("[output] Failed to initialize output manager: %v", err)
+	}
 
 	// Get poll profiles from config
 	pollProfiles := cfg.General.PollProfiles

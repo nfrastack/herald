@@ -8,6 +8,7 @@ import (
 	"dns-companion/pkg/log"
 	"dns-companion/pkg/output"
 	"dns-companion/pkg/output/formats/outputCommon"
+
 	"strings"
 
 	"gopkg.in/yaml.v3"

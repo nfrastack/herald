@@ -7,6 +7,7 @@ package output
 import (
 	"dns-companion/pkg/log"
 	"dns-companion/pkg/utils"
+
 	"fmt"
 	"os"
 	"path/filepath"
@@ -448,4 +449,92 @@ func (om *OutputManager) GetDomains() []string {
 		domains = append(domains, domain)
 	}
 	return domains
+}
+
+// InitializeOutputManager initializes the global output manager with profiles from config
+func InitializeOutputManager(outputsConfig map[string]interface{}) error {
+	manager := NewOutputManager()
+
+	if outputsConfig == nil {
+		log.Debug("[output] No outputs section in configuration")
+		SetGlobalOutputManager(manager)
+		return nil
+	}
+
+	// Parse profiles from the outputs configuration
+	profiles, ok := outputsConfig["profiles"]
+	if !ok {
+		log.Debug("[output] No profiles found in outputs configuration")
+		SetGlobalOutputManager(manager)
+		return nil
+	}
+
+	profilesMap, ok := profiles.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("outputs.profiles must be a map")
+	}
+
+	log.Debug("[config/output] Found %d output profiles", len(profilesMap))
+
+	for profileName, profileConfigRaw := range profilesMap {
+		log.Debug("[config/output] Processing profile: %s", profileName)
+
+		profileConfig, ok := profileConfigRaw.(map[string]interface{})
+		if !ok {
+			log.Warn("[config/output] Skipping invalid profile config for '%s'", profileName)
+			continue
+		}
+
+		// Extract required fields
+		format, _ := profileConfig["format"].(string)
+		path, _ := profileConfig["path"].(string)
+
+		if format == "" {
+			log.Warn("[config/output] Skipping profile '%s': format is required", profileName)
+			continue
+		}
+		if path == "" {
+			log.Warn("[config/output] Skipping profile '%s': path is required", profileName)
+			continue
+		}
+
+		// Parse domains
+		var domains []string
+		if domainsRaw, exists := profileConfig["domains"]; exists {
+			switch v := domainsRaw.(type) {
+			case string:
+				domains = []string{v}
+			case []interface{}:
+				for _, d := range v {
+					if ds, ok := d.(string); ok {
+						domains = append(domains, ds)
+					}
+				}
+			case []string:
+				domains = v
+			default:
+				log.Warn("[config/output] Invalid domains format for profile '%s', defaulting to ALL", profileName)
+				domains = []string{}
+			}
+		}
+
+		// Create config map excluding the known top-level keys
+		config := make(map[string]interface{})
+		for k, v := range profileConfig {
+			if k != "format" && k != "path" && k != "domains" {
+				config[k] = v
+			}
+		}
+
+		// Add the profile to the manager
+		if err := manager.AddProfile(profileName, format, path, domains, config); err != nil {
+			log.Error("[config/output] Failed to register profile '%s': %v", profileName, err)
+			return fmt.Errorf("failed to register output profile '%s': %v", profileName, err)
+		}
+
+		log.Verbose("[output] Registered output profile '%s' (%s)", profileName, format)
+	}
+
+	SetGlobalOutputManager(manager)
+	return nil
 }

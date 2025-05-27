@@ -18,7 +18,7 @@ type RouterState struct {
 	Rule        string
 	EntryPoints []string
 	Service     string
-	SourceType  string // e.g. "container", "router", file, remote, etc.
+	SourceType  string // e.g. "container", "router", "file", "remote", etc.
 	RecordType  string // DNS record type (A, AAAA, CNAME) - from poll provider
 }
 
@@ -43,8 +43,75 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	log.Trace("%s domainConfig: %+v", logPrefix, domainConfig)
 	providerKey := domainConfig["provider"]
 	if providerKey == "" {
-		log.Error("%s No provider specified for domain '%s' (hostname: %s)", logPrefix, domain, fqdn)
-		return fmt.Errorf("no provider for domain %s", domain)
+		// Check if we have output providers configured for this domain
+		outputManager := output.GetOutputManager()
+		if outputManager != nil && len(outputManager.GetProfiles()) > 0 {
+			// We have output providers, so warn but don't fail
+			log.Warn("%s No DNS provider specified for domain '%s' (hostname: %s) - will use output providers only", logPrefix, domain, fqdn)
+
+			// Only process output providers, skip DNS provider
+			// Call output providers directly without DNS operations
+			log.Debug("%s Attempting to call output providers only", logPrefix)
+
+			// Process hostname for output providers
+			hostname := fqdn
+			if fqdn == domain {
+				hostname = "@"
+			} else if strings.HasSuffix(fqdn, "."+domain) {
+				hostname = strings.TrimSuffix(fqdn, "."+domain)
+			}
+
+			// Get record details for output
+			recordType := state.RecordType
+			target := ""
+			if state.Service != "" {
+				if ip := net.ParseIP(state.Service); ip != nil {
+					target = state.Service
+				} else if strings.Contains(state.Service, ".") {
+					target = state.Service
+				}
+			}
+
+			// Smart record type detection if not set
+			if recordType == "" && target != "" {
+				if ip := net.ParseIP(target); ip != nil {
+					if ip.To4() != nil {
+						recordType = "A"
+					} else {
+						recordType = "AAAA"
+					}
+				} else {
+					recordType = "CNAME"
+				}
+			}
+
+			ttl := 60
+
+			if target == "" {
+				log.Error("%s No target specified for domain '%s' (fqdn: %s, service: %s)", logPrefix, domain, fqdn, state.Service)
+				return fmt.Errorf("no target specified for domain %s (fqdn: %s, service: %s)", domain, fqdn, state.Service)
+			}
+
+			log.Debug("%s Output-only params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d", logPrefix, domain, recordType, hostname, target, ttl)
+
+			outputErr := outputManager.WriteRecordWithSource(domain, hostname, target, recordType, ttl, state.SourceType)
+			if outputErr != nil {
+				log.Error("%s Failed to write to output providers: %v", logPrefix, outputErr)
+				return outputErr
+			} else {
+				log.Debug("%s Successfully wrote to output providers", logPrefix)
+				// Sync the outputs to write files to disk
+				syncErr := outputManager.SyncAll()
+				if syncErr != nil {
+					log.Warn("%s Failed to sync output providers: %v", logPrefix, syncErr)
+				}
+			}
+			return nil
+		} else {
+			// No output providers either, this is an error
+			log.Error("%s No provider specified for domain '%s' (hostname: %s)", logPrefix, domain, fqdn)
+			return fmt.Errorf("no provider for domain %s", domain)
+		}
 	}
 	log.Trace("%s Looking up provider config for key: '%s'", logPrefix, providerKey)
 	providerCfg, ok := config.GlobalConfig.Providers[providerKey]
@@ -210,8 +277,61 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 	}
 	providerKey := domainConfig["provider"]
 	if providerKey == "" {
-		log.Error("%s No provider specified for domain '%s' (hostname: %s)", logPrefix, domain, fqdn)
-		return fmt.Errorf("no provider for domain %s", domain)
+		// Check if we have output providers configured for this domain
+		outputManager := output.GetOutputManager()
+		if outputManager != nil && len(outputManager.GetProfiles()) > 0 {
+			// We have output providers, so warn but don't fail
+			log.Warn("%s No DNS provider specified for domain '%s' (hostname: %s) - will use output providers only for removal", logPrefix, domain, fqdn)
+
+			// Process hostname for output providers
+			hostname := fqdn
+			if fqdn == domain {
+				hostname = "@"
+			} else if strings.HasSuffix(fqdn, "."+domain) {
+				hostname = strings.TrimSuffix(fqdn, "."+domain)
+			}
+
+			// Determine record type for removal
+			recordType := state.RecordType
+			if recordType == "" {
+				target := ""
+				if state.Service != "" {
+					target = state.Service
+				}
+				if target != "" {
+					if ip := net.ParseIP(target); ip != nil {
+						if ip.To4() != nil {
+							recordType = "A"
+						} else {
+							recordType = "AAAA"
+						}
+					} else {
+						recordType = "CNAME"
+					}
+				} else {
+					recordType = "A" // Default fallback
+				}
+			}
+
+			log.Debug("%s Output-only removal params: domain=%s, recordType=%s, hostname=%s", logPrefix, domain, recordType, hostname)
+
+			outputErr := outputManager.RemoveRecord(domain, hostname, recordType)
+			if outputErr != nil {
+				log.Warn("%s Failed to remove from output providers: %v", logPrefix, outputErr)
+				// Don't fail for output-only removal
+			} else {
+				// Sync the outputs to write files to disk
+				syncErr := outputManager.SyncAll()
+				if syncErr != nil {
+					log.Warn("%s Failed to sync output providers after removal: %v", logPrefix, syncErr)
+				}
+			}
+			return nil
+		} else {
+			// No output providers either, this is an error
+			log.Error("%s No provider specified for domain '%s' (hostname: %s)", logPrefix, domain, fqdn)
+			return fmt.Errorf("no provider for domain %s", domain)
+		}
 	}
 	providerCfg, ok := config.GlobalConfig.Providers[providerKey]
 	if !ok {

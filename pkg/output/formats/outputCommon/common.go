@@ -7,6 +7,7 @@ package outputCommon
 import (
 	"dns-companion/pkg/log"
 	"dns-companion/pkg/output"
+
 	"fmt"
 	"os"
 	"time"
