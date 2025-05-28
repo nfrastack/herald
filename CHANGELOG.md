@@ -3,6 +3,7 @@
 
    ### Added
      - Add log_level VERBOSE sitting in the middle of debug and info. This is the new default if not explicit in config.
+     - Add scoped logging to each poller, dns provider, domain configuration, output provider - log_level will override per provider
      - (poll) Added File provider to read YAML/JSON/Hosts/Zonefile from filesystem
      - (poll/file) Customizable interval to poll for changes or ondemand/fsnotify
      - (poll) Added Remote provider to read YAML/JSON/Hosts/Zonefile from a HTTP/HTTPS source with basic authentication supported
