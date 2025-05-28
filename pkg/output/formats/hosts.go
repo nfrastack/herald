@@ -210,7 +210,7 @@ func (h *HostsFormat) Sync() error {
 	}
 	log.Trace("%s fsnotify event: Name='%s', Op=WRITE", h.GetLogPrefix(), h.GetFilePath())
 
-	log.Info("%s Generated hosts file with %d records: %s", h.GetLogPrefix(), len(h.records), h.GetFilePath())
+	log.Debug("%s Generated hosts file with %d records: %s", h.GetLogPrefix(), len(h.records), h.GetFilePath())
 	return nil
 }
 
