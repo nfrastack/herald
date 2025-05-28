@@ -116,6 +116,11 @@ func NewZoneFormat(domain string, config map[string]interface{}) (output.OutputF
 		log.Warn("%s Failed to ensure file and set ownership: %v", format.GetLogPrefix(), err)
 	}
 
+	// Load existing records from the zone file if it exists
+	if err := format.loadExistingRecords(); err != nil {
+		log.Warn("%s Failed to load existing records: %v", format.GetLogPrefix(), err)
+	}
+
 	return format, nil
 }
 
@@ -149,11 +154,18 @@ func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 	// Check if record already exists
 	existingRecord := z.records[key]
 	if existingRecord != nil {
-		// Update existing record
-		existingRecord.Target = target
-		existingRecord.TTL = uint32(ttl)
-		existingRecord.Source = source
-		log.Verbose("[output/zone/%s] Updated record: %s.%s (%s) -> %s", source, hostname, domain, recordType, target)
+		// Only log if the target actually changed
+		if existingRecord.Target != target {
+			existingRecord.Target = target
+			existingRecord.TTL = uint32(ttl)
+			existingRecord.Source = source
+			log.Verbose("[output/zone/%s] Updated record: %s.%s (%s) %s -> %s", 
+				source, hostname, domain, recordType, existingRecord.Target, target)
+		} else {
+			// Just update metadata without logging
+			existingRecord.TTL = uint32(ttl)
+			existingRecord.Source = source
+		}
 	} else {
 		// Create new record
 		z.records[key] = &ZoneRecord{
@@ -163,7 +175,8 @@ func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 			TTL:      uint32(ttl),
 			Source:   source,
 		}
-		log.Verbose("[output/zone/%s] Added record: %s.%s (%s) -> %s", source, hostname, domain, recordType, target)
+		log.Verbose("[output/zone/%s] Added record: %s.%s (%s) -> %s", 
+			source, hostname, domain, recordType, target)
 	}
 
 	return nil
@@ -236,7 +249,7 @@ func (z *ZoneFormat) generateZoneFile() string {
 	if len(z.config.NSRecords) > 0 {
 		content.WriteString("; Name servers\n")
 		for _, ns := range z.config.NSRecords {
-			content.WriteString(fmt.Sprintf("@\tIN\tNS\t%s.\n", ns))
+			content.WriteString(fmt.Sprintf("@\t\tIN\tNS\t%s.\n", ns))
 		}
 		content.WriteString("\n")
 	}
@@ -254,12 +267,12 @@ func (z *ZoneFormat) generateSOARecord() string {
 	adminEmail := strings.ReplaceAll(z.config.SOA.AdminEmail, "@", ".")
 
 	return fmt.Sprintf(`; SOA record
-@	IN	SOA	%s. %s. (
-		%-12s	; Serial
-		%-12d	; Refresh
-		%-12d	; Retry
-		%-12d	; Expire
-		%-12d	; Minimum
+@		IN	SOA	%s. %s. (
+			%-12s	; Serial
+			%-12d	; Refresh
+			%-12d	; Retry
+			%-12d	; Expire
+			%-12d	; Minimum
 )`,
 		z.config.SOA.PrimaryNS,
 		adminEmail,
@@ -301,12 +314,21 @@ func (z *ZoneFormat) generateRecordsByType() string {
 
 		content.WriteString(fmt.Sprintf("; %s records\n", recordType))
 		for _, record := range records {
+			// Consistent formatting with proper tab alignment
+			hostname := record.Hostname
+			if hostname == "@" {
+				hostname = "@\t\t"
+			} else {
+				// Pad hostname to 15 characters for alignment
+				hostname = fmt.Sprintf("%-15s", hostname)
+			}
+			
 			if record.Source != "" && record.Source != "dns-companion" {
 				content.WriteString(fmt.Sprintf("%s\t%d\tIN\t%s\t%s\t; source: %s\n",
-					record.Hostname, record.TTL, record.Type, record.Target, record.Source))
+					hostname, record.TTL, record.Type, record.Target, record.Source))
 			} else {
 				content.WriteString(fmt.Sprintf("%s\t%d\tIN\t%s\t%s\n",
-					record.Hostname, record.TTL, record.Type, record.Target))
+					hostname, record.TTL, record.Type, record.Target))
 			}
 		}
 		content.WriteString("\n")
@@ -335,6 +357,87 @@ func generateSerial() uint32 {
 
 	dateNum, _ := strconv.ParseUint(dateStr, 10, 32)
 	return uint32(dateNum)*100 + increment
+}
+
+// loadExistingRecords parses the existing zone file to populate the records map
+func (z *ZoneFormat) loadExistingRecords() error {
+	// Check if file exists
+	if _, err := os.Stat(z.GetFilePath()); os.IsNotExist(err) {
+		log.Trace("%s Zone file does not exist, starting with empty records", z.GetLogPrefix())
+		return nil
+	}
+
+	content, err := os.ReadFile(z.GetFilePath())
+	if err != nil {
+		return fmt.Errorf("failed to read zone file: %v", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+	recordCount := 0
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		// Skip comments, empty lines, directives, and SOA/NS records
+		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "$") ||
+			strings.Contains(line, "SOA") || strings.Contains(line, "NS") {
+			continue
+		}
+
+		// Parse DNS record lines
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+
+		// Expected format: hostname TTL IN TYPE target [; source: source]
+		hostname := fields[0]
+		ttlStr := fields[1]
+		recordClass := fields[2]
+		recordType := fields[3]
+		target := fields[4]
+
+		// Only process A and AAAA records for now
+		if recordClass != "IN" || (recordType != "A" && recordType != "AAAA" && recordType != "CNAME") {
+			continue
+		}
+
+		// Parse TTL
+		ttl, err := strconv.ParseUint(ttlStr, 10, 32)
+		if err != nil {
+			log.Trace("%s Failed to parse TTL '%s' for record %s, skipping", z.GetLogPrefix(), ttlStr, hostname)
+			continue
+		}
+
+		// Extract source from comment if present
+		source := "dns-companion"
+		if commentIndex := strings.Index(line, "; source: "); commentIndex != -1 {
+			sourcePart := line[commentIndex+10:]
+			if sourcePart != "" {
+				source = strings.TrimSpace(sourcePart)
+			}
+		}
+
+		// Normalize hostname (remove trailing dot if present)
+		hostname = strings.TrimSuffix(hostname, ".")
+
+		// Create record key and add to map
+		key := fmt.Sprintf("%s:%s", hostname, recordType)
+		z.records[key] = &ZoneRecord{
+			Hostname: hostname,
+			Type:     recordType,
+			Target:   target,
+			TTL:      uint32(ttl),
+			Source:   source,
+		}
+		recordCount++
+	}
+
+	if recordCount > 0 {
+		log.Debug("%s Loaded %d existing records from zone file", z.GetLogPrefix(), recordCount)
+	}
+
+	return nil
 }
 
 // init registers this format
