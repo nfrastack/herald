@@ -467,7 +467,14 @@ func (t *TraefikProvider) processTraefikRouters() error {
 
 // fetchTraefikAPI fetches data from the Traefik API using pollCommon.FetchRemoteResource
 func (p *TraefikProvider) fetchTraefikAPI(url, user, pass, logPrefix string) ([]byte, error) {
-	return pollCommon.FetchRemoteResource(url, user, pass, logPrefix)
+	tlsVerifyStr := pollCommon.GetOptionOrEnv(p.options, "tls_verify", "TRAEFIK_TLS_VERIFY", "true")
+	tlsVerify := strings.ToLower(tlsVerifyStr) != "false" && tlsVerifyStr != "0"
+
+	if !tlsVerify {
+		log.Debug("%s TLS certificate verification disabled", logPrefix)
+	}
+
+	return pollCommon.FetchRemoteResourceWithTLS(url, user, pass, nil, logPrefix, tlsVerify)
 }
 
 // routerStatesEqual compares two RouterState structs for equality

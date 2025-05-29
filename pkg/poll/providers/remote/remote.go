@@ -215,12 +215,19 @@ func (p *RemoteProvider) readRemote() ([]poll.DNSEntry, error) {
 	log.Debug("%s Fetching remote source: %s", p.logPrefix, p.remoteURL)
 	httpUser := pollCommon.GetOptionOrEnv(p.options, "remote_auth_user", "REMOTE_AUTH_USER", "")
 	httpPass := pollCommon.GetOptionOrEnv(p.options, "remote_auth_pass", "REMOTE_AUTH_PASS", "")
-	data, err := pollCommon.FetchRemoteResource(p.remoteURL, httpUser, httpPass, p.logPrefix)
+	tlsVerifyStr := pollCommon.GetOptionOrEnv(p.options, "tls_verify", "REMOTE_TLS_VERIFY", "true")
+	tlsVerify := strings.ToLower(tlsVerifyStr) != "false" && tlsVerifyStr != "0"
+
+	if !tlsVerify {
+		log.Debug("%s TLS certificate verification disabled", p.logPrefix)
+	}
+
+	data, err := pollCommon.FetchRemoteResourceWithTLS(p.remoteURL, httpUser, httpPass, nil, p.logPrefix, tlsVerify)
 	if err != nil {
 		log.Error("%v", err)
 		return nil, err
 	}
-	log.Trace("%s Fetched %d bytes from %s", p.logPrefix, p.remoteURL)
+	log.Trace("%s Fetched %d bytes from %s", p.logPrefix, len(data), p.remoteURL)
 
 	var records []pollCommon.FileRecord
 	if p.format == "yaml" {
