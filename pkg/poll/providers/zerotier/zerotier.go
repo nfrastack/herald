@@ -306,34 +306,29 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []poll.DNSEntry, last
 	// Build maps for comparison
 	current := make(map[string]poll.DNSEntry)
 	for _, entry := range currentEntries {
-		key := entry.Hostname + ":" + entry.RecordType + ":" + entry.Target
+		key := entry.GetFQDN() + ":" + entry.GetRecordType()
 		current[key] = entry
 	}
 
 	last := make(map[string]poll.DNSEntry)
 	for _, entry := range lastEntries {
-		key := entry.Hostname + ":" + entry.RecordType + ":" + entry.Target
+		key := entry.GetFQDN() + ":" + entry.GetRecordType()
 		last[key] = entry
 	}
 
+	// Create batch processor for efficient sync handling
+	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
+
 	// Process additions
 	for key, entry := range current {
-		if _, existed := last[key]; !existed {
-			// New entry - create DNS record
-			fqdn := entry.Hostname + "." + entry.Domain
+		if _, exists := last[key]; !exists {
+			fqdn := entry.GetFQDN()
 			fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+			recordType := entry.GetRecordType()
+			p.logMemberAdded(fqdn)
 
-			// Log the addition with context about address fallback
-			if p.addressFallbackMembers[entry.Hostname] {
-				p.logger.Info("%s Adding DNS record for ZeroTier address: %s.%s (%s) -> %s", p.logPrefix, entry.Hostname, entry.Domain, entry.RecordType, entry.Target)
-			} else {
-				p.logger.Verbose("%s Adding DNS record: %s.%s (%s) -> %s", p.logPrefix, entry.Hostname, entry.Domain, entry.RecordType, entry.Target)
-			}
-
-			// Extract domain and subdomain like other providers
 			domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
 			p.logger.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", p.logPrefix, domainKey, subdomain, fqdnNoDot)
-
 			if domainKey == "" {
 				p.logger.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
 				continue
@@ -349,14 +344,14 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []poll.DNSEntry, last
 			p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
 
 			state := domain.RouterState{
-				SourceType: p.profileName,
-				Name:       entry.Hostname,
+				SourceType: "zerotier",
+				Name:       p.profileName,
 				Service:    entry.Target,
-				RecordType: entry.RecordType,
+				RecordType: recordType,
 			}
 
-			p.logger.Trace("%s Calling EnsureDNSForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-			err := domain.EnsureDNSForRouterState(realDomain, fqdnNoDot, state)
+			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
 				p.logger.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
 			}
@@ -367,22 +362,13 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []poll.DNSEntry, last
 	if p.recordRemoveOnStop {
 		for key, entry := range last {
 			if _, exists := current[key]; !exists {
-				// Entry removed - remove DNS record
-				fqdn := entry.Hostname + "." + entry.Domain
+				fqdn := entry.GetFQDN()
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+				recordType := entry.GetRecordType()
+				p.logMemberRemoved(fqdn)
 
-				// Clean up tracking for removed members
-				if p.addressFallbackMembers[entry.Hostname] {
-					p.logger.Info("%s Removing DNS record for ZeroTier address: %s.%s (%s)", p.logPrefix, entry.Hostname, entry.Domain, entry.RecordType)
-					// Don't remove from tracking maps yet - member might come back online
-				} else {
-					p.logger.Verbose("%s Removing DNS record: %s.%s (%s)", p.logPrefix, entry.Hostname, entry.Domain, entry.RecordType)
-				}
-
-				// Extract domain and subdomain like other providers
 				domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
 				p.logger.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", p.logPrefix, domainKey, subdomain, fqdnNoDot)
-
 				if domainKey == "" {
 					p.logger.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
 					continue
@@ -398,14 +384,14 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []poll.DNSEntry, last
 				p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", p.logPrefix, realDomain, domainKey)
 
 				state := domain.RouterState{
-					SourceType: p.profileName,
-					Name:       entry.Hostname,
+					SourceType: "zerotier",
+					Name:       p.profileName,
 					Service:    entry.Target,
-					RecordType: entry.RecordType,
+					RecordType: recordType,
 				}
 
-				p.logger.Trace("%s Calling EnsureDNSRemoveForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-				err := domain.EnsureDNSRemoveForRouterState(realDomain, fqdnNoDot, state)
+				p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
 					p.logger.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
 				}
@@ -413,6 +399,8 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []poll.DNSEntry, last
 		}
 	}
 
+	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 	return nil
 }
 

@@ -5,6 +5,7 @@
 package traefik
 
 import (
+	"dns-companion/pkg/config"
 	"dns-companion/pkg/dns"
 	"dns-companion/pkg/domain"
 	"dns-companion/pkg/log"
@@ -543,58 +544,78 @@ func (p *TraefikProvider) pollRouters() error {
 
 // processRouterAdd processes a router add event and triggers DNS actions
 func (t *TraefikProvider) processRouterAdd(state domain.RouterState) {
-	hosts := extractHostsFromRule(state.Rule)
-	for _, fqdn := range hosts {
-		// Always set SourceType and Name explicitly before calling domain logic
-		state.SourceType = "router"
-		if state.Name == "" {
-			state.Name = fqdn // fallback to FQDN if routerName is missing
+	// Create batch processor for efficient sync handling
+	batchProcessor := domain.NewBatchProcessor(t.logPrefix)
+
+	hostnames := pollCommon.ExtractHostsFromRule(state.Rule)
+	for _, hostname := range hostnames {
+		fqdnNoDot := strings.TrimSuffix(hostname, ".")
+		domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, t.logPrefix)
+		log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", t.logPrefix, domainKey, subdomain, fqdnNoDot)
+
+		if domainKey == "" {
+			log.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", t.logPrefix, fqdnNoDot)
+			continue
 		}
-		err := domain.EnsureDNSForRouterState(getDomainFromHostname(fqdn), fqdn, state)
+
+		domainCfg, ok := config.GlobalConfig.Domains[domainKey]
+		if !ok {
+			log.Error("%s Domain '%s' not found in config for fqdn='%s'", t.logPrefix, domainKey, fqdnNoDot)
+			continue
+		}
+
+		realDomain := domainCfg.Name
+		log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", t.logPrefix, realDomain, domainKey)
+
+		log.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", t.logPrefix, realDomain, fqdnNoDot, state)
+		err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 		if err != nil {
-			//log.Error("%s Failed to ensure DNS for '%s': %v", t.logPrefix, fqdn, err)
+			log.Error("%s Failed to ensure DNS for '%s': %v", t.logPrefix, fqdnNoDot, err)
 		}
 	}
+
+	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 }
 
 func (t *TraefikProvider) processRouterUpdate(state domain.RouterState) {
-	hosts := extractHostsFromRule(state.Rule)
-	if len(hosts) == 0 {
-		log.Debug("%s No hostnames to update for router '%s'", t.logPrefix, state.Name)
-		return
-	}
-	for _, fqdn := range hosts {
-		state.SourceType = "router"
-		if state.Name == "" {
-			state.Name = fqdn
-		}
-		err := domain.EnsureDNSForRouterState(getDomainFromHostname(fqdn), fqdn, state)
-		if err != nil {
-			log.Error("%s Failed to update DNS for '%s': %v", t.logPrefix, fqdn, err)
-		}
-	}
+	// For updates, use the same logic as add
+	t.processRouterAdd(state)
 }
 
 func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
-	hosts := extractHostsFromRule(state.Rule)
-	if len(hosts) == 0 {
-		log.Debug("%s No hostnames to remove for router '%s'", t.logPrefix, state.Name)
-		return
-	}
-	for _, fqdn := range hosts {
-		state.SourceType = "router"
-		if state.Name == "" {
-			state.Name = fqdn
+	// Create batch processor for efficient sync handling
+	batchProcessor := domain.NewBatchProcessor(t.logPrefix)
+
+	hostnames := pollCommon.ExtractHostsFromRule(state.Rule)
+	for _, hostname := range hostnames {
+		fqdnNoDot := strings.TrimSuffix(hostname, ".")
+		domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, t.logPrefix)
+		log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", t.logPrefix, domainKey, subdomain, fqdnNoDot)
+
+		if domainKey == "" {
+			log.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", t.logPrefix, fqdnNoDot)
+			continue
 		}
-		if t.opts.RecordRemoveOnStop {
-			err := domain.EnsureDNSRemoveForRouterState(getDomainFromHostname(fqdn), fqdn, state)
-			if err != nil {
-				log.Error("%s Failed to remove DNS for '%s': %v", t.logPrefix, fqdn, err)
-			}
-		} else {
-			log.Debug("%s Skipping DNS removal for '%s' (record_remove_on_stop is false)", t.logPrefix, fqdn)
+
+		domainCfg, ok := config.GlobalConfig.Domains[domainKey]
+		if !ok {
+			log.Error("%s Domain '%s' not found in config for fqdn='%s' (removal)", t.logPrefix, domainKey, fqdnNoDot)
+			continue
+		}
+
+		realDomain := domainCfg.Name
+		log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", t.logPrefix, realDomain, domainKey)
+
+		log.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", t.logPrefix, realDomain, fqdnNoDot, state)
+		err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
+		if err != nil {
+			log.Error("%s Failed to remove DNS for '%s': %v", t.logPrefix, fqdnNoDot, err)
 		}
 	}
+
+	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 }
 
 // extractHostsFromRule extracts hostnames from Traefik router rules

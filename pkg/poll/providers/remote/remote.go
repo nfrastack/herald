@@ -112,7 +112,10 @@ func (p *RemoteProvider) processRemote() {
 	}
 	log.Verbose("%s Processing %d DNS entries from remote", p.logPrefix, len(entries))
 
+	// Create batch processor for efficient sync handling
+	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
 	current := make(map[string]poll.DNSEntry)
+	
 	for _, e := range entries {
 		fqdn := e.GetFQDN()
 		recordType := e.GetRecordType()
@@ -155,8 +158,8 @@ func (p *RemoteProvider) processRemote() {
 				RecordType: recordType,
 			}
 
-			log.Trace("%s Calling EnsureDNSForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-			err := domain.EnsureDNSForRouterState(realDomain, fqdnNoDot, state)
+			log.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
 				log.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
 			}
@@ -199,8 +202,8 @@ func (p *RemoteProvider) processRemote() {
 					RecordType: recordType,
 				}
 
-				log.Trace("%s Calling EnsureDNSRemoveForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-				err := domain.EnsureDNSRemoveForRouterState(realDomain, fqdnNoDot, state)
+				log.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
 					log.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
 				}
@@ -209,6 +212,9 @@ func (p *RemoteProvider) processRemote() {
 	}
 
 	p.lastRecords = current
+	
+	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 }
 
 func (p *RemoteProvider) readRemote() ([]poll.DNSEntry, error) {

@@ -604,29 +604,56 @@ func (p *DockerProvider) processService(ctx context.Context, serviceID string) {
 	}
 }
 
-// processDNSEntries sends DNS entries to the DNS provider
+// processDNSEntries sends DNS entries to the DNS provider using batch processing
 // If remove is true, perform DNS removal, otherwise always create/update
 func (p *DockerProvider) processDNSEntries(entries []poll.DNSEntry, remove bool) error {
+	// Create batch processor for efficient sync handling
+	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
+	
 	for _, entry := range entries {
 		fqdn := entry.GetFQDN()
-		domainName := entry.Domain
-		state := domain.RouterState{
-			Name:        entry.SourceName, // Use SourceName for logging
-			Service:     entry.Target,
-			Rule:        "docker",
-			EntryPoints: nil,
-			RecordType:  entry.RecordType, // Set the actual DNS record type
+		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+		domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
+		p.logger.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", p.logPrefix, domainKey, subdomain, fqdnNoDot)
+		if domainKey == "" {
+			p.logger.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
+			continue
 		}
+		domainCfg, ok := config.GlobalConfig.Domains[domainKey]
+		if !ok {
+			p.logger.Error("%s Domain '%s' not found in config for fqdn='%s'", p.logPrefix, domainKey, fqdnNoDot)
+			continue
+		}
+		realDomain := domainCfg.Name
+		p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
+		
+		state := domain.RouterState{
+			SourceType: "docker",
+			Name:       p.profileName,
+			Service:    entry.Target,
+			RecordType: entry.RecordType,
+		}
+		
+		var err error
 		if remove {
-			if err := domain.EnsureDNSRemoveForRouterState(domainName, fqdn, state); err != nil {
-				log.Error("%s Failed to remove DNS for %s: %v", p.logPrefix, fqdn, err)
-			}
+			p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+			err = batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 		} else {
-			if err := domain.EnsureDNSForRouterState(domainName, fqdn, state); err != nil {
-				//log.Warn("%s Could not ensure DNS for %s: %v", p.logPrefix, fqdn, err)
+			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+			err = batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
+		}
+		
+		if err != nil {
+			action := "ensure"
+			if remove {
+				action = "remove"
 			}
+			p.logger.Error("%s Failed to %s DNS for '%s': %v", p.logPrefix, action, fqdnNoDot, err)
 		}
 	}
+	
+	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 	return nil
 }
 

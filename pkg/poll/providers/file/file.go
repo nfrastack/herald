@@ -236,7 +236,11 @@ func (p *FileProvider) processFile() {
 	}
 	p.logger.Debug("%s Processing %d DNS entries from file", p.logPrefix, len(entries))
 	p.logger.Trace("%s Available domains in config: %v", p.logPrefix, keys(config.GlobalConfig.Domains))
+	
+	// Create batch processor for efficient sync handling
+	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
 	current := make(map[string]poll.DNSEntry)
+	
 	for _, e := range entries {
 		fqdn := e.GetFQDN()
 		recordType := e.GetRecordType()
@@ -275,8 +279,8 @@ func (p *FileProvider) processFile() {
 				Service:    e.Target,
 				RecordType: recordType, // Set the actual DNS record type
 			}
-			p.logger.Trace("%s Calling EnsureDNSForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-			err := domain.EnsureDNSForRouterState(realDomain, fqdnNoDot, state)
+			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
 				p.logger.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
 			}
@@ -289,7 +293,6 @@ func (p *FileProvider) processFile() {
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				recordType := old.GetRecordType()
 				p.logger.Info("%s Record removed: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
-				p.logger.Trace("%s Record removed from file: fqdn='%s', type='%s'", p.logPrefix, fqdnNoDot, recordType)
 				domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
 				p.logger.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", p.logPrefix, domainKey, subdomain, fqdnNoDot)
 				if domainKey == "" {
@@ -311,10 +314,10 @@ func (p *FileProvider) processFile() {
 					SourceType: "file_profile",
 					Name:       providerName,
 					Service:    old.Target,
-					RecordType: recordType, // Set the actual DNS record type
+					RecordType: recordType,
 				}
-				p.logger.Trace("%s Calling EnsureDNSRemoveForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-				err := domain.EnsureDNSRemoveForRouterState(realDomain, fqdnNoDot, state)
+				p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
 					p.logger.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
 				}
@@ -325,6 +328,9 @@ func (p *FileProvider) processFile() {
 	p.lastRecords = current
 	p.isInitialLoad = false // Mark that we've completed the initial load
 	p.mutex.Unlock()
+	
+	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 }
 
 // keys returns the keys of a map as a slice

@@ -69,7 +69,11 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 			// Get record details for output
 			recordType := state.RecordType
 			target := ""
-			if state.Service != "" {
+
+			// Get target from domain config first
+			if v, ok := domainConfig["target"]; ok && v != "" {
+				target = v
+			} else if state.Service != "" {
 				if ip := net.ParseIP(state.Service); ip != nil {
 					target = state.Service
 				} else if strings.Contains(state.Service, ".") {
@@ -110,7 +114,7 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 				return outputErr
 			} else {
 				log.Debug("%s Successfully wrote to output providers", logPrefix)
-				// Don't sync here - let the caller batch multiple operations
+				// Don't sync here - let the caller handle batching
 			}
 		}
 		return nil
@@ -137,7 +141,11 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 			// Get record details for output
 			recordType := state.RecordType
 			target := ""
-			if state.Service != "" {
+
+			// Get target from domain config first
+			if v, ok := domainConfig["target"]; ok && v != "" {
+				target = v
+			} else if state.Service != "" {
 				if ip := net.ParseIP(state.Service); ip != nil {
 					target = state.Service
 				} else if strings.Contains(state.Service, ".") {
@@ -388,11 +396,8 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 				log.Warn("%s Failed to remove from output providers: %v", logPrefix, outputErr)
 				// Don't fail for output-only removal
 			} else {
-				// Sync the outputs to write files to disk
-				syncErr := outputManager.SyncAll()
-				if syncErr != nil {
-					log.Warn("%s Failed to sync output providers after removal: %v", logPrefix, syncErr)
-				}
+				log.Debug("%s Successfully removed from output providers", logPrefix)
+				// Don't sync here - let the caller handle batching
 			}
 		}
 		return nil
@@ -441,11 +446,8 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 				log.Warn("%s Failed to remove from output providers: %v", logPrefix, outputErr)
 				// Don't fail for output-only removal
 			} else {
-				// Sync the outputs to write files to disk
-				syncErr := outputManager.SyncAll()
-				if syncErr != nil {
-					log.Warn("%s Failed to sync output providers after removal: %v", logPrefix, syncErr)
-				}
+				log.Debug("%s Successfully removed from output providers", logPrefix)
+				// Don't sync here - let the caller handle batching
 			}
 			return nil
 		} else {
@@ -546,4 +548,54 @@ func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error
 	}
 	// Use label and name for logging in provider
 	return nil
+}
+
+// BatchProcessor helps poll providers efficiently batch DNS record operations
+type BatchProcessor struct {
+	hasChanges bool
+	logPrefix  string
+}
+
+// NewBatchProcessor creates a new batch processor for a poll provider
+func NewBatchProcessor(logPrefix string) *BatchProcessor {
+	return &BatchProcessor{
+		hasChanges: false,
+		logPrefix:  logPrefix,
+	}
+}
+
+// ProcessRecord processes a single DNS record and tracks if changes occurred
+func (bp *BatchProcessor) ProcessRecord(domain, fqdn string, state RouterState) error {
+	err := EnsureDNSForRouterState(domain, fqdn, state)
+	if err == nil {
+		bp.hasChanges = true
+	}
+	return err
+}
+
+// ProcessRecordRemoval processes a single DNS record removal and tracks if changes occurred
+func (bp *BatchProcessor) ProcessRecordRemoval(domain, fqdn string, state RouterState) error {
+	err := EnsureDNSRemoveForRouterState(domain, fqdn, state)
+	if err == nil {
+		bp.hasChanges = true
+	}
+	return err
+}
+
+// FinalizeBatch completes the batch operation and syncs output files if there were changes
+func (bp *BatchProcessor) FinalizeBatch() {
+	if bp.hasChanges {
+		log.Debug("%s Syncing output files after processing changes", bp.logPrefix)
+		outputManager := output.GetOutputManager()
+		if outputManager != nil {
+			outputManager.SyncAll()
+		}
+	} else {
+		log.Trace("%s No changes detected, skipping output sync", bp.logPrefix)
+	}
+}
+
+// HasChanges returns whether any changes were processed in this batch
+func (bp *BatchProcessor) HasChanges() bool {
+	return bp.hasChanges
 }
