@@ -609,7 +609,7 @@ func (p *DockerProvider) processService(ctx context.Context, serviceID string) {
 func (p *DockerProvider) processDNSEntries(entries []poll.DNSEntry, remove bool) error {
 	// Create batch processor for efficient sync handling
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
-	
+
 	for _, entry := range entries {
 		fqdn := entry.GetFQDN()
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
@@ -626,14 +626,14 @@ func (p *DockerProvider) processDNSEntries(entries []poll.DNSEntry, remove bool)
 		}
 		realDomain := domainCfg.Name
 		p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
-		
+
 		state := domain.RouterState{
 			SourceType: "docker",
 			Name:       p.profileName,
 			Service:    entry.Target,
 			RecordType: entry.RecordType,
 		}
-		
+
 		var err error
 		if remove {
 			p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
@@ -642,7 +642,7 @@ func (p *DockerProvider) processDNSEntries(entries []poll.DNSEntry, remove bool)
 			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
 			err = batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 		}
-		
+
 		if err != nil {
 			action := "ensure"
 			if remove {
@@ -651,7 +651,7 @@ func (p *DockerProvider) processDNSEntries(entries []poll.DNSEntry, remove bool)
 			p.logger.Error("%s Failed to %s DNS for '%s': %v", p.logPrefix, action, fqdnNoDot, err)
 		}
 	}
-	
+
 	// Finalize the batch - this will sync output files only if there were changes
 	batchProcessor.FinalizeBatch()
 	return nil

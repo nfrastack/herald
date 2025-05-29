@@ -55,6 +55,14 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
     * `process_existing` (bool): Process existing routers on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when router is removed.
+  * `caddy` (attrs):
+    * `type` (str): "caddy"
+    * `api_url` (str): Caddy Admin API URL.
+    * `api_auth_user` (str): Username for basic auth to the Caddy API.
+    * `api_auth_pass` (str): Password for basic auth to the Caddy API.
+    * `interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
+    * `process_existing` (bool): Process existing routes on startup.
+    * `record_remove_on_stop` (bool): Remove DNS records when route is removed.
   * `file` (attrs):
     * `type` (str): "file"
     * `source` (str): Path to the YAML or JSON file.

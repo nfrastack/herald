@@ -591,7 +591,7 @@ func (bp *BatchProcessor) FinalizeBatch() {
 			outputManager.SyncAll()
 		}
 	} else {
-		log.Trace("%s No changes detected, skipping output sync", bp.logPrefix)
+		//log.Trace("%s No changes detected, skipping output sync", bp.logPrefix)
 	}
 }
 

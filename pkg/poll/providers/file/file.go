@@ -236,11 +236,11 @@ func (p *FileProvider) processFile() {
 	}
 	p.logger.Debug("%s Processing %d DNS entries from file", p.logPrefix, len(entries))
 	p.logger.Trace("%s Available domains in config: %v", p.logPrefix, keys(config.GlobalConfig.Domains))
-	
+
 	// Create batch processor for efficient sync handling
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
 	current := make(map[string]poll.DNSEntry)
-	
+
 	for _, e := range entries {
 		fqdn := e.GetFQDN()
 		recordType := e.GetRecordType()
@@ -328,7 +328,7 @@ func (p *FileProvider) processFile() {
 	p.lastRecords = current
 	p.isInitialLoad = false // Mark that we've completed the initial load
 	p.mutex.Unlock()
-	
+
 	// Finalize the batch - this will sync output files only if there were changes
 	batchProcessor.FinalizeBatch()
 }

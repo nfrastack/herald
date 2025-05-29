@@ -115,7 +115,7 @@ func (p *RemoteProvider) processRemote() {
 	// Create batch processor for efficient sync handling
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
 	current := make(map[string]poll.DNSEntry)
-	
+
 	for _, e := range entries {
 		fqdn := e.GetFQDN()
 		recordType := e.GetRecordType()
@@ -212,7 +212,7 @@ func (p *RemoteProvider) processRemote() {
 	}
 
 	p.lastRecords = current
-	
+
 	// Finalize the batch - this will sync output files only if there were changes
 	batchProcessor.FinalizeBatch()
 }

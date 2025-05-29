@@ -1,11 +1,15 @@
 # DNS Companion
 
-Automate DNS record management for containers and services. DNS Companion monitors Docker containers, Traefik routers, ZeroTier networks, and other sources to automatically create and manage DNS records without manual intervention.
+Automate DNS record management for containers and services. DNS Companion monitors Containers from Docker, Reverse Proxies like Caddy and Traefik, VPNs like Tailscale and ZeroTier, and other sources to automatically create and manage DNS records to upstream providers or to local filesystems without manual intervention.
 
-> **Enterprise Support Available**
-> Free for all users. [Commercial support and priority assistance available](mailto:code+cdc@nfrastack.com) for organizations.
+> **Commercial/Enterprise Users:**
+>
+> This tool is free to use for all users. However, if you are using DNS Companion in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project, [please reach out](mailto:code+dc@nfrastack.com).
 
-**Note:** This is an independent project, not affiliated with Docker Inc, Traefik Labs, or ZeroTier Inc.
+## Disclaimer
+
+DNS Companion is an independent project and is not affiliated with, endorsed by, or sponsored by Docker Inc, Tailscale Inc.. Traefik Labs, ZeroTier Inc. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of their applications. This tool is provided as-is and is not an official product of any of their respective plaforms. I'm also not a lawyer, so if you represent commercial interests of companies above and have cocnerns, let's talk.
+
 
 ## Maintainer
 
@@ -13,7 +17,6 @@ nfrastack <code@nfrastack.com>
 
 ## Table of Contents
 
-- [About](#about)
 - [Disclaimer](#disclaimer)
 - [Maintainer](#maintainer)
 - [Table of Contents](#table-of-contents)
@@ -61,6 +64,7 @@ nfrastack <code@nfrastack.com>
       - [Traefik Integration](#traefik-integration)
       - [Docker Container Filtering](#docker-container-filtering)
     - [Traefik Poller](#traefik-poller)
+    - [Caddy Poller](#caddy-poller)
   - [Simple filter (single filter)](#simple-filter-single-filter)
   - [Advanced filters (multiple, AND/OR/NOT/Negate)](#advanced-filters-multiple-andornotnegate)
       - [Poller Traefik Configuration File](#poller-traefik-configuration-file)
@@ -330,6 +334,7 @@ A poller is a module that discovers resources (like containers or routers) to be
 - **File**: Reads DNS records from local files in YAML, JSON, hosts, or zone file formats. Supports real-time file watching and interval polling.
 - **Remote**: Fetches DNS records from remote YAML, JSON, hosts, or zone files over HTTP(S), with optional authentication and polling interval.
 - **Traefik**: Polls the Traefik API to discover router rules and generate DNS records for services managed by Traefik.
+- **Caddy**: Polls the Caddy Admin API to discover routes and generate DNS records for services managed by Caddy.
 - **ZeroTier**: Monitors ZeroTier networks (both ZeroTier Central and ZT-Net) and creates DNS records for network members.
 
 #### Docker Poller
@@ -611,9 +616,58 @@ polls:
     api_url: https://traefik.example.com/api/http/routers
     api_auth_user: admin
     api_auth_pass: password
+    tls_verify: true  # Set to false to skip TLS certificate verification
     interval: 5m
     filter_type: name
     filter_value: ^websecure-
+```
+
+#### Caddy Poller
+
+The Caddy poll provider discovers domain names from Caddy route configurations via the Caddy Admin API. It extracts hostnames from the route match rules in the configuration.
+
+```yaml
+polls:
+  caddy_routes:
+    type: caddy
+    api_url: http://caddy:2019/config/
+    api_auth_user: admin
+    api_auth_pass: password
+    tls_verify: true  # Set to false to skip TLS certificate verification (like curl -k)
+    interval: 60s
+    record_remove_on_stop: true
+    process_existing: true
+    filter_type: host
+    filter_value: "*.localhost"
+```
+
+**Filter Options:**
+
+The Caddy provider supports filtering to precisely control which routes to process:
+
+- **host**: Filter by hostname patterns (e.g., `*.localhost`, `api*.example.com`)
+- **handler**: Filter by handler type (`reverse_proxy`, `file_server`, `static_response`, `vars`)
+- **upstream**: Filter by upstream dial addresses (e.g., `host.docker.internal:*`, `localhost:2019`)
+- **server**: Filter by server name (`srv0`, etc.)
+
+**Example Filters:**
+
+```yaml
+# Only process hosts ending in .localhost
+filter_type: host
+filter_value: "*.localhost"
+
+# Only process reverse proxy routes
+filter_type: handler
+filter_value: "reverse_proxy"
+
+# Only process routes with Docker upstreams
+filter_type: upstream
+filter_value: "host.docker.internal:*"
+
+# Only process routes from specific server
+filter_type: server
+filter_value: "srv0"
 ```
 
 **Options for configuring a Traefik poll provider:**

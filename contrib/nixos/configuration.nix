@@ -35,6 +35,15 @@
           process_existing = true;
           record_remove_on_stop = true;
         };
+        caddypoller01 = {
+          type = "caddy";
+          api_url = "http://caddy:2019/config/";
+          api_auth_user = "";
+          api_auth_pass = "";
+          interval = "60s";
+          process_existing = true;
+          record_remove_on_stop = true;
+        };
         filepoller01 = {
           type = "file";
           source = "/var/lib/dns-companion/records.yaml";
@@ -42,7 +51,6 @@
           interval = "-1"; # watch mode (default)
           record_remove_on_stop = true;
           process_existing = true;
-
           # Supported formats: yaml, json, hosts, zone
           # Example for YAML format (default):
           #   format = "yaml";

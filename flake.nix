@@ -176,6 +176,15 @@
                   record_remove_on_stop = true;
                   process_existing = true;
                 };
+                caddy = {
+                  type = "caddy";
+                  api_url = "http://caddy:2019/config/";
+                  api_auth_user = "";
+                  api_auth_pass = "";
+                  interval = "60s";
+                  record_remove_on_stop = true;
+                  process_existing = true;
+                };
                 file = {
                   type = "file";
                   source = "/var/lib/dns-companion/records.yaml";
