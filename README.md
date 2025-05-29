@@ -1,17 +1,11 @@
-<!-- vscode-markdown-toc off -->
 # DNS Companion
 
-## About
+Automate DNS record management for containers and services. DNS Companion monitors Docker containers, Traefik routers, ZeroTier networks, and other sources to automatically create and manage DNS records without manual intervention.
 
-This tool enables automatic DNS record management for containers. It monitors container events (creation, deletion, updates) and creates or removes DNS records accordingly. Whether you're using Docker containers with explicit DNS-related labels or Traefik with Host rules, DNS Companion provides seamless DNS integration, allowing your containers to be easily accessible by domain names without manual DNS configuration.
+> **Enterprise Support Available**
+> Free for all users. [Commercial support and priority assistance available](mailto:code+cdc@nfrastack.com) for organizations.
 
-> **Commercial/Enterprise Users:**
->
-> This tool is free to use for all users. However, if you are using DNS Companion in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project, [please reach out](mailto:code+cdc@nfrastack.com).
-
-## Disclaimer
-
-DNS Companion is an independent project and is not affiliated with, endorsed by, or sponsored by Docker, Inc. or Traefik Labs. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of container technologies. This tool is provided as-is and is not an official product of any container platform.
+**Note:** This is an independent project, not affiliated with Docker Inc, Traefik Labs, or ZeroTier Inc.
 
 ## Maintainer
 
@@ -25,13 +19,88 @@ nfrastack <code@nfrastack.com>
 - [Table of Contents](#table-of-contents)
 - [Prerequisites and Assumptions](#prerequisites-and-assumptions)
 - [Installing](#installing)
+  - [From Source](#from-source)
+  - [Precompiled Binaries](#precompiled-binaries)
+    - [Supported Architectures](#supported-architectures)
+    - [How to Download](#how-to-download)
+    - [How to Use](#how-to-use)
+    - [Running in Background](#running-in-background)
+  - [Containers](#containers)
+  - [Distributions](#distributions)
+    - [NixOS](#nixos)
 - [Configuration](#configuration)
+  - [Overview](#overview)
+    - [Precedence Order](#precedence-order)
+  - [Example Configuration File](#example-configuration-file)
+  - [Configuration Examples and Files](#configuration-examples-and-files)
+    - [YAML Configuration Examples](#yaml-configuration-examples)
+    - [Container Configuration](#container-configuration)
+  - [NixOS Integration](#nixos-integration)
+    - [Using the NixOS Module](#using-the-nixos-module)
+    - [Multiple File Loading \& Includes](#multiple-file-loading--includes)
+    - [Example: Multiple Config Files](#example-multiple-config-files)
+    - [Example: YAML Include](#example-yaml-include)
+  - [General Options](#general-options)
+    - [Scoped Logging](#scoped-logging)
 - [Environment Variables](#environment-variables)
-- [Pollers](#pollers)
-- [Providers](#providers)
-- [Domains](#domains)
-- [Output Providers](#output-providers)
+  - [Default Options](#default-options)
+  - [Pollers](#pollers)
+    - [Supported Pollers](#supported-pollers)
+    - [Docker Poller](#docker-poller)
+      - [Config File](#config-file)
+      - [Docker Poller Environment Variables](#docker-poller-environment-variables)
+      - [Usage of Docker Provider](#usage-of-docker-provider)
+      - [Creating Records with Container Labels](#creating-records-with-container-labels)
+        - [Examples](#examples)
+        - [Docker Label Configuration](#docker-label-configuration)
+      - [Optional Record Configuration](#optional-record-configuration)
+        - [Examples](#examples-1)
+        - [Example: AAAA Record (IPv6)](#example-aaaa-record-ipv6)
+        - [Example: Auto-detect AAAA Record](#example-auto-detect-aaaa-record)
+        - [Example: Multiple A/AAAA Record Labels](#example-multiple-aaaaa-record-labels)
+      - [Traefik Integration](#traefik-integration)
+      - [Docker Container Filtering](#docker-container-filtering)
+    - [Traefik Poller](#traefik-poller)
+  - [Simple filter (single filter)](#simple-filter-single-filter)
+  - [Advanced filters (multiple, AND/OR/NOT/Negate)](#advanced-filters-multiple-andornotnegate)
+      - [Poller Traefik Configuration File](#poller-traefik-configuration-file)
+      - [Poller Traefik Environment Variables](#poller-traefik-environment-variables)
+  - [Poller File Provider](#poller-file-provider)
+  - [Remote Provider](#remote-provider)
+    - [Example configuration](#example-configuration)
+    - [Options](#options)
+      - [ZeroTier Provider](#zerotier-provider)
+        - [ZeroTier vs ZT-Net](#zerotier-vs-zt-net)
+        - [Filtering Options](#filtering-options)
+        - [Configuration Options](#configuration-options)
+    - [Basic Configuration](#basic-configuration)
+    - [Configuration Options](#configuration-options-1)
+    - [API Types](#api-types)
+    - [Filtering Options](#filtering-options-1)
+    - [Examples](#examples-2)
+      - [Zerotier Poller](#zerotier-poller)
+  - [Providers](#providers)
+    - [Supported Providers](#supported-providers)
+    - [Provider Configuration (YAML)](#provider-configuration-yaml)
+    - [Provider Environment Variables](#provider-environment-variables)
+  - [Domains](#domains)
+  - [Output Providers](#output-providers)
+    - [Output Types](#output-types)
+    - [Common Features](#common-features)
+    - [Output Configuration System](#output-configuration-system)
+      - [Template Variables](#template-variables)
+      - [Domain Targeting](#domain-targeting)
+  - [Supported Output Types](#supported-output-types)
+    - [Hosts File Output](#hosts-file-output)
+    - [JSON Export Output](#json-export-output)
+    - [YAML Export Output](#yaml-export-output)
+    - [Zone File Output](#zone-file-output)
+    - [Metadata Fields (YAML/JSON)](#metadata-fields-yamljson)
 - [Support](#support)
+  - [Usage](#usage)
+  - [Bugfixes](#bugfixes)
+  - [Feature Requests](#feature-requests)
+  - [Updates](#updates)
 - [License](#license)
 
 ## Prerequisites and Assumptions
@@ -199,6 +268,10 @@ general:
     - docker
 ```
 
+#### Scoped Logging
+
+Each provider supports individual log level configuration via the `log_level` option, allowing fine-grained control over logging verbosity per provider without affecting global log levels.
+
 ## Environment Variables
 
 Provider, poll, and domain-specific environment variables are also supported. See the sample [.env](contrib/config/env.sample) file and documentation for more details.
@@ -250,6 +323,14 @@ Pollers are components that discover containers or services to be managed. Each 
 **What is a Poller?**
 
 A poller is a module that discovers resources (like containers or routers) to be managed for DNS. Each poller type (e.g., Docker, Traefik) has its own configuration and options.
+
+#### Supported Pollers
+
+- **Docker**: Monitors Docker containers and their labels to generate DNS records automatically.
+- **File**: Reads DNS records from local files in YAML, JSON, hosts, or zone file formats. Supports real-time file watching and interval polling.
+- **Remote**: Fetches DNS records from remote YAML, JSON, hosts, or zone files over HTTP(S), with optional authentication and polling interval.
+- **Traefik**: Polls the Traefik API to discover router rules and generate DNS records for services managed by Traefik.
+- **ZeroTier**: Monitors ZeroTier networks (both ZeroTier Central and ZT-Net) and creates DNS records for network members.
 
 #### Docker Poller
 
@@ -680,7 +761,168 @@ polls:
 - `remote_auth_user`: Username for HTTP Basic Auth (optional).
 - `remote_auth_pass`: Password for HTTP Basic Auth (optional).
 
-See `contrib/file-provider.md` for file format details (same as file provider).
+##### ZeroTier Provider
+
+The ZeroTier provider monitors ZeroTier network members and automatically creates DNS records based on their online status and other configurable filters.
+
+###### ZeroTier vs ZT-Net
+
+- **ZeroTier Central**: Official ZeroTier cloud service (my.zerotier.com)
+  - Uses Bearer token authentication
+  - Member status determined by `lastSeen` timestamp and configurable timeout
+  - Supports: online, name, authorized, id, address, ipAssignments filters
+
+- **ZT-Net**: Self-hosted ZeroTier network controller
+  - Uses x-ztnet-auth header authentication
+  - Member status determined by boolean `online` field
+  - Supports all filters: online, name, authorized, tag, id, address, nodeid, ipAssignments, physicalAddress
+  - Network ID format: `org:domain:networkid` or `domain:networkid`
+
+###### Filtering Options
+
+- `online`: Filter by online status (`true`/`false`)
+- `name`: Filter by member name (substring match)
+- `authorized`: Filter by authorization status (`true`/`false`)
+- `tag`: Filter by member tags (ZT-Net only)
+- `id`: Filter by exact member ID
+- `address`: Filter by exact ZeroTier address
+- `nodeid`: Filter by node ID (ZT-Net only)
+- `ipAssignments`: Filter by assigned IP address
+- `physicalAddress`: Filter by physical network address (ZT-Net only)
+
+###### Configuration Options
+
+**Options for configuring a ZeroTier poll provider:**
+
+- `type` (str): "zerotier"
+- `api_url` (str): ZeroTier Central or ZT-Net API base URL (optional, defaults to <https://my.zerotier.com>)
+- `api_token` (str): API token for authentication
+- `api_type` (str, optional): "zerotier" or "ztnet". If omitted, will attempt to autodetect
+- `network_id` (str): ZeroTier network ID (for ZT-Net: `org:domain:networkid` or `domain:networkid`)
+- `domain` (str): Domain to append to hostnames (e.g., `zt.example.com`)
+- `interval` (str, optional): Polling interval (e.g., "60s", default: "60s")
+- `online_timeout_seconds` (int): Seconds to consider a member offline (default: 60, recommend: 300+)
+- `process_existing` (bool): Process records on startup (default: false)
+- `record_remove_on_stop` (bool): Remove DNS records when node goes offline (default: false)
+- `use_address_fallback` (bool): Use ZeroTier address as hostname when name is empty (default: false)
+- `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`, `ipAssignments`, `physicalAddress`
+- `filter_value` (string): Value for filter_type (default: `online=true`)
+- `log_level` (string): Provider-specific log level override (optional)
+
+**⚠️ Important**: For ZeroTier Central, set `online_timeout_seconds` to 300+ seconds (5+ minutes) to prevent erratic add/remove behavior due to inconsistent heartbeat timing. The default 120 seconds may cause members to flap online/offline frequently.
+
+#### Basic Configuration
+
+```yaml
+polls:
+  zerotier_example:
+    type: zerotier
+    api_token: "your_zerotier_api_token_here"
+    network_id: "YOUR_NETWORK_ID"
+    domain: "zt.example.com"
+    online_timeout_seconds: 300  # Recommended: 300+ seconds
+    record_remove_on_stop: true
+    use_address_fallback: true
+```
+
+#### Configuration Options
+
+| Option                   | Type     | Default                   | Description                                          |
+| ------------------------ | -------- | ------------------------- | ---------------------------------------------------- |
+| `api_url`                | string   | `https://my.zerotier.com` | ZeroTier Central or ZT-Net API URL                   |
+| `api_token`              | string   | **required**              | ZeroTier API token or ZT-Net auth token              |
+| `api_type`               | string   | auto-detect               | `zerotier` or `ztnet` (auto-detected from URL)       |
+| `network_id`             | string   | **required**              | Network ID. For ZT-Net: `org:domain.com:networkid`   |
+| `domain`                 | string   | optional                  | Domain suffix for DNS records                        |
+| `interval`               | duration | `60s`                     | Polling interval                                     |
+| `online_timeout_seconds` | int      | `60`                      | **Recommend 300+** - Time to consider member offline |
+| `process_existing`       | bool     | `false`                   | Process existing members on startup                  |
+| `record_remove_on_stop`  | bool     | `false`                   | Remove DNS records when member goes offline          |
+| `use_address_fallback`   | bool     | `false`                   | Use ZeroTier address as hostname when name is empty  |
+| `filter_type`            | string   | `online`                  | Filter type (see filtering options below)            |
+| `filter_value`           | string   | `true`                    | Value for filter type                                |
+| `log_level`              | string   | global                    | Provider-specific log level override                 |
+
+#### API Types
+
+**ZeroTier Central** (`api_type: zerotier`)
+
+- Official ZeroTier Central API
+- Uses `lastSeen` millisecond timestamps
+- Authentication: `Bearer` token
+
+**ZT-Net** (`api_type: ztnet`)
+
+- Self-hosted ZeroTier network controller
+- Uses `lastSeen` ISO timestamp format
+- Authentication: `x-ztnet-auth` header
+- Network ID format: `org:domain.com:networkid` or `domain.com:networkid`
+
+#### Filtering Options
+
+Control which members create DNS records using `filter_type` and `filter_value`:
+
+| Filter Type       | Description                  | Example Values      |
+| ----------------- | ---------------------------- | ------------------- |
+| `online`          | Member online status         | `true`, `false`     |
+| `authorized`      | Member authorization status  | `true`, `false`     |
+| `name`            | Member name contains value   | `server`, `prod-`   |
+| `tag`             | Member has specific tag      | `dns`, `production` |
+| `id`              | Exact member ID match        | `a1b2c3d4e5`        |
+| `address`         | Exact ZeroTier address match | `a1b2c3d4e5`        |
+| `nodeid`          | Node ID (ZT-Net only)        | `123`               |
+| `ipAssignments`   | Has specific IP assignment   | `10.0.0.100`        |
+| `physicalAddress` | Physical address match       | `1.2.3.4/9993`      |
+`
+
+#### Examples
+
+**ZeroTier Central - Production Setup**
+
+```yaml
+zerotier_prod:
+  type: zerotier
+  api_token: "zt_token_here"
+  network_id: "a1b2c3d4e5f6g7h8"
+  domain: "vpn.company.com"
+  online_timeout_seconds: 600  # 10 minutes - very stable
+  filter_type: "authorized"
+  filter_value: "true"
+  record_remove_on_stop: true
+  log_level: "info"
+```
+
+**ZT-Net - Development Setup**
+
+```yaml
+zerotier_dev:
+  type: zerotier
+  api_url: "https://ztnet.company.com"
+  api_token: "ztnet_token_here"
+  network_id: "dev:dev.company.com:networkid123"
+  domain: "dev.company.com"
+  online_timeout_seconds: 300
+  filter_type: "tag"
+  filter_value: "development"
+  use_address_fallback: true
+  log_level: "debug"
+```
+
+##### Zerotier Poller
+
+**Options for configuring a Zerotier poll provider:**
+
+- `type` (str): "zerotier"
+- `api_url` (str): Zerotier Central or ZT-Net API base URL.
+- `api_token` (str): API token for authentication.
+- `api_type` (str, optional): "zerotier" or "ztnet". If omitted, will attempt to autodetect.
+- `interval` (str, optional): Polling interval (e.g., "60s").
+- `network_id` (str): Zerotier network ID.
+- `domain` (str): Domain to append to hostnames (e.g., `zt.example.com`).
+- `process_existing` (bool): Process records on startup.
+- `record_remove_on_stop` (bool): Remove DNS records when node is removed or offline.
+- `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`.
+- `filter_value` (string): Value for filter_type (default: `online=true`).
 
 ### Providers
 

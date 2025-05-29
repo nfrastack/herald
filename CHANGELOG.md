@@ -4,9 +4,9 @@
    ### Added
      - Add log_level VERBOSE sitting in the middle of debug and info. This is the new default if not explicit in config.
      - Add scoped logging to each poller, dns provider, domain configuration, output provider - log_level will override per provider
-     - (poll) Added File provider to read YAML/JSON/Hosts/Zonefile from filesystem
-     - (poll/file) Customizable interval to poll for changes or ondemand/fsnotify
+     - (poll) Added File provider to read YAML/JSON/Hosts/Zonefile from filesystem with customizable interval to poll for changes or ondemand/fsnotify
      - (poll) Added Remote provider to read YAML/JSON/Hosts/Zonefile from a HTTP/HTTPS source with basic authentication supported
+     - (poll) Added Zerotier Poll provider to poll for nodes in a Zerotier Central or ZT-Net (Self hosted) network
      - (dns) support multiple providers
      - (output) Add functionality to output records to various files (hosts, json, yaml, zone)
      - (output/hosts) auto flatten cnames to accomodate for deficiencies in host file format

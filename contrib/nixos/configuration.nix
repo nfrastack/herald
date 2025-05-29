@@ -61,11 +61,76 @@
           http_user = "myuser";
           http_pass = "mypassword";
         };
+        zerotier_example = {
+          type = "zerotier";
+          api_url = "https://my.zerotier.com";        # ZeroTier Central or ZT-Net API URL (optional)
+          api_token = "your_zerotier_api_token_here"; # Replace with your actual token
+          # api_type = "zerotier";                    # "zerotier" or "ztnet" (optional, autodetects)
+          interval = "60s";                           # Polling interval (optional, default: 60s)
+          network_id = "YOUR_NETWORK_ID";             # For ZT-Net: "org:domain.com:networkid" format
+          domain = "zt.example.com";                  # Domain suffix for DNS records
+          online_timeout_seconds = 300;               # Time to consider member offline (recommend 300+)
+          process_existing = true;                    # Process records on startup (default: false)
+          record_remove_on_stop = true;               # Remove DNS records when node goes offline
+          use_address_fallback = true;                # Use ZeroTier address as hostname when name empty
+          filter_type = "online";                     # Filter: online, name, authorized, tag, etc.
+          filter_value = "true";                      # Value for filter_type (default: online=true)
+          log_level = "debug";                        # Provider-specific log level override (optional)
+        };
       };
       providers = {
         dnsprovider01 = {
           type = "cloudflare";
           api_token = "abcdef1234567890abcdef1234567890abcdef1234";
+        };
+        zerotier = {
+          enable = lib.mkEnableOption "Enable Zerotier poll provider";
+          api_url = lib.mkOption {
+            type = lib.types.str;
+            description = "Zerotier Central or ZT-Net API base URL.";
+          };
+          api_token = lib.mkOption {
+            type = lib.types.str;
+            description = "API token for Zerotier or ZT-Net.";
+          };
+          network_id = lib.mkOption {
+            type = lib.types.str;
+            description = "Zerotier network ID.";
+          };
+          domain = lib.mkOption {
+            type = lib.types.str;
+            description = "Domain to append to Zerotier hostnames.";
+          };
+          api_type = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "API type: 'zerotier' or 'ztnet'. Optional, autodetects if omitted.";
+          };
+          interval = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "Polling interval (e.g., '60s'). Optional.";
+          };
+          process_existing = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Process records on startup.";
+          };
+          record_remove_on_stop = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Remove DNS records when node is removed or offline.";
+          };
+          filter_type = lib.mkOption {
+            type = lib.types.str;
+            default = "online";
+            description = "Filter by: online, name, authorized, tag, id, address, nodeid.";
+          };
+          filter_value = lib.mkOption {
+            type = lib.types.str;
+            default = "true";
+            description = "Value for filter_type (default: online=true).";
+          };
         };
       };
       domains = {

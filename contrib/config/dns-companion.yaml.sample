@@ -1,4 +1,3 @@
-
 include: dns-extra.yaml                         # Example: Including another YAML file
 
 general:
@@ -19,7 +18,7 @@ defaults:
 providers:
   cf_example:
     type: "cloudflare"
-    api_token: "your_scoped_api_token_here"
+    api_token: "your_cloudflare_api_token_here" # <-- Replace with your real Cloudflare API token
     #api_email: "youremail@if.using.global.api"
     #api_key: "global_api_key_here"
 
@@ -34,7 +33,7 @@ providers:
     # Only A and AAAA records are supported. CNAMEs are automatically flattened.
 
 polls:
-  pollexample:
+  docker_example:
     type: "docker"
     host: "unix:///var/run/docker.sock"   #Unix socket
     #api_auth_user: ""
@@ -50,7 +49,7 @@ polls:
     #  cert: "/etc/docker/certs/cert.pem"
     #  key: "/etc/docker/certs/key.pem"
 
-  pollexample2:
+  traefik_example:
     type: traefik
     api_url: http://traefik:8080/api/http/routers
     interval: 30s  # or 60, 1m, 1h, etc.
@@ -75,6 +74,24 @@ polls:
     record_remove_on_stop: true
     remote_auth_user: myuser # Optional HTTP Basic Auth
     remote_auth_pass: mypassword # Optional HTTP Basic Auth
+
+  zerotier_example:
+    type: zerotier
+    api_url: "https://my.zerotier.com"          # ZeroTier Central or ZT-Net API URL (optional, defaults to ZeroTier Central)
+    api_token: "your_zerotier_api_token_here"   # <-- Replace with your real ZeroTier or ZT-Net API token
+    # api_type: "zerotier"                      # "zerotier" or "ztnet" (optional, autodetects if omitted)
+    interval: 60s                               # Polling interval (optional, default: 60s)
+    network_id: "YOUR_NETWORK_ID"               # For ZT-Net: "org:domain.com:networkid" or "domain.com:networkid"
+    domain: "zt.example.com"                    # Domain suffix for DNS records (optional)
+    online_timeout_seconds: 300                 # Time to consider member offline (default: 60s, recommend 300s+ for stability)
+    process_existing: true                      # Process records on startup (default: false)
+    record_remove_on_stop: true                 # Remove DNS records when node goes offline (default: false)
+    use_address_fallback: true                  # Use ZeroTier address as hostname when name is empty (default: false)
+    filter_type: "online"                       # Filter by: online, name, authorized, tag, id, address, nodeid, ipAssignments, physicalAddress
+    filter_value: "true"                        # Value for filter_type (default: online=true)
+    log_level: "debug"                          # Provider-specific log level override (optional)
+    # WARNING: online_timeout_seconds < 120 may cause erratic add/remove behavior due to ZeroTier Central heartbeat timing
+    # For ZT-Net, this uses lastSeen timestamp; for ZeroTier Central, uses lastSeen milliseconds
 
 domains:
   domainexample:

@@ -71,6 +71,21 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `record_remove_on_stop` (bool): Remove DNS records when removed from remote.
     * `remote_auth_user` (str): Username for HTTP Basic Auth (optional).
     * `remote_auth_pass` (str): Password for HTTP Basic Auth (optional).
+  * `zerotier` (attrs):
+    * `type` (str): "zerotier"
+    * `api_url` (str): ZeroTier Central or ZT-Net API base URL (optional, defaults to <https://my.zerotier.com>)
+    * `api_token` (str): API token for authentication
+    * `api_type` (str, optional): "zerotier" or "ztnet". If omitted, will attempt to autodetect
+    * `interval` (str, optional): Polling interval (e.g., "60s")
+    * `network_id` (str): ZeroTier network ID (for ZT-Net: "org:domain:networkid" or "domain:networkid")
+    * `domain` (str): Domain to append to hostnames (e.g., `zt.example.com`)
+    * `online_timeout_seconds` (int): Seconds to consider a member offline (default: 60, recommend: 300+)
+    * `process_existing` (bool): Process records on startup
+    * `record_remove_on_stop` (bool): Remove DNS records when node goes offline
+    * `use_address_fallback` (bool): Use ZeroTier address as hostname when name is empty
+    * `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`, `ipAssignments`, `physicalAddress`
+    * `filter_value` (string): Value for filter_type (default: `online=true`)
+    * `log_level` (string): Provider-specific log level override (optional)
 * `providers` (attrs): DNS provider profiles. Example:
   * `cloudflare` (attrs):
     * `type` (str): "cloudflare"

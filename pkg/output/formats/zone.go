@@ -130,7 +130,7 @@ func (z *ZoneFormat) serializeZone(export *outputCommon.ExportData) ([]byte, err
 // generateZoneFileContent creates the zone file content
 func (z *ZoneFormat) generateZoneFileContent(export *outputCommon.ExportData) string {
 	var content strings.Builder
-	
+
 	// Get the first domain (zone files are single-domain)
 	var domainName string
 	var domain *outputCommon.BaseDomain
