@@ -30,7 +30,8 @@ func NewJSONFormat(domain string, config map[string]interface{}) (output.OutputF
 
 	// Load existing export if it exists
 	if err := format.LoadExistingData(json.Unmarshal); err != nil {
-		log.Warn("%s Failed to load existing export: %v", format.GetLogPrefix(), err)
+		// Use a simple log warning since we don't have GetLogPrefix
+		log.Warn("Failed to load existing JSON export for domain %s: %v", domain, err)
 	}
 
 	return format, nil
@@ -43,18 +44,12 @@ func (j *JSONFormat) GetName() string {
 
 // Sync writes the JSON export to disk
 func (j *JSONFormat) Sync() error {
-	err := j.SyncWithSerializer(j.serializeJSON)
-	if err == nil {
-		j.Lock()
-		recordCount := j.GetRecordCount() // Use public method instead of direct field access
-		j.Unlock()
-		log.Debug("%s Generated export for 1 domain with %d records: %s", j.GetLogPrefix(), recordCount, j.GetFilePath())
-	}
-	return err
+	return j.SyncWithSerializer(j.serializeJSON)
 }
 
 // serializeJSON handles JSON-specific serialization
 func (j *JSONFormat) serializeJSON(export *outputCommon.ExportData) ([]byte, error) {
+	// Use simple JSON marshalling with indentation
 	return json.MarshalIndent(export, "", "  ")
 }
 
