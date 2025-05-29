@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/user"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -76,13 +77,32 @@ func setFileOwnership(filePath string, config map[string]interface{}, logger *lo
 	return nil
 }
 
+// AddScopedLogging adds scoped logging to any output format provider
+func AddScopedLogging(provider interface{}, formatType, name string, options map[string]interface{}) *log.ScopedLogger {
+	logLevel := ""
+	if val, ok := options["log_level"].(string); ok {
+		logLevel = val
+	}
+
+	logPrefix := fmt.Sprintf("[output/%s/%s]", formatType, name)
+	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		scopedLogger.Info("Output format log_level set to: '%s'", logLevel)
+	}
+
+	return scopedLogger
+}
+
 // CommonFormat provides shared functionality for export formats (JSON, YAML)
 type CommonFormat struct {
 	*output.BaseFormat
 	records    map[string]*BaseRecord // key: domain:hostname:type
 	domains    map[string]*BaseDomain
 	metadata   *BaseMetadata
-	formatName string // Track the actual format name
+	formatName string            // Track the actual format name
+	logger     *log.ScopedLogger // provider-specific logger
 }
 
 // NewCommonFormat creates a new common format instance
@@ -92,15 +112,31 @@ func NewCommonFormat(domain, formatName string, config map[string]interface{}) (
 		return nil, err
 	}
 
+	// Get provider-specific log level from config
+	logLevel := ""
+	if level, ok := config["log_level"].(string); ok {
+		logLevel = level
+	}
+
+	// Create scoped logger
+	logPrefix := fmt.Sprintf("[output/%s/%s]", formatName, strings.ReplaceAll(domain, ".", "_"))
+	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	}
+
 	format := &CommonFormat{
 		BaseFormat: base,
 		records:    make(map[string]*BaseRecord),
 		domains:    make(map[string]*BaseDomain),
 		metadata:   &BaseMetadata{Generator: "dns-companion"},
 		formatName: formatName,
+		logger:     scopedLogger,
 	}
 
-	log.Debug("%s Initialized %s format: %s", format.GetLogPrefix(), formatName, format.GetFilePath())
+	format.logger.Debug("Initialized %s format: %s", formatName, format.GetFilePath())
 
 	// Only ensure file and set ownership if permissions are explicitly configured (non-default)
 	if format.GetUser() != "" || format.GetGroup() != "" || format.GetMode() != 0644 {
@@ -148,7 +184,7 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 			existingRecord.Target = target
 			existingRecord.TTL = uint32(ttl)
 			existingRecord.Source = source
-			log.Verbose("[output/%s/%s] Updated record: %s.%s (%s) %s -> %s", c.GetName(), source, hostname, domain, recordType, oldTarget, target)
+			c.logger.Verbose("Updated record: %s.%s (%s) %s -> %s", hostname, domain, recordType, oldTarget, target)
 		} else {
 			// Just update metadata without logging
 			existingRecord.TTL = uint32(ttl)
@@ -167,7 +203,7 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 
 		c.records[key] = record
 		c.domains[domain].Records = append(c.domains[domain].Records, record)
-		log.Verbose("[output/%s/%s] Added record: %s.%s (%s) -> %s", c.GetName(), source, hostname, domain, recordType, target)
+		c.logger.Verbose("Added record: %s.%s (%s) -> %s", hostname, domain, recordType, target)
 	}
 
 	// Update metadata
@@ -204,7 +240,7 @@ func (c *CommonFormat) RemoveRecord(domain, hostname, recordType string) error {
 			}
 		}
 
-		log.Verbose("%s Removed record: %s.%s (%s)", c.GetLogPrefix(), hostname, domain, recordType)
+		c.logger.Verbose("Removed record: %s.%s (%s)", hostname, domain, recordType)
 		c.metadata.LastUpdated = time.Now().UTC()
 	}
 
@@ -247,7 +283,7 @@ func (c *CommonFormat) LoadExistingData(unmarshalFunc func([]byte, interface{}) 
 	// Preserve existing metadata
 	if export.Metadata != nil {
 		c.metadata = export.Metadata
-		log.Trace("%s Preserved existing metadata from file", c.GetLogPrefix())
+		c.logger.Trace("Preserved existing metadata from file")
 	}
 
 	// Load existing records (but they will be overwritten by current state)
@@ -290,7 +326,7 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(*ExportData) ([]byt
 		log.Error("%s Failed to write file: %v", c.GetLogPrefix(), err)
 		return fmt.Errorf("failed to write file: %v", err)
 	}
-	log.Trace("%s fsnotify event: Name='%s', Op=WRITE", c.GetLogPrefix(), c.GetFilePath())
+	c.logger.Trace("fsnotify event: Name='%s', Op=WRITE", c.GetFilePath())
 
 	// Set file ownership if specified
 	if err := c.SetFileOwnership(); err != nil {

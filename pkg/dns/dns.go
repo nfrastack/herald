@@ -133,3 +133,21 @@ func JoinHostWithDomain(hostname, domain string) string {
 	}
 	return hostname + "." + domain
 }
+
+// CreateScopedLogger creates a scoped logger for DNS providers using common logic
+func CreateScopedLogger(providerType string, options map[string]interface{}) *log.ScopedLogger {
+	logLevel := ""
+	if val, ok := options["log_level"].(string); ok {
+		logLevel = val
+	}
+
+	logPrefix := fmt.Sprintf("[dns/%s]", providerType)
+	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		scopedLogger.Info("DNS provider log_level set to: '%s'", logLevel)
+	}
+
+	return scopedLogger
+}

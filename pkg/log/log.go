@@ -64,27 +64,35 @@ func ParseLogLevel(levelStr string) LogLevel {
 
 // ScopedLogger provides provider-specific logging with optional level override
 type ScopedLogger struct {
-	prefix string
-	level  LogLevel
+	prefix     string
+	level      LogLevel
+	isOverride bool // Track if this logger has a level override
 }
 
 // NewScopedLogger creates a new scoped logger with an optional log level override
 func NewScopedLogger(prefix, logLevel string) *ScopedLogger {
 	var level LogLevel
+	var isOverride bool
+
 	if logLevel == "" {
 		// If no specific log level provided, inherit the global log level
 		level = globalLogLevel
+		isOverride = false
 	} else {
 		level = ParseLogLevel(logLevel)
 		if level == LogLevelNone {
 			// If invalid level provided, fall back to global level
 			level = globalLogLevel
+			isOverride = false
+		} else {
+			isOverride = true
 		}
 	}
 
 	return &ScopedLogger{
-		prefix: prefix,
-		level:  level,
+		prefix:     prefix,
+		level:      level,
+		isOverride: isOverride,
 	}
 }
 
@@ -106,42 +114,110 @@ func (sl *ScopedLogger) shouldLog(messageLevel LogLevel) bool {
 // Debug logs a debug message through the scoped logger
 func (sl *ScopedLogger) Debug(format string, args ...interface{}) {
 	if sl.shouldLog(LogLevelDebug) {
-		GetLogger().Debug(format, args...)
+		// Use direct output instead of going through the global logger's level checking
+		message := fmt.Sprintf(format, args...)
+		levelStr := "   DEBUG"
+		if sl.isOverride {
+			levelStr = "  *DEBUG"
+		}
+		if GetLogger().showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s %s %s", timestamp, levelStr, message)
+		} else {
+			message = fmt.Sprintf("%s %s", levelStr, message)
+		}
+		GetLogger().debugLogger.Output(3, message)
 	}
 }
 
 // Trace logs a trace message through the scoped logger
 func (sl *ScopedLogger) Trace(format string, args ...interface{}) {
 	if sl.shouldLog(LogLevelTrace) {
-		GetLogger().Trace(format, args...)
+		// Use direct output instead of going through the global logger's level checking
+		message := fmt.Sprintf(format, args...)
+		levelStr := "   TRACE"
+		if sl.isOverride {
+			levelStr = "  *TRACE"
+		}
+		if GetLogger().showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s %s %s", timestamp, levelStr, message)
+		} else {
+			message = fmt.Sprintf("%s %s", levelStr, message)
+		}
+		GetLogger().debugLogger.Output(3, message)
 	}
 }
 
 // Verbose logs a verbose message through the scoped logger
 func (sl *ScopedLogger) Verbose(format string, args ...interface{}) {
 	if sl.shouldLog(LogLevelVerbose) {
-		GetLogger().Verbose(format, args...)
+		message := fmt.Sprintf(format, args...)
+		levelStr := " VERBOSE"
+		if sl.isOverride {
+			levelStr = "*VERBOSE"
+		}
+		if GetLogger().showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s %s %s", timestamp, levelStr, message)
+		} else {
+			message = fmt.Sprintf("%s %s", levelStr, message)
+		}
+		GetLogger().infoLogger.Output(3, message)
 	}
 }
 
 // Info logs an info message through the scoped logger
 func (sl *ScopedLogger) Info(format string, args ...interface{}) {
 	if sl.shouldLog(LogLevelInfo) {
-		GetLogger().Info(format, args...)
+		message := fmt.Sprintf(format, args...)
+		levelStr := "    INFO"
+		if sl.isOverride {
+			levelStr = "   *INFO"
+		}
+		if GetLogger().showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s %s %s", timestamp, levelStr, message)
+		} else {
+			message = fmt.Sprintf("%s %s", levelStr, message)
+		}
+		GetLogger().infoLogger.Output(3, message)
 	}
 }
 
 // Warn logs a warning message through the scoped logger
 func (sl *ScopedLogger) Warn(format string, args ...interface{}) {
 	if sl.shouldLog(LogLevelWarn) {
-		GetLogger().Warn(format, args...)
+		message := fmt.Sprintf(format, args...)
+		levelStr := "    WARN"
+		if sl.isOverride {
+			levelStr = "   *WARN"
+		}
+		if GetLogger().showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s %s %s", timestamp, levelStr, message)
+		} else {
+			message = fmt.Sprintf("%s %s", levelStr, message)
+		}
+		GetLogger().warnLogger.Output(3, message)
 	}
 }
 
 // Error logs an error message through the scoped logger
 func (sl *ScopedLogger) Error(format string, args ...interface{}) {
 	if sl.shouldLog(LogLevelError) {
-		GetLogger().Error(format, args...)
+		message := fmt.Sprintf(format, args...)
+		levelStr := "   ERROR"
+		if sl.isOverride {
+			levelStr = "  *ERROR"
+		}
+		if GetLogger().showTimestamps {
+			timestamp := time.Now().Format("2006-01-02 15:04:05")
+			message = fmt.Sprintf("%s %s %s", timestamp, levelStr, message)
+		} else {
+			message = fmt.Sprintf("%s %s", levelStr, message)
+		}
+		GetLogger().errorLogger.Output(3, message)
 	}
 }
 
@@ -249,6 +325,7 @@ func (l *Logger) SetLevel(level string) {
 	}
 	// Update global level for scoped loggers - use the input parameter, not l.level
 	updateGlobalLogLevel(level)
+	//fmt.Printf("Logger level set to: %s (internal: %s)\n", level, l.level)
 }
 
 // GetLevel returns the current logger level
@@ -267,9 +344,8 @@ func (l *Logger) SetShowTimestamps(show bool) {
 
 // Debug logs a debug message with optional formatting
 func (l *Logger) Debug(format string, args ...interface{}) {
-	// Allow debug messages if level is debug, trace, OR if this is called from a scoped logger
-	// (The scoped logger already did its own level checking)
-	if l.level == LevelDebug || l.level == LevelTrace || l.level == LevelVerbose {
+	// Only show debug if level is debug or trace
+	if l.level == LevelDebug || l.level == LevelTrace {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
@@ -350,9 +426,8 @@ func (l *Logger) Fatal(format string, args ...interface{}) {
 
 // Trace logs a trace message with optional formatting
 func (l *Logger) Trace(format string, args ...interface{}) {
-	// Allow trace messages if level is trace, OR if this is called from a scoped logger
-	// (The scoped logger already did its own level checking)
-	if l.level == LevelTrace || l.level == LevelDebug || l.level == LevelVerbose {
+	// Only show trace if level is trace
+	if l.level == LevelTrace {
 		message := fmt.Sprintf(format, args...)
 		if l.showTimestamps {
 			timestamp := time.Now().Format("2006-01-02 15:04:05")
@@ -423,7 +498,7 @@ func Trace(format string, args ...interface{}) {
 // DumpState logs the current state of an object for debugging
 func DumpState(prefix string, obj interface{}) {
 	logger := GetLogger()
-	if logger.level != LevelDebug && logger.level != LevelVerbose && logger.level != LevelTrace {
+	if logger.level != LevelDebug && logger.level != LevelTrace {
 		return
 	}
 
@@ -445,7 +520,7 @@ func DumpState(prefix string, obj interface{}) {
 // TracePath logs the execution path with caller information
 func TracePath(path string, args ...interface{}) {
 	logger := GetLogger()
-	if logger.level != LevelDebug && logger.level != LevelVerbose && logger.level != LevelTrace {
+	if logger.level != LevelTrace {
 		return
 	}
 

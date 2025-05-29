@@ -113,18 +113,12 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 
 	profileName := pollCommon.GetOptionOrEnv(options, "name", "DOCKER_PROFILE_NAME", parsed.Name)
 	logPrefix := pollCommon.BuildLogPrefix("docker", profileName)
-	logLevel := options["log_level"] // Get provider-specific log level
 
-	// Create scoped logger
-	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
-
-	// Only log override message if there's actually a log level override
-	if logLevel != "" {
-		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
-	}
+	// Create scoped logger using common helper
+	scopedLogger := pollCommon.CreateScopedLogger("docker", profileName, options)
 
 	// Log resolved profile name at trace level only
-	scopedLogger.Trace("%s Resolved profile name: %s", logPrefix, profileName)
+	scopedLogger.Trace("Resolved profile name: %s", profileName)
 
 	// Setup Docker client options from environment or provided options
 	clientOpts := []client.Opt{client.FromEnv}

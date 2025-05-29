@@ -139,7 +139,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	logLevel := options["log_level"] // Get provider-specific log level
 
 	// Create scoped logger
-	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+	scopedLogger := pollCommon.CreateScopedLogger("traefik", profileName, options)
 
 	// Only log override message if there's actually a log level override
 	if logLevel != "" {

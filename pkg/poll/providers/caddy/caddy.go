@@ -40,11 +40,6 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		return nil, fmt.Errorf("%s api_url option (URL) is required", parsed.Name)
 	}
 	logPrefix := pollCommon.BuildLogPrefix("caddy", parsed.Name)
-	logLevel := options["log_level"]
-	logger := log.NewScopedLogger(logPrefix, logLevel)
-	if logLevel != "" {
-		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
-	}
 
 	// Set up filters from options
 	filterConfig, err := pollCommon.NewFilterFromOptions(options)
@@ -66,13 +61,16 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		log.Debug("%s No active filters configured, processing all routes", logPrefix)
 	}
 
+	// Create scoped logger using common helper
+	scopedLogger := pollCommon.CreateScopedLogger("caddy", parsed.Name, options)
+
 	return &CaddyProvider{
 		apiURL:       apiURL,
 		interval:     parsed.Interval,
 		opts:         parsed,
 		logPrefix:    logPrefix,
 		options:      options,
-		logger:       logger,
+		logger:       scopedLogger,
 		filterConfig: filterConfig,
 	}, nil
 }
@@ -102,7 +100,7 @@ func (p *CaddyProvider) pollLoop() {
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 	if p.opts.ProcessExisting {
-		log.Trace("%s Processing existing Caddy config on startup", p.logPrefix)
+		p.logger.Trace("Processing existing Caddy config on startup")
 		p.processCaddy()
 	}
 	for p.running {
@@ -115,10 +113,10 @@ func (p *CaddyProvider) processCaddy() {
 	isInitialLoad := len(p.lastHosts) == 0
 	hosts, err := p.readCaddy()
 	if err != nil {
-		log.Error("%s Failed to read Caddy config: %v", p.logPrefix, err)
+		p.logger.Error("Failed to read Caddy config: %v", err)
 		return
 	}
-	log.Debug("%s Processing %d hosts from Caddy", p.logPrefix, len(hosts))
+	p.logger.Debug("Processing %d hosts from Caddy", len(hosts))
 
 	// Create batch processor for efficient sync handling
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
@@ -136,24 +134,24 @@ func (p *CaddyProvider) processCaddy() {
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		if _, ok := p.lastHosts[key]; !ok {
 			if isInitialLoad {
-				log.Info("%s Initial record detected: %s (A)", p.logPrefix, fqdnNoDot)
+				p.logger.Info("Initial record detected: %s (A)", fqdnNoDot)
 			} else {
-				log.Info("%s New record detected: %s (A)", p.logPrefix, fqdnNoDot)
+				p.logger.Info("New record detected: %s (A)", fqdnNoDot)
 			}
 			// Extract domain and subdomain
 			domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
-			log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", p.logPrefix, domainKey, subdomain, fqdnNoDot)
+			p.logger.Trace("Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", domainKey, subdomain, fqdnNoDot)
 			if domainKey == "" {
-				log.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
+				p.logger.Error("No domain config found for '%s' (tried to match domain from FQDN)", fqdnNoDot)
 				continue
 			}
 			domainCfg, ok := config.GlobalConfig.Domains[domainKey]
 			if !ok {
-				log.Error("%s Domain '%s' not found in config for fqdn='%s'", p.logPrefix, domainKey, fqdnNoDot)
+				p.logger.Error("Domain '%s' not found in config for fqdn='%s'", domainKey, fqdnNoDot)
 				continue
 			}
 			realDomain := domainCfg.Name
-			log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
+			p.logger.Trace("Using real domain name '%s' for DNS provider (configKey='%s')", realDomain, domainKey)
 			providerName := p.options["name"]
 			if providerName == "" {
 				providerName = "caddy_profile"
@@ -164,10 +162,10 @@ func (p *CaddyProvider) processCaddy() {
 				Service:    h.Service,
 				RecordType: "A",
 			}
-			log.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+			p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
 			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
-				log.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
+				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
 			}
 		}
 	}
@@ -176,20 +174,20 @@ func (p *CaddyProvider) processCaddy() {
 			if _, ok := current[key]; !ok {
 				fqdn := old.Name
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
-				log.Info("%s Record removed: %s (A)", p.logPrefix, fqdnNoDot)
+				p.logger.Info("Record removed: %s (A)", fqdnNoDot)
 				domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
-				log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", p.logPrefix, domainKey, subdomain, fqdnNoDot)
+				p.logger.Trace("Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", domainKey, subdomain, fqdnNoDot)
 				if domainKey == "" {
-					log.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
+					p.logger.Error("No domain config found for '%s' (removal, tried to match domain from FQDN)", fqdnNoDot)
 					continue
 				}
 				domainCfg, ok := config.GlobalConfig.Domains[domainKey]
 				if !ok {
-					log.Error("%s Domain '%s' not found in config for fqdn='%s' (removal)", p.logPrefix, domainKey, fqdnNoDot)
+					p.logger.Error("Domain '%s' not found in config for fqdn='%s' (removal)", domainKey, fqdnNoDot)
 					continue
 				}
 				realDomain := domainCfg.Name
-				log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", p.logPrefix, realDomain, domainKey)
+				p.logger.Trace("Using real domain name '%s' for DNS provider (configKey='%s') (removal)", realDomain, domainKey)
 				providerName := p.options["name"]
 				if providerName == "" {
 					providerName = "caddy_profile"
@@ -200,10 +198,10 @@ func (p *CaddyProvider) processCaddy() {
 					Service:    old.Service,
 					RecordType: "A",
 				}
-				log.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+				p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
 				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
-					log.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
+					p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
 				}
 			}
 		}
@@ -257,36 +255,36 @@ type caddyHost struct {
 }
 
 func (p *CaddyProvider) readCaddy() ([]caddyHost, error) {
-	p.logger.Debug("%s Fetching Caddy config: %s", p.logPrefix, p.apiURL)
+	p.logger.Debug("Fetching Caddy config: %s", p.apiURL)
 	httpUser := pollCommon.GetOptionOrEnv(p.options, "api_auth_user", "CADDY_API_AUTH_USER", "")
 	httpPass := pollCommon.GetOptionOrEnv(p.options, "api_auth_pass", "CADDY_API_AUTH_PASS", "")
 	tlsVerifyStr := pollCommon.GetOptionOrEnv(p.options, "tls_verify", "CADDY_TLS_VERIFY", "true")
 	tlsVerify := strings.ToLower(tlsVerifyStr) != "false" && tlsVerifyStr != "0"
 
 	if !tlsVerify {
-		p.logger.Debug("%s TLS certificate verification disabled", p.logPrefix)
+		p.logger.Debug("TLS certificate verification disabled")
 	}
 
 	body, err := pollCommon.FetchRemoteResourceWithTLS(p.apiURL, httpUser, httpPass, nil, p.logPrefix, tlsVerify)
 	if err != nil {
-		p.logger.Error("%s Failed to fetch data from Caddy API: %v", p.logPrefix, err)
+		p.logger.Error("Failed to fetch data from Caddy API: %v", err)
 		return nil, fmt.Errorf("%s failed to fetch data: %w", p.logPrefix, err)
 	}
 
-	p.logger.Trace("%s Caddy API response: %s", p.logPrefix, string(body))
+	p.logger.Trace("Caddy API response: %s", string(body))
 
 	var cfg caddyConfig
 	if err := json.Unmarshal(body, &cfg); err != nil {
-		p.logger.Error("%s Failed to parse JSON response: %v", p.logPrefix, err)
+		p.logger.Error("Failed to parse JSON response: %v", err)
 		return nil, fmt.Errorf("%s failed to parse JSON: %w", p.logPrefix, err)
 	}
 
 	var allHosts []caddyHost
 	for serverName, server := range cfg.Apps.HTTP.Servers {
-		p.logger.Trace("%s Processing server '%s' with %d routes", p.logPrefix, serverName, len(server.Routes))
+		p.logger.Trace("Processing server '%s' with %d routes", serverName, len(server.Routes))
 		for routeIdx, route := range server.Routes {
-			p.logger.Trace("%s Processing route %d (terminal=%v, matches=%d, handlers=%d)",
-				p.logPrefix, routeIdx, route.Terminal, len(route.Match), len(route.Handle))
+			p.logger.Trace("Processing route %d (terminal=%v, matches=%d, handlers=%d)",
+				routeIdx, route.Terminal, len(route.Match), len(route.Handle))
 
 			for _, match := range route.Match {
 				for _, host := range match.Host {
@@ -299,17 +297,17 @@ func (p *CaddyProvider) readCaddy() ([]caddyHost, error) {
 
 					// Apply filtering
 					if p.matchesFilter(caddyHost) {
-						p.logger.Trace("%s Host '%s' matches filter criteria", p.logPrefix, host)
+						p.logger.Trace("Host '%s' matches filter criteria", host)
 						allHosts = append(allHosts, caddyHost)
 					} else {
-						p.logger.Trace("%s Host '%s' filtered out", p.logPrefix, host)
+						p.logger.Trace("Host '%s' filtered out", host)
 					}
 				}
 			}
 		}
 	}
 
-	p.logger.Debug("%s Found %d filtered hosts in Caddy config", p.logPrefix, len(allHosts))
+	p.logger.Debug("Found %d filtered hosts in Caddy config", len(allHosts))
 	return allHosts, nil
 }
 
@@ -335,8 +333,7 @@ func (p *CaddyProvider) matchesFilter(host caddyHost) bool {
 
 // evaluateSingleFilter evaluates a single filter against a Caddy host
 func (p *CaddyProvider) evaluateSingleFilter(filter pollCommon.Filter, host caddyHost) bool {
-	p.logger.Trace("%s Evaluating filter: Type=%s, Value=%s against host=%s",
-		p.logPrefix, filter.Type, filter.Value, host.FQDN)
+	p.logger.Trace("Evaluating filter: Type=%s, Value=%s against host=%s", filter.Type, filter.Value, host.FQDN)
 
 	switch filter.Type {
 	case pollCommon.FilterTypeNone:
@@ -345,33 +342,33 @@ func (p *CaddyProvider) evaluateSingleFilter(filter pollCommon.Filter, host cadd
 	case "host":
 		// Filter by hostname pattern
 		match := p.matchesPattern(host.FQDN, filter.Value)
-		p.logger.Trace("%s Host filter: '%s' %s pattern '%s' = %v",
-			p.logPrefix, host.FQDN, p.boolToMatch(match), filter.Value, match)
+		p.logger.Trace("Host filter: '%s' %s pattern '%s' = %v",
+			host.FQDN, p.boolToMatch(match), filter.Value, match)
 		return match
 
 	case "handler":
 		// Filter by handler type (reverse_proxy, file_server, static_response, etc.)
 		hasHandler := p.routeHasHandler(host.Route, filter.Value)
-		p.logger.Trace("%s Handler filter: route has handler '%s' = %v",
-			p.logPrefix, filter.Value, hasHandler)
+		p.logger.Trace("Handler filter: route has handler '%s' = %v",
+			filter.Value, hasHandler)
 		return hasHandler
 
 	case "upstream":
 		// Filter by upstream dial address
 		hasUpstream := p.routeHasUpstream(host.Route, filter.Value)
-		p.logger.Trace("%s Upstream filter: route has upstream '%s' = %v",
-			p.logPrefix, filter.Value, hasUpstream)
+		p.logger.Trace("Upstream filter: route has upstream '%s' = %v",
+			filter.Value, hasUpstream)
 		return hasUpstream
 
 	case "server":
 		// Filter by server name
 		match := p.matchesPattern(host.Server, filter.Value)
-		p.logger.Trace("%s Server filter: '%s' %s pattern '%s' = %v",
-			p.logPrefix, host.Server, p.boolToMatch(match), filter.Value, match)
+		p.logger.Trace("Server filter: '%s' %s pattern '%s' = %v",
+			host.Server, p.boolToMatch(match), filter.Value, match)
 		return match
 
 	default:
-		p.logger.Warn("%s Unknown filter type: %s", p.logPrefix, filter.Type)
+		p.logger.Warn("Unknown filter type: %s", filter.Type)
 		return true
 	}
 }
