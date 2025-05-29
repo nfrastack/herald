@@ -7,6 +7,7 @@ package dns
 
 import (
 	"dns-companion/pkg/log"
+	"dns-companion/pkg/utils"
 
 	"fmt"
 	"sync"
@@ -107,7 +108,7 @@ func LoadProviderFromConfig(name string, config map[string]string) (Provider, er
 	}
 
 	log.Trace("[dns] Loading DNS Provider: %s (%s)", profileName, providerType)
-	log.Trace("[dns] Provider config: %+v", config)
+	log.Trace("[dns] Provider config: %+v", utils.MaskSensitiveOptions(config))
 	return GetProvider(providerType, config)
 }
 

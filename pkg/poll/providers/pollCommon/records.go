@@ -30,18 +30,18 @@ type JsonFile struct {
 }
 
 type FileMetadata struct {
-	Generator    string `yaml:"generator" json:"generator"`
-	GeneratedAt  string `yaml:"generated_at" json:"generated_at"`
-	LastUpdated  string `yaml:"last_updated" json:"last_updated"`
+	Generator   string `yaml:"generator" json:"generator"`
+	GeneratedAt string `yaml:"generated_at" json:"generated_at"`
+	LastUpdated string `yaml:"last_updated" json:"last_updated"`
 }
 
 type DomainRecord struct {
-	Hostname   string `yaml:"hostname" json:"hostname"`
-	Type       string `yaml:"type" json:"type"`
-	Target     string `yaml:"target" json:"target"`
-	TTL        int    `yaml:"ttl" json:"ttl"`
-	CreatedAt  string `yaml:"created_at" json:"created_at"`
-	Source     string `yaml:"source" json:"source"`
+	Hostname  string `yaml:"hostname" json:"hostname"`
+	Type      string `yaml:"type" json:"type"`
+	Target    string `yaml:"target" json:"target"`
+	TTL       int    `yaml:"ttl" json:"ttl"`
+	CreatedAt string `yaml:"created_at" json:"created_at"`
+	Source    string `yaml:"source" json:"source"`
 }
 
 type DomainBlock struct {
@@ -50,9 +50,9 @@ type DomainBlock struct {
 }
 
 type UnifiedFile struct {
-	Records  []FileRecord            `yaml:"records" json:"records"`
-	Metadata *FileMetadata           `yaml:"metadata" json:"metadata"`
-	Domains  map[string]DomainBlock  `yaml:"domains" json:"domains"`
+	Records  []FileRecord           `yaml:"records" json:"records"`
+	Metadata *FileMetadata          `yaml:"metadata" json:"metadata"`
+	Domains  map[string]DomainBlock `yaml:"domains" json:"domains"`
 }
 
 // ParseUnifiedFile parses the new YAML/JSON structure and returns a flat list of FileRecord

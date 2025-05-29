@@ -21,6 +21,7 @@ type RemoteProvider struct {
 	lastRecords map[string]poll.DNSEntry
 	logPrefix   string
 	options     map[string]string
+	logger      *log.ScopedLogger // provider-specific logger
 }
 
 func NewProvider(options map[string]string) (poll.Provider, error) {
@@ -43,6 +44,16 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		}
 	}
 	logPrefix := pollCommon.BuildLogPrefix("remote", parsed.Name)
+	logLevel := options["log_level"] // Get provider-specific log level
+
+	// Create scoped logger
+	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	}
+
 	return &RemoteProvider{
 		remoteURL: remoteURL,
 		format:    format,
@@ -50,6 +61,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		opts:      parsed,
 		logPrefix: logPrefix,
 		options:   options,
+		logger:    scopedLogger,
 	}, nil
 }
 

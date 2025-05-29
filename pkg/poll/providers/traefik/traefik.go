@@ -52,6 +52,8 @@ type TraefikProvider struct {
 	initialPollDone bool // Track if initial poll is complete
 
 	opts pollCommon.PollProviderOptions // Add parsed options struct
+
+	logger *log.ScopedLogger // provider-specific logger
 }
 
 // NewProvider creates a new Traefik poll provider
@@ -133,6 +135,16 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		log.Debug("%s No active filters configured, processing all routers", logPrefix)
 	}
 
+	logLevel := options["log_level"] // Get provider-specific log level
+
+	// Create scoped logger
+	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	}
+
 	provider := &TraefikProvider{
 		apiURL:          apiURL,
 		pollInterval:    parsed.Interval,
@@ -148,6 +160,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		filterConfig:    filterConfig,
 		initialPollDone: false,
 		opts:            parsed,
+		logger:          scopedLogger,
 	}
 
 	log.Info("%s Successfully created new Traefik provider", logPrefix)

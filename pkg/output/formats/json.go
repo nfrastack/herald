@@ -43,7 +43,14 @@ func (j *JSONFormat) GetName() string {
 
 // Sync writes the JSON export to disk
 func (j *JSONFormat) Sync() error {
-	return j.SyncWithSerializer(j.serializeJSON)
+	err := j.SyncWithSerializer(j.serializeJSON)
+	if err == nil {
+		j.Lock()
+		recordCount := j.GetRecordCount() // Use public method instead of direct field access
+		j.Unlock()
+		log.Debug("%s Generated export for 1 domain with %d records: %s", j.GetLogPrefix(), recordCount, j.GetFilePath())
+	}
+	return err
 }
 
 // serializeJSON handles JSON-specific serialization

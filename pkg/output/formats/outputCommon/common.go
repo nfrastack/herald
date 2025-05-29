@@ -39,9 +39,16 @@ func NewCommonFormat(domain, formatName string, config map[string]interface{}) (
 
 	log.Debug("%s Initialized %s format: %s", format.GetLogPrefix(), formatName, format.GetFilePath())
 
-	// Create empty file if it doesn't exist, then set ownership
-	if err := format.EnsureFileAndSetOwnership(); err != nil {
-		log.Warn("%s Failed to ensure file and set ownership: %v", format.GetLogPrefix(), err)
+	// Only ensure file and set ownership if permissions are explicitly configured (non-default)
+	if format.GetUser() != "" || format.GetGroup() != "" || format.GetMode() != 0644 {
+		if err := format.EnsureFileAndSetOwnership(); err != nil {
+			log.Warn("%s Failed to ensure file and set ownership: %v", format.GetLogPrefix(), err)
+		}
+	} else {
+		// Just ensure directory exists for default permissions - don't create/chmod the file
+		if err := format.EnsureDirectory(); err != nil {
+			log.Warn("%s Failed to ensure directory: %v", format.GetLogPrefix(), err)
+		}
 	}
 
 	return format, nil
@@ -72,11 +79,18 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 	// Check if record already exists
 	existingRecord := c.records[key]
 	if existingRecord != nil {
-		// Update existing record
-		existingRecord.Target = target
-		existingRecord.TTL = uint32(ttl)
-		existingRecord.Source = source
-		log.Verbose("[output/%s/%s] Updated record: %s.%s (%s) -> %s", c.GetName(), source, hostname, domain, recordType, target)
+		// Only log if the target actually changed
+		if existingRecord.Target != target {
+			oldTarget := existingRecord.Target
+			existingRecord.Target = target
+			existingRecord.TTL = uint32(ttl)
+			existingRecord.Source = source
+			log.Verbose("[output/%s/%s] Updated record: %s.%s (%s) %s -> %s", c.GetName(), source, hostname, domain, recordType, oldTarget, target)
+		} else {
+			// Just update metadata without logging
+			existingRecord.TTL = uint32(ttl)
+			existingRecord.Source = source
+		}
 	} else {
 		// Create new record
 		record := &BaseRecord{
@@ -127,7 +141,7 @@ func (c *CommonFormat) RemoveRecord(domain, hostname, recordType string) error {
 			}
 		}
 
-		log.Trace("%s Removed record: %s (%s)", c.GetLogPrefix(), hostname, recordType)
+		log.Verbose("%s Removed record: %s.%s (%s)", c.GetLogPrefix(), hostname, domain, recordType)
 		c.metadata.LastUpdated = time.Now().UTC()
 	}
 
@@ -215,18 +229,21 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(*ExportData) ([]byt
 	}
 	log.Trace("%s fsnotify event: Name='%s', Op=WRITE", c.GetLogPrefix(), c.GetFilePath())
 
-	// Explicitly fix file permissions to ensure they're correct (0644)
-	if err := os.Chmod(c.GetFilePath(), 0644); err != nil {
-		log.Warn("%s Failed to set file permissions to 644: %v", c.GetLogPrefix(), err)
-	} else {
-		log.Trace("%s fsnotify event: Name='%s', Op=CHMOD", c.GetLogPrefix(), c.GetFilePath())
+	// Set file ownership if specified
+	if err := c.SetFileOwnership(); err != nil {
+		log.Warn("%s Failed to set file ownership: %v", c.GetLogPrefix(), err)
 	}
 
-	log.Verbose("%s Generated export with %d domains: %s", c.GetLogPrefix(), len(c.domains), c.GetFilePath())
+	// Remove old verbose logging - let individual formats handle their own logging
 	return nil
 }
 
 // GetName returns the format name
 func (c *CommonFormat) GetName() string {
 	return c.formatName
+}
+
+// GetRecordCount returns the number of records currently stored
+func (c *CommonFormat) GetRecordCount() int {
+	return len(c.records)
 }

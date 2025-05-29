@@ -61,12 +61,13 @@ func GetAvailableFormats() []string {
 
 // BaseFormat provides common functionality for all output formats
 type BaseFormat struct {
-	filePath  string
-	user      string
-	group     string
-	mode      os.FileMode
-	mutex     sync.RWMutex
-	logPrefix string
+	filePath           string
+	user               string
+	group              string
+	mode               os.FileMode
+	mutex              sync.RWMutex
+	logPrefix          string
+	permissionsApplied bool // Track if we've applied permissions on startup
 }
 
 // BaseConfig holds common configuration for output formats
@@ -131,6 +132,21 @@ func (bf *BaseFormat) GetLogPrefix() string {
 	return bf.logPrefix
 }
 
+// GetUser returns the configured user
+func (bf *BaseFormat) GetUser() string {
+	return bf.user
+}
+
+// GetGroup returns the configured group
+func (bf *BaseFormat) GetGroup() string {
+	return bf.group
+}
+
+// GetMode returns the configured file mode
+func (bf *BaseFormat) GetMode() os.FileMode {
+	return bf.mode
+}
+
 // Lock acquires a write lock
 func (bf *BaseFormat) Lock() {
 	bf.mutex.Lock()
@@ -167,7 +183,7 @@ func (bf *BaseFormat) SetFileOwnership() error {
 	return bf.setFileOwnership()
 }
 
-// ensureFileAndSetOwnership creates the file and sets ownership if needed
+// ensureFileAndSetOwnership creates the file and sets ownership if needed (only called on startup)
 func (bf *BaseFormat) ensureFileAndSetOwnership() error {
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(bf.filePath)
@@ -175,28 +191,47 @@ func (bf *BaseFormat) ensureFileAndSetOwnership() error {
 		return fmt.Errorf("failed to create directory %s: %v", dir, err)
 	}
 
-	// Create file if it doesn't exist
+	// Check if file exists before creating
 	if _, err := os.Stat(bf.filePath); os.IsNotExist(err) {
+		// Create with default permissions
 		if err := os.WriteFile(bf.filePath, []byte{}, 0644); err != nil {
 			return fmt.Errorf("failed to create file: %v", err)
 		}
 		log.Trace("%s fsnotify event: Name='%s', Op=CREATE", bf.GetLogPrefix(), bf.filePath)
 	}
 
-	// Set ownership and permissions
-	return bf.setFileOwnership()
+	// Only set ownership/permissions on startup if explicitly configured
+	// (mode != 0644 means it was explicitly set to something other than default)
+	if (bf.user != "" || bf.group != "" || bf.mode != 0644) && !bf.permissionsApplied {
+		return bf.setFileOwnership()
+	}
+
+	return nil
 }
 
-// setFileOwnership sets the file ownership and permissions
+// setFileOwnership sets the file ownership and permissions (only called once on startup if configured)
 func (bf *BaseFormat) setFileOwnership() error {
-	// Only set file ownership if user/group is specified, don't mess with permissions unnecessarily
+	// Skip if we've already applied permissions on startup
+	if bf.permissionsApplied {
+		return nil
+	}
+
+	// Apply ownership if user/group is specified
 	if bf.user != "" || bf.group != "" {
 		if err := utils.SetFileOwnership(bf.filePath, bf.user, bf.group, bf.mode); err != nil {
 			return fmt.Errorf("failed to set file ownership: %v", err)
 		}
 		log.Trace("%s fsnotify event: Name='%s', Op=CHOWN", bf.GetLogPrefix(), bf.filePath)
+	} else if bf.mode != 0644 {
+		// Apply permissions only if mode is explicitly specified and different from default
+		if err := os.Chmod(bf.filePath, bf.mode); err != nil {
+			return fmt.Errorf("failed to set file permissions: %v", err)
+		}
+		log.Trace("%s fsnotify event: Name='%s', Op=CHMOD", bf.GetLogPrefix(), bf.filePath)
 	}
 
+	// Mark that we've applied permissions - never touch them again
+	bf.permissionsApplied = true
 	return nil
 }
 
@@ -341,6 +376,9 @@ func (om *OutputManager) WriteRecordWithSource(domain, hostname, target, recordT
 func (om *OutputManager) RemoveRecord(domain, hostname, recordType string) error {
 	om.mutex.Lock()
 	defer om.mutex.Unlock()
+
+	// Don't log at the manager level - let each provider log its own removals
+
 	if om.domainData[domain] != nil {
 		key := fmt.Sprintf("%s:%s", hostname, recordType)
 		delete(om.domainData[domain], key)
@@ -365,16 +403,40 @@ func (om *OutputManager) RemoveRecord(domain, hostname, recordType string) error
 func (om *OutputManager) SyncAll() error {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
+
+	// Add a small debug trace to track duplicate calls
+	log.Trace("[output] SyncAll() called - checking %d profiles", len(om.profiles))
+
 	var errors []string
+	syncedPaths := make(map[string]bool) // Track file paths to avoid duplicate syncs
+
 	for name, profile := range om.profiles {
 		for domain, provider := range profile.providers {
+			// Use the provider's file path as unique identifier
+			providerPath := ""
+			if baseProvider, ok := provider.(interface{ GetFilePath() string }); ok {
+				providerPath = baseProvider.GetFilePath()
+			} else {
+				// Fallback to old method if GetFilePath not available
+				providerPath = fmt.Sprintf("%s:%s:%s", profile.Format, name, domain)
+			}
+
+			// Skip if we've already synced this file path
+			if syncedPaths[providerPath] {
+				log.Trace("[output] Skipping already synced provider: %s", providerPath)
+				continue
+			}
+
 			if err := provider.Sync(); err != nil {
 				errMsg := fmt.Sprintf("profile '%s' domain '%s': %v", name, domain, err)
 				errors = append(errors, errMsg)
 				log.Error("[output/%s] Sync failed: %v", name, err)
+			} else {
+				syncedPaths[providerPath] = true
 			}
 		}
 	}
+
 	if len(errors) > 0 {
 		return fmt.Errorf("sync failed for %d providers: %s", len(errors), strings.Join(errors, "; "))
 	}
@@ -451,7 +513,7 @@ func (om *OutputManager) GetDomains() []string {
 	return domains
 }
 
-// InitializeOutputManager initializes the global output manager with profiles from config
+// InitializeOutputManager initializes the output manager with profiles from config
 func InitializeOutputManager(outputsConfig map[string]interface{}) error {
 	manager := NewOutputManager()
 
@@ -461,22 +523,9 @@ func InitializeOutputManager(outputsConfig map[string]interface{}) error {
 		return nil
 	}
 
-	// Parse profiles from the outputs configuration
-	profiles, ok := outputsConfig["profiles"]
-	if !ok {
-		log.Debug("[output] No profiles found in outputs configuration")
-		SetGlobalOutputManager(manager)
-		return nil
-	}
-
-	profilesMap, ok := profiles.(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("outputs.profiles must be a map")
-	}
-
-	log.Debug("[config/output] Found %d output profiles", len(profilesMap))
-
-	for profileName, profileConfigRaw := range profilesMap {
+	// Treat everything under outputs as profile names directly
+	log.Debug("[config/output] Found %d output profiles", len(outputsConfig))
+	for profileName, profileConfigRaw := range outputsConfig {
 		log.Debug("[config/output] Processing profile: %s", profileName)
 
 		profileConfig, ok := profileConfigRaw.(map[string]interface{})

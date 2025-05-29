@@ -23,6 +23,7 @@ type ZoneFormat struct {
 	records   map[string]*ZoneRecord // key: hostname:type
 	config    ZoneConfig
 	serialNum uint32
+	logger    *log.ScopedLogger // provider-specific logger
 }
 
 // ZoneConfig holds configuration specific to zone files
@@ -109,11 +110,42 @@ func NewZoneFormat(domain string, config map[string]interface{}) (output.OutputF
 		serialNum:  generateSerial(),
 	}
 
+	// Create scoped logger
+	logLevel := ""
+	if logLevelVal, ok := config["log_level"].(string); ok {
+		logLevel = logLevelVal
+	}
+
+	// Use profile name from config if available, otherwise fall back to domain
+	profileName := ""
+	if profileNameVal, ok := config["profile_name"].(string); ok {
+		profileName = profileNameVal
+	} else {
+		profileName = strings.ReplaceAll(domain, ".", "_") + "_zone"
+	}
+
+	logPrefix := fmt.Sprintf("[output/zone/%s]", profileName)
+	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	}
+
+	format.logger = scopedLogger
+
 	log.Debug("%s Initialized zone file format: %s", format.GetLogPrefix(), format.GetFilePath())
 
-	// Create empty file if it doesn't exist, then set ownership
-	if err := format.EnsureFileAndSetOwnership(); err != nil {
-		log.Warn("%s Failed to ensure file and set ownership: %v", format.GetLogPrefix(), err)
+	// Only ensure file and set ownership if permissions are explicitly configured
+	if format.GetUser() != "" || format.GetGroup() != "" || format.GetMode() != 0644 {
+		if err := format.EnsureFileAndSetOwnership(); err != nil {
+			log.Warn("%s Failed to ensure file and set ownership: %v", format.GetLogPrefix(), err)
+		}
+	} else {
+		// Just ensure directory exists for default permissions
+		if err := format.EnsureDirectory(); err != nil {
+			log.Warn("%s Failed to ensure directory: %v", format.GetLogPrefix(), err)
+		}
 	}
 
 	// Load existing records from the zone file if it exists
@@ -159,7 +191,7 @@ func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 			existingRecord.Target = target
 			existingRecord.TTL = uint32(ttl)
 			existingRecord.Source = source
-			log.Verbose("[output/zone/%s] Updated record: %s.%s (%s) %s -> %s", 
+			log.Verbose("[output/zone/%s] Updated record: %s.%s (%s) %s -> %s",
 				source, hostname, domain, recordType, existingRecord.Target, target)
 		} else {
 			// Just update metadata without logging
@@ -175,7 +207,7 @@ func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 			TTL:      uint32(ttl),
 			Source:   source,
 		}
-		log.Verbose("[output/zone/%s] Added record: %s.%s (%s) -> %s", 
+		log.Verbose("[output/zone/%s] Added record: %s.%s (%s) -> %s",
 			source, hostname, domain, recordType, target)
 	}
 
@@ -200,7 +232,8 @@ func (z *ZoneFormat) RemoveRecord(domain, hostname, recordType string) error {
 
 	if _, exists := z.records[key]; exists {
 		delete(z.records, key)
-		log.Trace("%s Removed record: %s (%s)", z.GetLogPrefix(), hostname, recordType)
+		fqdn := hostname + "." + domain
+		log.Verbose("%s Removed record: %s (%s)", z.GetLogPrefix(), fqdn, recordType)
 	}
 
 	return nil
@@ -226,7 +259,12 @@ func (z *ZoneFormat) Sync() error {
 	log.Trace("%s fsnotify event: Name='%s', Op=WRITE", z.GetLogPrefix(), z.GetFilePath())
 
 	log.Trace("%s fsnotify event: Name='%s', Op=WRITE", z.GetLogPrefix(), z.GetFilePath())
-	log.Debug("%s Generated zone file with %d records: %s", z.GetLogPrefix(), len(z.records), z.GetFilePath())
+
+	// Count how many domains we're actually exporting for
+	domainCount := 1 // We're always exporting for one domain in this context
+
+	log.Debug("%s Generated export for %d domain with %d records: %s",
+		z.GetLogPrefix(), domainCount, len(z.records), z.GetFilePath())
 	return nil
 }
 
@@ -322,7 +360,7 @@ func (z *ZoneFormat) generateRecordsByType() string {
 				// Pad hostname to 15 characters for alignment
 				hostname = fmt.Sprintf("%-15s", hostname)
 			}
-			
+
 			if record.Source != "" && record.Source != "dns-companion" {
 				content.WriteString(fmt.Sprintf("%s\t%d\tIN\t%s\t%s\t; source: %s\n",
 					hostname, record.TTL, record.Type, record.Target, record.Source))
@@ -377,7 +415,7 @@ func (z *ZoneFormat) loadExistingRecords() error {
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		
+
 		// Skip comments, empty lines, directives, and SOA/NS records
 		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "$") ||
 			strings.Contains(line, "SOA") || strings.Contains(line, "NS") {

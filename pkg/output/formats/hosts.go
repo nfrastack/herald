@@ -118,7 +118,7 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 		existingRecord.Target = target
 		existingRecord.TTL = uint32(ttl)
 		existingRecord.Source = source
-		log.Trace("[output/hosts/%s] Updated record: %s.%s (%s) -> %s", source, hostname, domain, recordType, target)
+		log.Verbose("[output/hosts/%s] Updated record: %s.%s (%s) -> %s", source, hostname, domain, recordType, target)
 	} else {
 		// Create new record
 		h.records[key] = &HostsRecord{
@@ -128,7 +128,7 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 			TTL:      uint32(ttl),
 			Source:   source,
 		}
-		log.Trace("[output/hosts/%s] Added record: %s.%s (%s) -> %s", source, hostname, domain, recordType, target)
+		log.Verbose("[output/hosts/%s] Added record: %s.%s (%s) -> %s", source, hostname, domain, recordType, target)
 	}
 
 	return nil
@@ -188,7 +188,8 @@ func (h *HostsFormat) RemoveRecord(domain, hostname, recordType string) error {
 	key := fmt.Sprintf("%s:%s", hostname, recordType)
 	if _, exists := h.records[key]; exists {
 		delete(h.records, key)
-		log.Trace("%s Removed record: %s (%s)", h.GetLogPrefix(), hostname, recordType)
+		fqdn := hostname + "." + domain
+		log.Verbose("%s Removed record: %s (%s)", h.GetLogPrefix(), fqdn, recordType)
 	}
 
 	return nil
@@ -210,7 +211,7 @@ func (h *HostsFormat) Sync() error {
 	}
 	log.Trace("%s fsnotify event: Name='%s', Op=WRITE", h.GetLogPrefix(), h.GetFilePath())
 
-	log.Debug("%s Generated hosts file with %d records: %s", h.GetLogPrefix(), len(h.records), h.GetFilePath())
+	log.Debug("%s Generated export for 1 domain with %d records: %s", h.GetLogPrefix(), len(h.records), h.GetFilePath())
 	return nil
 }
 
