@@ -15,6 +15,7 @@ import (
 // JSONFormat implements OutputFormat for JSON export
 type JSONFormat struct {
 	*outputCommon.CommonFormat
+	logger *log.ScopedLogger
 }
 
 // NewJSONFormat creates a new JSON format instance
@@ -24,13 +25,17 @@ func NewJSONFormat(domain string, config map[string]interface{}) (output.OutputF
 		return nil, err
 	}
 
+	// Create scoped logger using common helper
+	scopedLogger := outputCommon.AddScopedLogging(nil, "json", domain, config)
+
 	format := &JSONFormat{
 		CommonFormat: common,
+		logger:       scopedLogger,
 	}
 
 	// Load existing export if it exists
 	if err := format.LoadExistingData(json.Unmarshal); err != nil {
-		log.Warn("%s Failed to load existing export: %v", format.GetLogPrefix(), err)
+		format.logger.Warn("Failed to load existing JSON export for domain %s: %v", domain, err)
 	}
 
 	return format, nil
@@ -48,6 +53,7 @@ func (j *JSONFormat) Sync() error {
 
 // serializeJSON handles JSON-specific serialization
 func (j *JSONFormat) serializeJSON(export *outputCommon.ExportData) ([]byte, error) {
+	// Use simple JSON marshalling with indentation
 	return json.MarshalIndent(export, "", "  ")
 }
 

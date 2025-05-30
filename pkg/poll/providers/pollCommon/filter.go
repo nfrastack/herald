@@ -35,6 +35,10 @@ const (
 	FilterTypeEntrypoint FilterType = "entrypoint"
 	FilterTypeStatus     FilterType = "status"
 	FilterTypeRule       FilterType = "rule"
+	FilterTypeTag        FilterType = "tag"
+	FilterTypeOnline     FilterType = "online"
+	FilterTypeOS         FilterType = "os"
+	FilterTypeUser       FilterType = "user"
 )
 
 // Filter defines a generic filter

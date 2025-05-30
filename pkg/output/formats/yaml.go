@@ -45,7 +45,14 @@ func (y *YAMLFormat) GetName() string {
 
 // Sync writes the YAML export to disk
 func (y *YAMLFormat) Sync() error {
-	return y.SyncWithSerializer(y.serializeYAML)
+	err := y.SyncWithSerializer(y.serializeYAML)
+	if err == nil {
+		y.Lock()
+		recordCount := y.GetRecordCount() // Use public method instead of direct field access
+		y.Unlock()
+		log.Debug("%s Generated export for 1 domain with %d records: %s", y.GetLogPrefix(), recordCount, y.GetFilePath())
+	}
+	return err
 }
 
 // serializeYAML handles YAML-specific serialization

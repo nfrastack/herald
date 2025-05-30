@@ -10,8 +10,90 @@ import (
 
 	"fmt"
 	"os"
+	"os/user"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 )
+
+// setFileOwnership is a common helper function to set file ownership and permissions
+func setFileOwnership(filePath string, config map[string]interface{}, logger *log.ScopedLogger) error {
+	// Set file ownership if specified
+	if userConfig, ok := config["user"].(string); ok && userConfig != "" {
+		var uid int
+		var gid int = -1 // Keep existing group by default
+
+		// Look up user
+		if u, err := user.Lookup(userConfig); err == nil {
+			if parsed, err := strconv.Atoi(u.Uid); err == nil {
+				uid = parsed
+				if parsed, err := strconv.Atoi(u.Gid); err == nil {
+					gid = parsed // Use user's primary group as fallback
+				}
+			}
+		} else {
+			logger.Warn("Failed to lookup user '%s': %v", userConfig, err)
+		}
+
+		// Override group if specified
+		if groupConfig, ok := config["group"].(string); ok && groupConfig != "" {
+			if g, err := user.LookupGroup(groupConfig); err == nil {
+				if parsed, err := strconv.Atoi(g.Gid); err == nil {
+					gid = parsed
+				}
+			} else {
+				logger.Warn("Failed to lookup group '%s': %v", groupConfig, err)
+			}
+		}
+
+		// Apply ownership
+		if err := syscall.Chown(filePath, uid, gid); err != nil {
+			logger.Warn("Failed to change ownership of %s: %v", filePath, err)
+		}
+	}
+
+	// Set file mode if specified
+	if modeConfig, ok := config["mode"]; ok {
+		var mode os.FileMode
+		switch v := modeConfig.(type) {
+		case int:
+			mode = os.FileMode(v)
+		case float64:
+			mode = os.FileMode(int(v))
+		case string:
+			if parsed, err := strconv.ParseUint(v, 8, 32); err == nil {
+				mode = os.FileMode(parsed)
+			}
+		}
+
+		if mode != 0 {
+			if err := os.Chmod(filePath, mode); err != nil {
+				logger.Warn("Failed to change mode of %s: %v", filePath, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// AddScopedLogging adds scoped logging to any output format provider
+func AddScopedLogging(provider interface{}, formatType, name string, options map[string]interface{}) *log.ScopedLogger {
+	logLevel := ""
+	if val, ok := options["log_level"].(string); ok {
+		logLevel = val
+	}
+
+	logPrefix := fmt.Sprintf("[output/%s/%s]", formatType, name)
+	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		scopedLogger.Info("Output format log_level set to: '%s'", logLevel)
+	}
+
+	return scopedLogger
+}
 
 // CommonFormat provides shared functionality for export formats (JSON, YAML)
 type CommonFormat struct {
@@ -19,7 +101,8 @@ type CommonFormat struct {
 	records    map[string]*BaseRecord // key: domain:hostname:type
 	domains    map[string]*BaseDomain
 	metadata   *BaseMetadata
-	formatName string // Track the actual format name
+	formatName string            // Track the actual format name
+	logger     *log.ScopedLogger // provider-specific logger
 }
 
 // NewCommonFormat creates a new common format instance
@@ -29,19 +112,42 @@ func NewCommonFormat(domain, formatName string, config map[string]interface{}) (
 		return nil, err
 	}
 
+	// Get provider-specific log level from config
+	logLevel := ""
+	if level, ok := config["log_level"].(string); ok {
+		logLevel = level
+	}
+
+	// Create scoped logger
+	logPrefix := fmt.Sprintf("[output/%s/%s]", formatName, strings.ReplaceAll(domain, ".", "_"))
+	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	}
+
 	format := &CommonFormat{
 		BaseFormat: base,
 		records:    make(map[string]*BaseRecord),
 		domains:    make(map[string]*BaseDomain),
 		metadata:   &BaseMetadata{Generator: "dns-companion"},
 		formatName: formatName,
+		logger:     scopedLogger,
 	}
 
-	log.Debug("%s Initialized %s format: %s", format.GetLogPrefix(), formatName, format.GetFilePath())
+	format.logger.Debug("Initialized %s format: %s", formatName, format.GetFilePath())
 
-	// Create empty file if it doesn't exist, then set ownership
-	if err := format.EnsureFileAndSetOwnership(); err != nil {
-		log.Warn("%s Failed to ensure file and set ownership: %v", format.GetLogPrefix(), err)
+	// Only ensure file and set ownership if permissions are explicitly configured (non-default)
+	if format.GetUser() != "" || format.GetGroup() != "" || format.GetMode() != 0644 {
+		if err := format.EnsureFileAndSetOwnership(); err != nil {
+			log.Warn("%s Failed to ensure file and set ownership: %v", format.GetLogPrefix(), err)
+		}
+	} else {
+		// Just ensure directory exists for default permissions - don't create/chmod the file
+		if err := format.EnsureDirectory(); err != nil {
+			log.Warn("%s Failed to ensure directory: %v", format.GetLogPrefix(), err)
+		}
 	}
 
 	return format, nil
@@ -72,11 +178,26 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 	// Check if record already exists
 	existingRecord := c.records[key]
 	if existingRecord != nil {
-		// Update existing record
-		existingRecord.Target = target
-		existingRecord.TTL = uint32(ttl)
-		existingRecord.Source = source
-		log.Verbose("[output/%s/%s] Updated record: %s.%s (%s) -> %s", c.GetName(), source, hostname, domain, recordType, target)
+		// Only log if the target actually changed
+		if existingRecord.Target != target {
+			oldTarget := existingRecord.Target
+			existingRecord.Target = target
+			existingRecord.TTL = uint32(ttl)
+			existingRecord.Source = source
+			c.logger.Info("DNS record target updated: %s.%s (%s) %s -> %s (TTL: %d, source: %s)", hostname, domain, recordType, oldTarget, target, ttl, source)
+		} else {
+			// Check if TTL changed and log that too
+			if existingRecord.TTL != uint32(ttl) {
+				oldTTL := existingRecord.TTL
+				existingRecord.TTL = uint32(ttl)
+				existingRecord.Source = source
+				c.logger.Verbose("DNS record TTL updated: %s.%s (%s) %d -> %d (target: %s, source: %s)", hostname, domain, recordType, oldTTL, ttl, target, source)
+			} else {
+				// Just update metadata without logging
+				existingRecord.TTL = uint32(ttl)
+				existingRecord.Source = source
+			}
+		}
 	} else {
 		// Create new record
 		record := &BaseRecord{
@@ -90,7 +211,7 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 
 		c.records[key] = record
 		c.domains[domain].Records = append(c.domains[domain].Records, record)
-		log.Verbose("[output/%s/%s] Added record: %s.%s (%s) -> %s", c.GetName(), source, hostname, domain, recordType, target)
+		c.logger.Verbose("Added record: %s.%s (%s) -> %s", hostname, domain, recordType, target)
 	}
 
 	// Update metadata
@@ -127,7 +248,7 @@ func (c *CommonFormat) RemoveRecord(domain, hostname, recordType string) error {
 			}
 		}
 
-		log.Trace("%s Removed record: %s (%s)", c.GetLogPrefix(), hostname, recordType)
+		c.logger.Verbose("Removed record: %s.%s (%s)", hostname, domain, recordType)
 		c.metadata.LastUpdated = time.Now().UTC()
 	}
 
@@ -170,7 +291,7 @@ func (c *CommonFormat) LoadExistingData(unmarshalFunc func([]byte, interface{}) 
 	// Preserve existing metadata
 	if export.Metadata != nil {
 		c.metadata = export.Metadata
-		log.Trace("%s Preserved existing metadata from file", c.GetLogPrefix())
+		c.logger.Trace("Preserved existing metadata from file")
 	}
 
 	// Load existing records (but they will be overwritten by current state)
@@ -213,20 +334,23 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(*ExportData) ([]byt
 		log.Error("%s Failed to write file: %v", c.GetLogPrefix(), err)
 		return fmt.Errorf("failed to write file: %v", err)
 	}
-	log.Trace("%s fsnotify event: Name='%s', Op=WRITE", c.GetLogPrefix(), c.GetFilePath())
+	c.logger.Trace("fsnotify event: Name='%s', Op=WRITE", c.GetFilePath())
 
-	// Explicitly fix file permissions to ensure they're correct (0644)
-	if err := os.Chmod(c.GetFilePath(), 0644); err != nil {
-		log.Warn("%s Failed to set file permissions to 644: %v", c.GetLogPrefix(), err)
-	} else {
-		log.Trace("%s fsnotify event: Name='%s', Op=CHMOD", c.GetLogPrefix(), c.GetFilePath())
+	// Set file ownership if specified
+	if err := c.SetFileOwnership(); err != nil {
+		log.Warn("%s Failed to set file ownership: %v", c.GetLogPrefix(), err)
 	}
 
-	log.Verbose("%s Generated export with %d domains: %s", c.GetLogPrefix(), len(c.domains), c.GetFilePath())
+	// Remove old verbose logging - let individual formats handle their own logging
 	return nil
 }
 
 // GetName returns the format name
 func (c *CommonFormat) GetName() string {
 	return c.formatName
+}
+
+// GetRecordCount returns the number of records currently stored
+func (c *CommonFormat) GetRecordCount() int {
+	return len(c.records)
 }

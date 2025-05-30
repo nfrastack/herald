@@ -10,32 +10,71 @@ import (
 	"net/http"
 )
 
-// FetchRemoteResource fetches a remote HTTP/HTTPS resource with optional basic auth and logs errors consistently.
-// The user and pass parameters can be empty if no authentication is needed.
-func FetchRemoteResource(url, user, pass, logPrefix string) ([]byte, error) {
-	client := &http.Client{}
+// FetchRemoteResourceWithTLSConfig fetches a remote HTTP/HTTPS resource with full TLS configuration support
+func FetchRemoteResourceWithTLSConfig(url, user, pass string, headers map[string]string, tlsConfig *TLSConfig, logPrefix string) ([]byte, error) {
+	// Create HTTP client with custom TLS configuration
+	httpClient, err := tlsConfig.CreateHTTPClient()
+	if err != nil {
+		return nil, fmt.Errorf("%s failed to create HTTP client: %w", logPrefix, err)
+	}
+
+	// Create request
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s HTTP request creation error for %s: %v", logPrefix, url, err)
+		return nil, fmt.Errorf("%s failed to create HTTP request: %w", logPrefix, err)
 	}
-	if user != "" {
+
+	// Add basic auth if provided
+	if user != "" && pass != "" {
 		req.SetBasicAuth(user, pass)
-		// Optionally log that basic auth is being used
 	}
-	resp, err := client.Do(req)
+
+	// Add custom headers if provided
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	// Perform request
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s HTTP GET error for %s: %v", logPrefix, url, err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == 401 {
-			return nil, fmt.Errorf("%s HTTP 401 Unauthorized: authentication required for %s", logPrefix, url)
-		}
-		return nil, fmt.Errorf("%s HTTP error: response code %d for %s", logPrefix, resp.StatusCode, url)
+		return nil, fmt.Errorf("%s HTTP request failed: %w", logPrefix, err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("%s Error reading response body: %v", logPrefix, err)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s HTTP %d: %s", logPrefix, resp.StatusCode, resp.Status)
 	}
-	return data, nil
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%s failed to read response body: %w", logPrefix, err)
+	}
+
+	return body, nil
+}
+
+// FetchRemoteResourceWithTLS fetches a remote HTTP/HTTPS resource with optional basic auth, custom headers, and TLS verification control.
+// The user and pass parameters can be empty if no authentication is needed.
+// The headers parameter can be nil if no custom headers are needed.
+// The tlsVerify parameter controls whether to verify TLS certificates (false = skip verification like curl -k).
+func FetchRemoteResourceWithTLS(url, user, pass string, headers map[string]string, logPrefix string, tlsVerify bool) ([]byte, error) {
+	// Create a simple TLS config for backward compatibility
+	tlsConfig := &TLSConfig{
+		Verify: tlsVerify,
+	}
+	return FetchRemoteResourceWithTLSConfig(url, user, pass, headers, tlsConfig, logPrefix)
+}
+
+// FetchRemoteResource fetches a remote HTTP/HTTPS resource with optional basic auth and logs errors consistently.
+// The user and pass parameters can be empty if no authentication is needed.
+// This function uses TLS verification by default.
+func FetchRemoteResource(url, user, pass, logPrefix string) ([]byte, error) {
+	return FetchRemoteResourceWithTLS(url, user, pass, nil, logPrefix, true)
+}
+
+// FetchRemoteResourceWithHeaders fetches a remote HTTP/HTTPS resource with optional basic auth and custom headers.
+// The user and pass parameters can be empty if no authentication is needed.
+// The headers parameter can be nil if no custom headers are needed.
+func FetchRemoteResourceWithHeaders(url, user, pass string, headers map[string]string, logPrefix string) ([]byte, error) {
+	return FetchRemoteResourceWithTLS(url, user, pass, headers, logPrefix, true)
 }

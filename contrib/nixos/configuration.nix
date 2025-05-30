@@ -35,6 +35,15 @@
           process_existing = true;
           record_remove_on_stop = true;
         };
+        caddypoller01 = {
+          type = "caddy";
+          api_url = "http://caddy:2019/config/";
+          api_auth_user = "";
+          api_auth_pass = "";
+          interval = "60s";
+          process_existing = true;
+          record_remove_on_stop = true;
+        };
         filepoller01 = {
           type = "file";
           source = "/var/lib/dns-companion/records.yaml";
@@ -42,6 +51,13 @@
           interval = "-1"; # watch mode (default)
           record_remove_on_stop = true;
           process_existing = true;
+          # Supported formats: yaml, json, hosts, zone
+          # Example for YAML format (default):
+          #   format = "yaml";
+          # Example for hosts file:
+          #   format = "hosts";
+          # Example for zone file:
+          #   format = "zone";
         };
         remotepoller01 = {
           type = "remote";
@@ -53,11 +69,92 @@
           http_user = "myuser";
           http_pass = "mypassword";
         };
+        zerotier_example = {
+          type = "zerotier";
+          api_url = "https://my.zerotier.com";        # ZeroTier Central or ZT-Net API URL (optional)
+          api_token = "your_zerotier_api_token_here"; # Replace with your actual token
+          # api_type = "zerotier";                    # "zerotier" or "ztnet" (optional, autodetects)
+          interval = "60s";                           # Polling interval (optional, default: 60s)
+          network_id = "YOUR_NETWORK_ID";             # For ZT-Net: "org:domain.com:networkid" format
+          domain = "zt.example.com";                  # Domain suffix for DNS records
+          online_timeout_seconds = 300;               # Time to consider member offline (recommend 300+)
+          process_existing = true;                    # Process records on startup (default: false)
+          record_remove_on_stop = true;               # Remove DNS records when node goes offline
+          use_address_fallback = true;                # Use ZeroTier address as hostname when name empty
+          filter_type = "online";                     # Filter: online, name, authorized, tag, etc.
+          filter_value = "true";                      # Value for filter_type (default: online=true)
+          log_level = "debug";                        # Provider-specific log level override (optional)
+        };
+        tailscale_example = {
+          type = "tailscale";
+          api_key = "your_tailscale_api_key_here";    # Personal access token (tskey-api-*) or API key
+          # api_auth_token = "your_oauth_client_secret"; # OAuth client secret (alternative to api_key)
+          # api_auth_id = "your_oauth_client_id";       # OAuth client ID (required with api_auth_token)
+          api_url = "https://api.tailscale.com/api/v2"; # API URL (optional, defaults to Tailscale Central)
+          tailnet = "-";                              # Tailnet ID or namespace (optional, defaults to "-")
+          domain = "ts.example.com";                  # Domain suffix for DNS records
+          interval = "120s";                          # Polling interval (optional, default: 120s)
+          hostname_format = "simple";                 # Hostname format: "simple", "tailscale", "full"
+          process_existing = true;                    # Process records on startup (default: false)
+          record_remove_on_stop = true;               # Remove DNS records when device goes offline
+          filter_type = "online";                     # Filter by: online, name, hostname, tag, id, address, user, os
+          filter_value = "true";                      # Value for filter_type
+          log_level = "debug";                        # Provider-specific log level override (optional)
+        };
       };
       providers = {
         dnsprovider01 = {
           type = "cloudflare";
           api_token = "abcdef1234567890abcdef1234567890abcdef1234";
+        };
+        zerotier = {
+          enable = lib.mkEnableOption "Enable Zerotier poll provider";
+          api_url = lib.mkOption {
+            type = lib.types.str;
+            description = "Zerotier Central or ZT-Net API base URL.";
+          };
+          api_token = lib.mkOption {
+            type = lib.types.str;
+            description = "API token for Zerotier or ZT-Net.";
+          };
+          network_id = lib.mkOption {
+            type = lib.types.str;
+            description = "Zerotier network ID.";
+          };
+          domain = lib.mkOption {
+            type = lib.types.str;
+            description = "Domain to append to Zerotier hostnames.";
+          };
+          api_type = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "API type: 'zerotier' or 'ztnet'. Optional, autodetects if omitted.";
+          };
+          interval = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "Polling interval (e.g., '60s'). Optional.";
+          };
+          process_existing = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Process records on startup.";
+          };
+          record_remove_on_stop = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Remove DNS records when node is removed or offline.";
+          };
+          filter_type = lib.mkOption {
+            type = lib.types.str;
+            default = "online";
+            description = "Filter by: online, name, authorized, tag, id, address, nodeid.";
+          };
+          filter_value = lib.mkOption {
+            type = lib.types.str;
+            default = "true";
+            description = "Value for filter_type (default: online=true).";
+          };
         };
       };
       domains = {

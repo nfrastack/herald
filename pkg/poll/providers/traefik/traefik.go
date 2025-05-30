@@ -5,6 +5,7 @@
 package traefik
 
 import (
+	"dns-companion/pkg/config"
 	"dns-companion/pkg/dns"
 	"dns-companion/pkg/domain"
 	"dns-companion/pkg/log"
@@ -43,8 +44,9 @@ type TraefikProvider struct {
 	ticker       *time.Ticker
 	authUser     string
 	authPass     string
-	profileName  string // Store profile name for logs
-	logPrefix    string // Store log prefix for consistent logging
+	profileName  string                // Store profile name for logs
+	logPrefix    string                // Store log prefix for consistent logging
+	tlsConfig    *pollCommon.TLSConfig // Store TLS configuration
 
 	// Filters
 	filterConfig pollCommon.FilterConfig
@@ -52,6 +54,8 @@ type TraefikProvider struct {
 	initialPollDone bool // Track if initial poll is complete
 
 	opts pollCommon.PollProviderOptions // Add parsed options struct
+
+	logger *log.ScopedLogger // provider-specific logger
 }
 
 // NewProvider creates a new Traefik poll provider
@@ -113,7 +117,24 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	log.Trace("%s Created context with cancel function", logPrefix)
 
-	// Set up filters from options (no FixTraefikFilterConfig)
+	// Parse TLS configuration
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(options)
+	if err := tlsConfig.ValidateConfig(); err != nil {
+		return nil, fmt.Errorf("%s invalid TLS configuration: %w", logPrefix, err)
+	}
+
+	// Log TLS configuration
+	if !tlsConfig.Verify {
+		log.Debug("%s TLS certificate verification disabled", logPrefix)
+	}
+	if tlsConfig.CA != "" {
+		log.Debug("%s Using custom CA certificate: %s", logPrefix, tlsConfig.CA)
+	}
+	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
+		log.Debug("%s Using client certificate authentication", logPrefix)
+	}
+
+	// Set up filters from options
 	filterConfig, err := pollCommon.NewFilterFromOptions(options)
 	if err != nil {
 		log.Error("%s Error setting up filters: %v", logPrefix, err)
@@ -133,6 +154,16 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		log.Debug("%s No active filters configured, processing all routers", logPrefix)
 	}
 
+	logLevel := options["log_level"] // Get provider-specific log level
+
+	// Create scoped logger
+	scopedLogger := pollCommon.CreateScopedLogger("traefik", profileName, options)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	}
+
 	provider := &TraefikProvider{
 		apiURL:          apiURL,
 		pollInterval:    parsed.Interval,
@@ -145,9 +176,11 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		authPass:        authPass,
 		profileName:     profileName,
 		logPrefix:       logPrefix,
+		tlsConfig:       &tlsConfig,
 		filterConfig:    filterConfig,
 		initialPollDone: false,
 		opts:            parsed,
+		logger:          scopedLogger,
 	}
 
 	log.Info("%s Successfully created new Traefik provider", logPrefix)
@@ -454,7 +487,21 @@ func (t *TraefikProvider) processTraefikRouters() error {
 
 // fetchTraefikAPI fetches data from the Traefik API using pollCommon.FetchRemoteResource
 func (p *TraefikProvider) fetchTraefikAPI(url, user, pass, logPrefix string) ([]byte, error) {
-	return pollCommon.FetchRemoteResource(url, user, pass, logPrefix)
+	// Parse TLS configuration using pollCommon utilities
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(p.options)
+
+	// Log TLS configuration details
+	if !tlsConfig.Verify {
+		log.Debug("%s TLS certificate verification disabled", logPrefix)
+	}
+	if tlsConfig.CA != "" {
+		log.Debug("%s Using custom CA certificate: %s", logPrefix, tlsConfig.CA)
+	}
+	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
+		log.Debug("%s Using client certificate authentication", logPrefix)
+	}
+
+	return pollCommon.FetchRemoteResourceWithTLSConfig(url, user, pass, nil, &tlsConfig, logPrefix)
 }
 
 // routerStatesEqual compares two RouterState structs for equality
@@ -523,58 +570,78 @@ func (p *TraefikProvider) pollRouters() error {
 
 // processRouterAdd processes a router add event and triggers DNS actions
 func (t *TraefikProvider) processRouterAdd(state domain.RouterState) {
-	hosts := extractHostsFromRule(state.Rule)
-	for _, fqdn := range hosts {
-		// Always set SourceType and Name explicitly before calling domain logic
-		state.SourceType = "router"
-		if state.Name == "" {
-			state.Name = fqdn // fallback to FQDN if routerName is missing
+	// Create batch processor for efficient sync handling
+	batchProcessor := domain.NewBatchProcessor(t.logPrefix)
+
+	hostnames := pollCommon.ExtractHostsFromRule(state.Rule)
+	for _, hostname := range hostnames {
+		fqdnNoDot := strings.TrimSuffix(hostname, ".")
+		domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, t.logPrefix)
+		log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", t.logPrefix, domainKey, subdomain, fqdnNoDot)
+
+		if domainKey == "" {
+			log.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", t.logPrefix, fqdnNoDot)
+			continue
 		}
-		err := domain.EnsureDNSForRouterState(getDomainFromHostname(fqdn), fqdn, state)
+
+		domainCfg, ok := config.GlobalConfig.Domains[domainKey]
+		if !ok {
+			log.Error("%s Domain '%s' not found in config for fqdn='%s'", t.logPrefix, domainKey, fqdnNoDot)
+			continue
+		}
+
+		realDomain := domainCfg.Name
+		log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", t.logPrefix, realDomain, domainKey)
+
+		log.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", t.logPrefix, realDomain, fqdnNoDot, state)
+		err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 		if err != nil {
-			//log.Error("%s Failed to ensure DNS for '%s': %v", t.logPrefix, fqdn, err)
+			log.Error("%s Failed to ensure DNS for '%s': %v", t.logPrefix, fqdnNoDot, err)
 		}
 	}
+
+	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 }
 
 func (t *TraefikProvider) processRouterUpdate(state domain.RouterState) {
-	hosts := extractHostsFromRule(state.Rule)
-	if len(hosts) == 0 {
-		log.Debug("%s No hostnames to update for router '%s'", t.logPrefix, state.Name)
-		return
-	}
-	for _, fqdn := range hosts {
-		state.SourceType = "router"
-		if state.Name == "" {
-			state.Name = fqdn
-		}
-		err := domain.EnsureDNSForRouterState(getDomainFromHostname(fqdn), fqdn, state)
-		if err != nil {
-			log.Error("%s Failed to update DNS for '%s': %v", t.logPrefix, fqdn, err)
-		}
-	}
+	// For updates, use the same logic as add
+	t.processRouterAdd(state)
 }
 
 func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
-	hosts := extractHostsFromRule(state.Rule)
-	if len(hosts) == 0 {
-		log.Debug("%s No hostnames to remove for router '%s'", t.logPrefix, state.Name)
-		return
-	}
-	for _, fqdn := range hosts {
-		state.SourceType = "router"
-		if state.Name == "" {
-			state.Name = fqdn
+	// Create batch processor for efficient sync handling
+	batchProcessor := domain.NewBatchProcessor(t.logPrefix)
+
+	hostnames := pollCommon.ExtractHostsFromRule(state.Rule)
+	for _, hostname := range hostnames {
+		fqdnNoDot := strings.TrimSuffix(hostname, ".")
+		domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, t.logPrefix)
+		log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", t.logPrefix, domainKey, subdomain, fqdnNoDot)
+
+		if domainKey == "" {
+			log.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", t.logPrefix, fqdnNoDot)
+			continue
 		}
-		if t.opts.RecordRemoveOnStop {
-			err := domain.EnsureDNSRemoveForRouterState(getDomainFromHostname(fqdn), fqdn, state)
-			if err != nil {
-				log.Error("%s Failed to remove DNS for '%s': %v", t.logPrefix, fqdn, err)
-			}
-		} else {
-			log.Debug("%s Skipping DNS removal for '%s' (record_remove_on_stop is false)", t.logPrefix, fqdn)
+
+		domainCfg, ok := config.GlobalConfig.Domains[domainKey]
+		if !ok {
+			log.Error("%s Domain '%s' not found in config for fqdn='%s' (removal)", t.logPrefix, domainKey, fqdnNoDot)
+			continue
+		}
+
+		realDomain := domainCfg.Name
+		log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", t.logPrefix, realDomain, domainKey)
+
+		log.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", t.logPrefix, realDomain, fqdnNoDot, state)
+		err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
+		if err != nil {
+			log.Error("%s Failed to remove DNS for '%s': %v", t.logPrefix, fqdnNoDot, err)
 		}
 	}
+
+	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 }
 
 // extractHostsFromRule extracts hostnames from Traefik router rules

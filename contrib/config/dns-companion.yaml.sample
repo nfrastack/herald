@@ -1,4 +1,3 @@
-
 include: dns-extra.yaml                         # Example: Including another YAML file
 
 general:
@@ -19,22 +18,26 @@ defaults:
 providers:
   cf_example:
     type: "cloudflare"
-    api_token: "your_scoped_api_token_here"
+    api_token: "your_cloudflare_api_token_here" # <-- Replace with your real Cloudflare API token
     #api_email: "youremail@if.using.global.api"
     #api_key: "global_api_key_here"
 
-  hosts_example:
-    type: "hosts"
-    source: "./hosts"                           # Path to the hosts file to manage
-    user: nobody                                # (optional) Username or UID to own the file
-    group: nogroup                              # (optional) Group name or GID to own the file
-    mode: 0644                                  # (optional) File permissions (octal, e.g. 0644)
-    enable_ipv4: true                           # (optional) Enable IPv4 A records (default: true)
-    enable_ipv6: true                           # (optional) Enable IPv6 AAAA records (default: true)
-    # Only A and AAAA records are supported. CNAMEs are automatically flattened.
-
 polls:
-  pollexample:
+  caddy_example:
+    type: "caddy"
+    host: "https://caddy.api.local/config/"
+    #api_auth_user: ""
+    #api_auth_pass: ""
+    filter_type: "none"
+    process_existing: true
+    record_remove_on_stop: true
+    #tls:
+    #  verify: true
+    #  ca: "/etc/docker/certs/ca.pem"
+    #  cert: "/etc/docker/certs/cert.pem"
+    #  key: "/etc/docker/certs/key.pem"
+
+  docker_example:
     type: "docker"
     host: "unix:///var/run/docker.sock"   #Unix socket
     #api_auth_user: ""
@@ -49,14 +52,6 @@ polls:
     #  ca: "/etc/docker/certs/ca.pem"
     #  cert: "/etc/docker/certs/cert.pem"
     #  key: "/etc/docker/certs/key.pem"
-
-  pollexample2:
-    type: traefik
-    api_url: http://traefik:8080/api/http/routers
-    interval: 30s  # or 60, 1m, 1h, etc.
-    config_path: /etc/traefik/dynamic
-    process_existing: true  # Process existing routers on startup
-    record_remove_on_stop: true  # Remove DNS records when router is removed
 
   file_example:
     type: file
@@ -75,6 +70,71 @@ polls:
     record_remove_on_stop: true
     remote_auth_user: myuser # Optional HTTP Basic Auth
     remote_auth_pass: mypassword # Optional HTTP Basic Auth
+    #tls:
+    #  verify: true
+    #  ca: "/etc/docker/certs/ca.pem"
+    #  cert: "/etc/docker/certs/cert.pem"
+    #  key: "/etc/docker/certs/key.pem"
+
+  tailscale_example:
+    type: tailscale
+    api_key: "your_tailscale_api_key_here"      # Personal access token (tskey-api-*) or API key
+    # api_auth_token: "your_oauth_client_secret" # OAuth client secret (alternative to api_key)
+    # api_auth_id: "your_oauth_client_id"       # OAuth client ID (required with api_auth_token)
+    api_url: "https://api.tailscale.com/api/v2" # API URL (optional, defaults to Tailscale Central)
+    tailnet: "-"                                # Tailnet ID or namespace (optional, defaults to "-" for default tailnet)
+    domain: "ts.example.com"                    # Domain suffix for DNS records
+    interval: 120s                              # Polling interval (optional, default: 120s)
+    hostname_format: "simple"                   # Hostname format: "simple", "tailscale", "full" (default: "simple")
+    process_existing: true                      # Process records on startup (default: false)
+    record_remove_on_stop: true                 # Remove DNS records when device goes offline (default: false)
+    # Optional filters (defaults to online=true if no filters specified)
+    filter_type: online                         # Filter by: online, name, hostname, tag, id, address, user, os
+    filter_value: "true"                        # Value for filter_type
+    # filter_operation: equals                  # Operation: equals, contains, starts_with, ends_with, regex
+    # filter_negate: false                      # Set to true to exclude instead of include
+    log_level: "debug"                          # Provider-specific log level override (optional)
+    #tls:
+    #  verify: true
+    #  ca: "/etc/docker/certs/ca.pem"
+    #  cert: "/etc/docker/certs/cert.pem"
+    #  key: "/etc/docker/certs/key.pem"
+
+  traefik_example:
+    type: traefik
+    api_url: http://traefik:8080/api/http/routers
+    interval: 30s  # or 60, 1m, 1h, etc.
+    config_path: /etc/traefik/dynamic
+    process_existing: true  # Process existing routers on startup
+    record_remove_on_stop: true  # Remove DNS records when router is removed
+    #tls:
+    #  verify: true
+    #  ca: "/etc/docker/certs/ca.pem"
+    #  cert: "/etc/docker/certs/cert.pem"
+    #  key: "/etc/docker/certs/key.pem"
+
+  zerotier_example:
+    type: zerotier
+    api_url: "https://my.zerotier.com"          # ZeroTier Central or ZT-Net API URL (optional, defaults to ZeroTier Central)
+    api_token: "your_zerotier_api_token_here"   # <-- Replace with your real ZeroTier or ZT-Net API token
+    # api_type: "zerotier"                      # "zerotier" or "ztnet" (optional, autodetects if omitted)
+    interval: 60s                               # Polling interval (optional, default: 60s)
+    network_id: "YOUR_NETWORK_ID"               # For ZT-Net: "org:domain.com:networkid" or "domain.com:networkid"
+    domain: "zt.example.com"                    # Domain suffix for DNS records (optional)
+    online_timeout_seconds: 300                 # Time to consider member offline (default: 60s, recommend 300s+ for stability)
+    process_existing: true                      # Process records on startup (default: false)
+    record_remove_on_stop: true                 # Remove DNS records when node goes offline (default: false)
+    use_address_fallback: true                  # Use ZeroTier address as hostname when name is empty (default: false)
+    filter_type: "online"                       # Filter by: online, name, authorized, tag, id, address, nodeid, ipAssignments, physicalAddress
+    filter_value: "true"                        # Value for filter_type (default: online=true)
+    log_level: "debug"                          # Provider-specific log level override (optional)
+    # WARNING: online_timeout_seconds < 120 may cause erratic add/remove behavior due to ZeroTier Central heartbeat timing
+    # For ZT-Net, this uses lastSeen timestamp; for ZeroTier Central, uses lastSeen milliseconds
+    #tls:
+    #  verify: true
+    #  ca: "/etc/docker/certs/ca.pem"
+    #  cert: "/etc/docker/certs/cert.pem"
+    #  key: "/etc/docker/certs/key.pem"
 
 domains:
   domainexample:
@@ -92,6 +152,31 @@ domains:
       - staging
 
 outputs:                                    # Output providers write DNS records to files
+  hosts:                                    # Export DNS records as /etc/hosts format
+    path: "./custom_hosts"
+    #user: "root"                           # File ownership user (optional)
+    #group: "root"                          # File ownership group (optional)
+    #mode: 644                              # File permissions (optional, default: 644)
+    enable_ipv4: true                      # Include IPv4 A records (default: true)
+    enable_ipv6: true                      # Include IPv6 AAAA records (default: true)
+    header_comment: "Generated by dns-companion"  # Custom header comment (optional)
+    # Note: Only A and AAAA records are supported. CNAMEs are automatically resolved to IPs.
+  json:                                     # Export DNS records as JSON
+    path: "/var/www/api/dns/example.com.json"
+    #user: "www-data"                        # File ownership user (optional)
+    #group: "www-data"                       # File ownership group (optional)
+    #mode: 644                               # File permissions (optional, default: 644)
+    #generator: "dns-companion"              # Custom generator name (optional)
+    #hostname: "api-server.example.com"      # Custom hostname identifier (optional)
+    #comment: "API-accessible DNS records"   # Global comment (optional)
+  yaml:                                     # Export DNS records as YAML
+    path: "./example_com.yaml"
+    #user: "randomuser"                      # File ownership user (optional)
+    #group: "randomgroup"                    # File ownership group (optional)
+    #mode: 644                               # File permissions (optional, default: 644)
+    generator: "dns-companion"               # Custom generator name (optional)
+    #hostname: "server01.example.com"        # Custom hostname identifier (optional)
+    comment: "Production for example.com"   # Global comment (optional)
   zone:                                     # RFC1035 ZoneFile
     path: "./example_com.zone"
     #user: "named"                           # File ownership user (optional)
@@ -109,29 +194,3 @@ outputs:                                    # Output providers write DNS records
     ns_records:
       - "ns1.example.com"
       - "ns2.example.com"
-  hosts:                                    # Export DNS records as /etc/hosts format
-    path: "./custom_hosts"
-    #user: "root"                           # File ownership user (optional)
-    #group: "root"                          # File ownership group (optional)
-    #mode: 644                              # File permissions (optional, default: 644)
-    enable_ipv4: true                      # Include IPv4 A records (default: true)
-    enable_ipv6: true                      # Include IPv6 AAAA records (default: true)
-    header_comment: "Generated by dns-companion"  # Custom header comment (optional)
-    # Note: Only A and AAAA records are supported. CNAMEs are automatically resolved to IPs.
-  yaml:                                     # Export DNS records as YAML
-    path: "./example_com.yaml"
-    #user: "randomuser"                      # File ownership user (optional)
-    #group: "randomgroup"                    # File ownership group (optional)
-    #mode: 644                               # File permissions (optional, default: 644)
-    generator: "dns-companion"               # Custom generator name (optional)
-    #hostname: "server01.example.com"        # Custom hostname identifier (optional)
-    comment: "Production for example.com"   # Global comment (optional)
-  json:                                     # Export DNS records as JSON
-    path: "/var/www/api/dns/example.com.json"
-    #user: "www-data"                        # File ownership user (optional)
-    #group: "www-data"                       # File ownership group (optional)
-    #mode: 644                               # File permissions (optional, default: 644)
-    #generator: "dns-companion"              # Custom generator name (optional)
-    #hostname: "api-server.example.com"      # Custom hostname identifier (optional)
-    #comment: "API-accessible DNS records"   # Global comment (optional)
-    indent: true                            # Pretty print JSON (optional, default: true)

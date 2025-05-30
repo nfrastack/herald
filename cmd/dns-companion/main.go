@@ -13,6 +13,7 @@ import (
 	_ "dns-companion/pkg/output/formats"
 	"dns-companion/pkg/poll"
 	_ "dns-companion/pkg/poll/providers"
+	"dns-companion/pkg/utils"
 
 	"flag"
 	"fmt"
@@ -184,21 +185,34 @@ func main() {
 		}
 	}
 
-	// Use DNSProviderConfig fields and Options
-	providerOptions := make(map[string]string)
-	if dnsProviderName != "" {
-		providerOptions = providerConfig.GetOptions()
-		log.Debug("[dns/provider] Using providerConfig.GetOptions() for DNS provider options: %v", providerOptions)
+	// Check if all domains use 'none' provider
+	allDomainsUseNone := true
+	for _, domainCfg := range cfg.Domains {
+		if domainCfg.Provider != "none" && domainCfg.Provider != "skip" && domainCfg.Provider != "" {
+			allDomainsUseNone = false
+			break
+		}
 	}
 
-	// Initialize DNS provider if only one is defined
+	// Use DNSProviderConfig fields and Options
+	providerOptions := make(map[string]string)
+	if dnsProviderName != "" && !allDomainsUseNone {
+		providerOptions = providerConfig.GetOptions()
+		log.Debug("[dns/provider] Using providerConfig.GetOptions() for DNS provider options: %v", utils.MaskSensitiveOptions(providerOptions))
+	} else if allDomainsUseNone {
+		log.Debug("[dns/provider] All domains use 'none' provider, skipping DNS provider initialization")
+		dnsProviderName = ""
+	}
+
+	// Initialize DNS provider if only one is defined and not all domains use 'none'
 	var dnsProvider dns.Provider
-	if dnsProviderName != "" {
+	if dnsProviderName != "" && !allDomainsUseNone {
 		log.Info("[dns] Initializing DNS provider: %s", dnsProviderName)
 		dnsProvider, err = dns.LoadProviderFromConfig(dnsProviderName, providerOptions)
 		if err != nil {
 			log.Fatal("[dns/provider] Failed to initialize DNS provider: %v", err)
 		}
+		log.Trace("[dns] Provider config: %v", utils.MaskSensitiveOptions(providerConfig.GetOptions()))
 	}
 
 	// Load domain configurations into a shared data structure
@@ -300,7 +314,7 @@ func main() {
 			}
 		}
 
-		log.Trace("[poll] Provider %s options: %v", pollProfileName, providerOptions)
+		log.Trace("[poll] Provider %s options: %v", pollProfileName, utils.MaskSensitiveOptions(providerOptions))
 
 		pollProvider, err := poll.NewPollProvider(pollProviderType, providerOptions)
 		if err != nil {
