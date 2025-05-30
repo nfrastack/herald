@@ -18,7 +18,6 @@ nfrastack <code@nfrastack.com>
 
 - [Disclaimer](#disclaimer)
 - [Maintainer](#maintainer)
-- [Table of Contents](#table-of-contents)
 - [Prerequisites and Assumptions](#prerequisites-and-assumptions)
 - [Installing](#installing)
   - [From Source](#from-source)
@@ -27,16 +26,13 @@ nfrastack <code@nfrastack.com>
   - [Distributions](#distributions)
 - [Configuration](#configuration)
   - [Overview](#overview)
-  - [Example Configuration File](#example-configuration-file)
   - [Configuration Examples and Files](#configuration-examples-and-files)
   - [General Options](#general-options)
-  - [TLS Configuration for Remote Providers](#tls-configuration-for-remote-providers)
-  - [Environment Variables](#environment-variables)
   - [Default Options](#default-options)
   - [Pollers](#pollers)
-  - [Domains](#domains)
+  - [Providers](#providers)
+  - [Domain Configuration](#domain-configuration)
   - [Output Providers](#output-providers)
-  - [Supported Output Types](#supported-output-types)
 - [Support](#support)
   - [Implementation](#implementation)
   - [Usage](#usage)
@@ -128,13 +124,6 @@ DNS Companion supports flexible configuration via YAML files, environment variab
 3. Config file values
 4. General/Poller/Provider/domain defaults
 
-### Example Configuration File
-
-See the sample configurations in the [`contrib/config/`](contrib/config/) directory for comprehensive examples:
-
-- [`dns-companion.yaml.sample`](contrib/config/dns-companion.yaml.sample) - Complete configuration example with all options
-- [`env.sample`](contrib/config/env.sample) - Environment variable configuration examples
-
 ### Configuration Examples and Files
 
 The repository includes several configuration examples to help you get started:
@@ -200,157 +189,6 @@ general:
 #### Scoped Logging
 
 Each provider supports individual log level configuration via the `log_level` option, allowing fine-grained control over logging verbosity per provider without affecting global log levels.
-
-### TLS Configuration for Remote Providers
-
-All remote poll providers (Docker, Traefik, Caddy, Remote, Tailscale, ZeroTier) support consistent TLS configuration:
-
-#### Configuration Options
-
-| Option       | Type    | Default | Description                         |
-| ------------ | ------- | ------- | ----------------------------------- |
-| `tls.verify` | boolean | `true`  | Enable TLS certificate verification |
-| `tls.ca`     | string  | `""`    | Path to custom CA certificate file  |
-| `tls.cert`   | string  | `""`    | Path to client certificate file     |
-| `tls.key`    | string  | `""`    | Path to client private key file     |
-
-#### Examples
-
-**Basic HTTPS with system CA:**
-```yaml
-poll:
-  providers:
-    traefik:
-      endpoint: "https://traefik.example.com"
-      # Uses system CA, verification enabled by default
-```
-
-**Disable verification (development only):**
-```yaml
-poll:
-  providers:
-    traefik:
-      api_url: "https://traefik.example.com:8080/api/http/routers"
-      tls:
-        verify: false  # WARNING: Insecure for production
-```
-
-**Custom CA certificate:**
-```yaml
-poll:
-  providers:
-    traefik:
-      api_url: "https://traefik.internal.com:8080/api/http/routers"
-      tls:
-        verify: true
-        ca: "/etc/ssl/certs/internal-ca.pem"
-```
-
-**Mutual TLS (client certificate):**
-```yaml
-poll:
-  providers:
-    traefik:
-      api_url: "https://traefik.secure.com:8080/api/http/routers"
-      tls:
-        verify: true
-        ca: "/etc/ssl/certs/ca.pem"
-        cert: "/etc/ssl/certs/client.pem"
-        key: "/etc/ssl/private/client.key"
-```
-
-**Docker API over TLS:**
-```yaml
-poll:
-  providers:
-    docker:
-      api_url: "https://docker.example.com:2376"
-      tls:
-        verify: true
-        cert: "/etc/docker/certs/client-cert.pem"
-        key: "/etc/docker/certs/client-key.pem"
-        ca: "/etc/docker/certs/ca.pem"
-```
-
-**Remote file with custom CA:**
-```yaml
-poll:
-  providers:
-    remote:
-      remote_url: "https://internal-server.company.com/dns-records.yaml"
-      tls:
-        ca: "/etc/ssl/certs/company-ca.pem"
-```
-
-**Tailscale with Headscale (self-signed):**
-
-```yaml
-poll:
-  providers:
-    tailscale:
-      api_url: "https://headscale.example.com/api/v1"
-      api_key: "tskey-api-xxx"  # Static API key
-      tailnet: "your-tailnet"
-      tls:
-        ca: "/path/to/headscale-ca.pem"
-```
-
-**Tailscale with OAuth client credentials:**
-
-```yaml
-poll:
-  providers:
-    tailscale:
-      api_url: "https://api.tailscale.com/api/v2"
-      api_auth_id: "your-oauth-client-id"      # OAuth client ID
-      api_auth_token: "your-oauth-client-secret"  # OAuth client secret
-      tailnet: "your-tailnet"
-      tls:
-        verify: true  # Enabled by default for OAuth
-```
-      api_url: "https://headscale.internal.company.com/api/v1"
-      api_key: "your_headscale_api_key"
-      tls:
-        verify: false  # For self-signed certificates
-```
-
-**ZeroTier with ZT-Net (custom CA):**
-```yaml
-poll:
-  providers:
-    zerotier:
-      api_url: "https://ztnet.company.com/api"
-      api_token: "your_ztnet_token"
-      tls:
-        ca: "/etc/ssl/certs/ztnet-ca.crt"
-```
-
-**Caddy with client certificate:**
-```yaml
-poll:
-  providers:
-    caddy:
-      api_url: "https://caddy.secure.com:2019/config/"
-      tls:
-        cert: "/etc/ssl/certs/caddy-client.pem"
-        key: "/etc/ssl/private/caddy-client.key"
-```
-
-**Legacy configuration (still supported):**
-```yaml
-poll:
-  providers:
-    traefik:
-      endpoint: "https://traefik.example.com"
-      dns_verify: false  # Converts to tls.verify: false
-```
-
-#### Security Notes
-
-- Always enable TLS verification in production (`tls.verify: true`)
-- Use custom CA certificates for internal/private PKI
-- Protect private keys with appropriate file permissions (600)
-- The legacy `dns_verify` option is automatically converted to the new `tls.*` format
 
 ## Environment Variables
 
@@ -768,11 +606,11 @@ records:
 - `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
 - `process_existing`: Process all records on startup. Default: `false`.
 
-#### Remote Provider
+#### Remote Poller
 
 The remote provider works just like the File provider but allows you to poll a remote YAML or JSON file over HTTP/HTTPS. It supports HTTP Basic Auth and interval-based polling.
 
-#### Example configuration
+##### Example configuration
 
 ```yaml
 polls:
@@ -788,7 +626,7 @@ polls:
     remote_auth_pass: mypassword # Optional HTTP Basic Auth
 ```
 
-#### Options
+##### Options
 
 - `remote_url` (required): URL to the remote YAML or JSON file.
 - `format`: `yaml` (default) or `json`.
@@ -1003,11 +841,11 @@ polls:
 | `POLL_<PROFILENAME>_INTERVAL`    | Poll interval (supports units, e.g., `15s`, `1m`, `60` for 60 seconds) |
 | `POLL_<PROFILENAME>_CONFIG_PATH` | Path to Traefik configuration file or directory (file-based)           |
 
-#### ZeroTier Provider
+#### ZeroTier Poller
 
 The ZeroTier provider monitors ZeroTier network members and automatically creates DNS records based on their online status and other configurable filters.
 
-###### ZeroTier vs ZT-Net
+##### ZeroTier vs ZT-Net
 
 - **ZeroTier Central**: Official ZeroTier cloud service (my.zerotier.com)
   - Uses Bearer token authentication
@@ -1020,7 +858,7 @@ The ZeroTier provider monitors ZeroTier network members and automatically create
   - Supports all filters: online, name, authorized, tag, id, address, nodeid, ipAssignments, physicalAddress
   - Network ID format: `org:domain:networkid` or `domain:networkid`
 
-###### Filtering Options
+##### Filtering Options
 
 - `online`: Filter by online status (`true`/`false`)
 - `name`: Filter by member name (substring match)
@@ -1032,7 +870,7 @@ The ZeroTier provider monitors ZeroTier network members and automatically create
 - `ipAssignments`: Filter by assigned IP address
 - `physicalAddress`: Filter by physical network address (ZT-Net only)
 
-###### Configuration Options
+##### Configuration Options
 
 **Options for configuring a ZeroTier poll provider:**
 
@@ -1150,22 +988,6 @@ zerotier_dev:
   log_level: "debug"
 ```
 
-#### Zerotier Poller
-
-**Options for configuring a Zerotier poll provider:**
-
-- `type` (str): "zerotier"
-- `api_url` (str): Zerotier Central or ZT-Net API base URL.
-- `api_token` (str): API token for authentication.
-- `api_type` (str, optional): "zerotier" or "ztnet". If omitted, will attempt to autodetect.
-- `interval` (str, optional): Polling interval (e.g., "60s").
-- `network_id` (str): Zerotier network ID.
-- `domain` (str): Domain to append to hostnames (e.g., `zt.example.com`).
-- `process_existing` (bool): Process records on startup.
-- `record_remove_on_stop` (bool): Remove DNS records when node is removed or offline.
-- `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`.
-- `filter_value` (string): Value for filter_type (default: `online=true`).
-
 ### Providers
 
 Providers are components that manage DNS records. Each provider has its own configuration section and environment variables. Multiple providers can be defined and used for different domains.
@@ -1196,7 +1018,7 @@ providers:
 | `PROVIDER_<PROFILENAME>_API_EMAIL`                | API email                        |
 | `PROVIDER_<PROFILENAME>_<PROVIDER-TYPE>_<OPTION>` | Provider-specific options        |
 
-### Domains
+### Domain Configuration
 
 Domains define per-domain configuration, including which provider to use, zone ID, record options, and output providers. Each domain can override defaults and specify subdomain filters.
 
