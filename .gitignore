@@ -13,3 +13,5 @@ dns-companion.conf
 dns-companion.yaml
 dns-companion.yml
 result/
+
+.vscode/settings.json
