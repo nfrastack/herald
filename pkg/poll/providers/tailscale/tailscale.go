@@ -18,6 +18,7 @@ import (
 	"net/http"
 	neturl "net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -40,6 +41,15 @@ type TailscaleProvider struct {
 	logger             *log.ScopedLogger
 	lastKnownRecords   map[string]string // hostname:recordType -> target, to track changes
 	lastEntries        []poll.DNSEntry   // Track last poll entries like ZeroTier
+
+	// Token management
+	tokenMutex    sync.RWMutex
+	accessToken   string
+	tokenExpiry   time.Time
+	refreshToken  string
+	clientID      string
+	clientSecret  string
+	tlsConfig     pollCommon.TLSConfig
 }
 
 type TailscaleDevice struct {
@@ -60,6 +70,140 @@ type TailscaleDevice struct {
 
 type TailscaleDevicesResponse struct {
 	Devices []TailscaleDevice `json:"devices"`
+}
+
+// TokenResponse represents the OAuth token response from Tailscale
+type TokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+}
+
+// refreshAccessToken obtains a new access token using OAuth client credentials
+func (t *TailscaleProvider) refreshAccessToken() error {
+	if t.clientID == "" || t.clientSecret == "" {
+		return fmt.Errorf("OAuth client credentials not configured")
+	}
+
+	// Create HTTP client with TLS configuration
+	httpClient, err := t.tlsConfig.CreateHTTPClient()
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP client: %w", err)
+	}
+
+	// Prepare OAuth request
+	tokenURL := "https://api.tailscale.com/api/v2/oauth/token"
+	data := neturl.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {t.clientID},
+		"client_secret": {t.clientSecret},
+	}
+
+	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create token request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	log.Debug("[tailscale] Requesting OAuth access token")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("OAuth token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("OAuth token request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp TokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return fmt.Errorf("failed to decode token response: %w", err)
+	}
+
+	// Update token information with proper locking
+	t.tokenMutex.Lock()
+	defer t.tokenMutex.Unlock()
+
+	t.accessToken = tokenResp.AccessToken
+	t.refreshToken = tokenResp.RefreshToken
+
+	// Calculate expiry time (subtract 60 seconds for safety margin)
+	expiryDuration := time.Duration(tokenResp.ExpiresIn-60) * time.Second
+	t.tokenExpiry = time.Now().Add(expiryDuration)
+
+	log.Info("[tailscale] OAuth access token refreshed, expires at %s", t.tokenExpiry.Format(time.RFC3339))
+	return nil
+}
+
+// getValidAccessToken returns a valid access token, refreshing if necessary
+func (t *TailscaleProvider) getValidAccessToken() (string, error) {
+	t.tokenMutex.RLock()
+
+	// Check if token needs refresh (within 5 minutes of expiry)
+	needsRefresh := time.Now().Add(5 * time.Minute).After(t.tokenExpiry)
+	currentToken := t.accessToken
+
+	t.tokenMutex.RUnlock()
+
+	// Refresh token if needed
+	if needsRefresh && t.clientID != "" && t.clientSecret != "" {
+		log.Debug("[tailscale] Access token expiring soon, refreshing...")
+		if err := t.refreshAccessToken(); err != nil {
+			log.Warn("[tailscale] Failed to refresh access token: %v", err)
+			// Continue with current token if refresh fails
+			return currentToken, nil
+		}
+
+		t.tokenMutex.RLock()
+		currentToken = t.accessToken
+		t.tokenMutex.RUnlock()
+	}
+
+	if currentToken == "" {
+		return "", fmt.Errorf("no valid access token available")
+	}
+
+	return currentToken, nil
+}
+
+// NewTailscaleProvider creates a new Tailscale provider with token management
+func NewTailscaleProvider(options map[string]string) (*TailscaleProvider, error) {
+	// Parse TLS configuration
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(options)
+	if err := tlsConfig.ValidateConfig(); err != nil {
+		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
+	}
+
+	provider := &TailscaleProvider{
+		tlsConfig: tlsConfig,
+	}
+
+	// Initialize OAuth credentials if provided
+	if clientID, ok := options["api_auth_id"]; ok {
+		provider.clientID = clientID
+	}
+	if clientSecret, ok := options["api_auth_token"]; ok {
+		provider.clientSecret = clientSecret
+	}
+
+	// If we have OAuth credentials, get initial token
+	if provider.clientID != "" && provider.clientSecret != "" {
+		if err := provider.refreshAccessToken(); err != nil {
+			return nil, fmt.Errorf("failed to get initial access token: %w", err)
+		}
+	} else if apiKey, ok := options["api_key"]; ok {
+		// Use static API key
+		provider.accessToken = apiKey
+		// Set a far future expiry for static tokens
+		provider.tokenExpiry = time.Now().Add(365 * 24 * time.Hour)
+	}
+
+	return provider, nil
 }
 
 func NewProvider(options map[string]string) (poll.Provider, error) {
@@ -283,27 +427,63 @@ func (p *TailscaleProvider) GetDNSEntries() ([]poll.DNSEntry, error) {
 }
 
 func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
+	// Get valid access token (will refresh if needed)
+	accessToken, err := p.getValidAccessToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get valid access token: %w", err)
+	}
+
 	url := fmt.Sprintf("%s/tailnet/%s/devices", p.apiURL, p.tailnet)
 
 	p.logger.Trace("%s Fetching devices from URL: %s", p.logPrefix, url)
 	p.logger.Trace("%s Using tailnet: %s", p.logPrefix, p.tailnet)
-	p.logger.Trace("%s API key length: %d", p.logPrefix, len(p.apiKey))
 
-	headers := map[string]string{
-		"Authorization": "Bearer " + p.apiKey,
-		"Content-Type":  "application/json",
+	// Create HTTP client with TLS configuration
+	httpClient, err := p.tlsConfig.CreateHTTPClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+
 	if p.apiAuthID != "" {
-		headers["Tailscale-Auth-User"] = p.apiAuthID
+		req.Header.Set("Tailscale-Auth-User", p.apiAuthID)
 		p.logger.Trace("%s Using auth ID: %s", p.logPrefix, p.apiAuthID)
 	}
 
 	p.logger.Trace("%s Making HTTP request to Tailscale API", p.logPrefix)
-	p.logger.Trace("%s Request headers: %d headers set", p.logPrefix, len(headers))
-	data, err := pollCommon.FetchRemoteResourceWithHeaders(url, "", "", headers, p.logPrefix)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		p.logger.Error("%s API request failed: %v", p.logPrefix, err)
-		return nil, err
+		return nil, fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusUnauthorized {
+			// Token might be expired, try to refresh
+			if p.clientID != "" && p.clientSecret != "" {
+				p.logger.Debug("%s Received 401, attempting token refresh", p.logPrefix)
+				if refreshErr := p.refreshAccessToken(); refreshErr != nil {
+					return nil, fmt.Errorf("HTTP %d and failed to refresh token: %s", resp.StatusCode, string(body))
+				}
+				// Retry the request with new token
+				return p.fetchTailscaleDevices()
+			}
+		}
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	p.logger.Trace("%s Received %d bytes from Tailscale API", p.logPrefix, len(data))
@@ -522,8 +702,12 @@ func exchangeAuthToken(authToken, authID, logPrefix string) (string, error) {
 		neturl.QueryEscape(authID), neturl.QueryEscape(authToken))
 	log.Debug("%s Form data: client_id=%s&client_secret=[REDACTED]&grant_type=client_credentials", logPrefix, authID)
 
-	// Use Go's http package directly since FetchRemoteResourceWithHeaders doesn't support POST
-	client := &http.Client{Timeout: 10 * time.Second}
+	// Create HTTP client with default TLS settings
+	tlsConfig := pollCommon.DefaultTLSConfig()
+	client, err := tlsConfig.CreateHTTPClient()
+	if err != nil {
+		return "", fmt.Errorf("failed to create HTTP client: %w", err)
+	}
 
 	req, err := http.NewRequest("POST", url, strings.NewReader(formData))
 	if err != nil {

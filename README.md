@@ -4,11 +4,11 @@ Automate DNS record management for containers and services. DNS Companion monito
 
 > **Commercial/Enterprise Users:**
 >
-> This tool is free to use for all users. However, if you are using DNS Companion in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project, [please reach out](mailto:code+dc@nfrastack.com).
+> This tool is free to use for all users. However, if you are using DNS Companion in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project [please reach out](mailto:code+dc@nfrastack.com).
 
 ## Disclaimer
 
-DNS Companion is an independent project and is not affiliated with, endorsed by, or sponsored by Docker Inc, Tailscale Inc.. Traefik Labs, ZeroTier Inc. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of their applications. This tool is provided as-is and is not an official product of any of their respective plaforms. I'm also not a lawyer, so if you represent commercial interests of companies above and have cocnerns, let's talk.
+DNS Companion is an independent project and is not affiliated with, endorsed by, or sponsored by Docker Inc, Tailscale Inc., Traefik Labs, ZeroTier Inc. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of their applications. This tool is provided as-is and is not an official product of any of their respective plaforms. I'm also not a lawyer, so if you represent commercial interests of companies above and have cocnerns, let's talk.
 
 ## Maintainer
 
@@ -101,6 +101,7 @@ nfrastack <code@nfrastack.com>
     - [Zone File Output](#zone-file-output)
     - [Metadata Fields (YAML/JSON)](#metadata-fields-yamljson)
 - [Support](#support)
+  - [Implementation](#implementation)
   - [Usage](#usage)
   - [Bugfixes](#bugfixes)
   - [Feature Requests](#feature-requests)
@@ -1544,6 +1545,10 @@ mail            300   IN    A      192.0.2.3
 
 ## Support
 
+### Implementation
+
+[Cotnact us](mailto:code+dc@nfrastack.com) for rates.
+
 ### Usage
 
 - The [Discussions board](../../discussions) is a great place for working with the community.
@@ -1554,11 +1559,11 @@ mail            300   IN    A      192.0.2.3
 
 ### Feature Requests
 
-- Feel free to submit a feature request; however, there is no guarantee that it will be added or at what timeline.
+- Feel free to submit a feature request; however, there is no guarantee that it will be added or at what timeline.  [Cotnact us](mailto:code+dc@nfrastack.com) for custom development.
 
 ### Updates
 
-- Best effort to track upstream dependency changes, with more priority if I am actively using the tool.
+- Best effort to track upstream dependency changes, with more priority if the tool is actively used on our end.
 
 ## License
 
