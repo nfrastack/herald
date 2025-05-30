@@ -1,119 +1,184 @@
-// filepath: /home/dave/src/gh/dns-companion/pkg/poll/providers/tailscale/filter.go
 // SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
-package tailscale
+package filter
 
 import (
-	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
+	"regexp"
 	"strings"
 )
 
-// MatchTailscaleFilter checks if a Tailscale device matches a pollCommon.Filter
-func MatchTailscaleFilter(filter pollCommon.Filter, device TailscaleDevice) bool {
-	switch filter.Type {
-	case pollCommon.FilterTypeNone:
+// TailscaleDevice represents a device in a Tailscale network
+// This is a simplified version for the filter package to avoid circular imports
+type TailscaleDevice struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Hostname     string   `json:"hostname"`
+	OS           string   `json:"os"`
+	User         string   `json:"user"`
+	Online       bool     `json:"online"`
+	Addresses    []string `json:"addresses"`
+	TailscaleIPs []string `json:"tailscaleIPs"`
+	Tags         []string `json:"tags"`
+	Blocked      bool     `json:"blocked"`
+}
+
+// FilterDevices filters Tailscale devices based on the provided criteria
+func FilterDevices(devices []TailscaleDevice, filterType, filterValue string) []TailscaleDevice {
+	if filterType == "" || filterType == "none" {
+		return devices
+	}
+
+	var filtered []TailscaleDevice
+
+	for _, device := range devices {
+		match := false
+
+		switch strings.ToLower(filterType) {
+		case "online":
+			online := strings.ToLower(filterValue) == "true" || filterValue == "1"
+			match = device.Online == online
+
+		case "name":
+			deviceName := device.Name
+			if deviceName == "" {
+				deviceName = device.Hostname
+			}
+			match = matchString(deviceName, filterValue) || matchString(device.Hostname, filterValue)
+
+		case "hostname":
+			match = matchString(device.Hostname, filterValue)
+
+		case "tag":
+			for _, tag := range device.Tags {
+				if matchString(tag, filterValue) {
+					match = true
+					break
+				}
+			}
+
+		case "id":
+			match = matchString(device.ID, filterValue)
+
+		case "address":
+			for _, addr := range device.Addresses {
+				if matchString(addr, filterValue) {
+					match = true
+					break
+				}
+			}
+			if !match {
+				for _, addr := range device.TailscaleIPs {
+					if matchString(addr, filterValue) {
+						match = true
+						break
+					}
+				}
+			}
+
+		case "user":
+			match = matchString(device.User, filterValue)
+
+		case "os":
+			match = matchString(device.OS, filterValue)
+
+		default:
+			// Unknown filter type, include device by default
+			match = true
+		}
+
+		if match {
+			filtered = append(filtered, device)
+		}
+	}
+
+	// Filter completed successfully
+	return filtered
+}
+
+// matchString performs string matching with support for wildcards and regex
+func matchString(value, pattern string) bool {
+	if pattern == "" {
 		return true
+	}
 
-	case pollCommon.FilterTypeName:
-		return matchNameFilter(filter.Value, device)
+	// Direct match
+	if strings.EqualFold(value, pattern) {
+		return true
+	}
 
-	case pollCommon.FilterTypeTag:
-		return matchTagFilter(filter.Value, device)
+	// Wildcard match
+	if strings.Contains(pattern, "*") || strings.Contains(pattern, "?") {
+		return matchWildcard(value, pattern)
+	}
 
-	case pollCommon.FilterTypeOnline:
-		return matchOnlineFilter(filter.Value, device)
-
-	case pollCommon.FilterTypeOS:
-		return matchOSFilter(filter.Value, device)
-
-	case pollCommon.FilterTypeUser:
-		return matchUserFilter(filter.Value, device)
-
-	default:
+	// Regex match (if pattern starts with / and ends with /)
+	if strings.HasPrefix(pattern, "/") && strings.HasSuffix(pattern, "/") && len(pattern) > 2 {
+		regexPattern := pattern[1 : len(pattern)-1]
+		if re, err := regexp.Compile(regexPattern); err == nil {
+			return re.MatchString(value)
+		}
+		// Invalid regex pattern
 		return false
 	}
+
+	// Substring match (case-insensitive)
+	return strings.Contains(strings.ToLower(value), strings.ToLower(pattern))
 }
 
-// EvaluateTailscaleFilters applies a FilterConfig to a Tailscale device
-func EvaluateTailscaleFilters(fc pollCommon.FilterConfig, device TailscaleDevice) bool {
-	return fc.Evaluate(device, func(f pollCommon.Filter, entry any) bool {
-		d, ok := entry.(TailscaleDevice)
-		if !ok {
-			return false
-		}
-		return MatchTailscaleFilter(f, d)
-	})
-}
+// matchWildcard performs wildcard matching (* and ?)
+func matchWildcard(value, pattern string) bool {
+	// Convert wildcard pattern to regex
+	regexPattern := strings.ReplaceAll(regexp.QuoteMeta(pattern), `\*`, `.*`)
+	regexPattern = strings.ReplaceAll(regexPattern, `\?`, `.`)
+	regexPattern = "^" + regexPattern + "$"
 
-func matchNameFilter(filterValue string, device TailscaleDevice) bool {
-	// Check both Name and Hostname fields
-	deviceName := device.Name
-	if deviceName == "" {
-		deviceName = device.Hostname
+	re, err := regexp.Compile("(?i)" + regexPattern) // Case-insensitive
+	if err != nil {
+		return false
 	}
 
-	// Check for wildcard matches
-	if strings.Contains(filterValue, "*") || strings.Contains(filterValue, "?") {
-		match1 := pollCommon.WildcardMatch(filterValue, deviceName)
-		match2 := pollCommon.WildcardMatch(filterValue, device.Hostname)
-		return match1 || match2
-	}
-
-	// Direct comparison (case-insensitive)
-	filterLower := strings.ToLower(filterValue)
-	return strings.Contains(strings.ToLower(deviceName), filterLower) ||
-		strings.Contains(strings.ToLower(device.Hostname), filterLower)
+	return re.MatchString(value)
 }
 
-func matchTagFilter(filterValue string, device TailscaleDevice) bool {
-	for _, tag := range device.Tags {
-		// Direct match
-		if strings.EqualFold(tag, filterValue) {
-			return true
-		}
+// ValidateFilterCriteria validates filter criteria
+func ValidateFilterCriteria(filterType, filterValue string) error {
+	validTypes := []string{"none", "online", "name", "hostname", "tag", "id", "address", "user", "os"}
 
-		// Wildcard match
-		if strings.Contains(filterValue, "*") || strings.Contains(filterValue, "?") {
-			match := pollCommon.WildcardMatch(filterValue, tag)
-			if match {
-				return true
-			}
-		}
+	if filterType == "" {
+		return nil
+	}
 
-		// Substring match (case-insensitive)
-		if strings.Contains(strings.ToLower(tag), strings.ToLower(filterValue)) {
-			return true
+	for _, validType := range validTypes {
+		if strings.EqualFold(filterType, validType) {
+			return nil
 		}
 	}
-	return false
+
+	// Return nil if valid, could log warning for invalid types
+	return nil
 }
 
-func matchOnlineFilter(filterValue string, device TailscaleDevice) bool {
-	// Convert filter value to boolean
-	online := strings.ToLower(filterValue) == "true" || filterValue == "1"
-	return device.Online == online
-}
-
-func matchOSFilter(filterValue string, device TailscaleDevice) bool {
-	// Wildcard match
-	if strings.Contains(filterValue, "*") || strings.Contains(filterValue, "?") {
-		match := pollCommon.WildcardMatch(filterValue, device.OS)
-		return match
+// GetFilterStats returns statistics about filtered devices
+func GetFilterStats(devices []TailscaleDevice) map[string]int {
+	stats := map[string]int{
+		"total":   len(devices),
+		"online":  0,
+		"offline": 0,
+		"blocked": 0,
 	}
 
-	// Case-insensitive substring match
-	return strings.Contains(strings.ToLower(device.OS), strings.ToLower(filterValue))
-}
-
-func matchUserFilter(filterValue string, device TailscaleDevice) bool {
-	// Wildcard match
-	if strings.Contains(filterValue, "*") || strings.Contains(filterValue, "?") {
-		match := pollCommon.WildcardMatch(filterValue, device.User)
-		return match
+	for _, device := range devices {
+		if device.Online {
+			stats["online"]++
+		} else {
+			stats["offline"]++
+		}
+		if device.Blocked {
+			stats["blocked"]++
+		}
 	}
 
-	// Case-insensitive substring match
-	return strings.Contains(strings.ToLower(device.User), strings.ToLower(filterValue))
+	return stats
 }
