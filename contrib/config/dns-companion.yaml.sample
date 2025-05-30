@@ -25,7 +25,7 @@ providers:
 polls:
   caddy_example:
     type: "caddy"
-    host: "https://caddy.api.local/config/"
+    api_url: "https://caddy.api.local/config/"
     #api_auth_user: ""
     #api_auth_pass: ""
     filter_type: "none"
@@ -39,13 +39,13 @@ polls:
 
   docker_example:
     type: "docker"
-    host: "unix:///var/run/docker.sock"   #Unix socket
+    api_url: "unix:///var/run/docker.sock"   #Unix socket
     #api_auth_user: ""
     #api_auth_pass: ""
-    #host: "tcp://docker.example.com:2376" #TLS
+    #api_url: "tcp://docker.example.com:2376" #TLS
     expose_containers: true
     filter_type: "none"
-    process_existing_containers: false
+    process_existing: false
     record_remove_on_stop: true
     #tls:
     #  verify: true
@@ -139,7 +139,7 @@ polls:
 domains:
   domainexample:
     name: "example.com"
-    provider: "providerexample"
+    provider: "cf_example"
     zone_id: "your_zone_id_here"                # Optional - Only needed for Global API key in Cloudflare
     record:
       type: "A"
