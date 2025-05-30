@@ -309,6 +309,20 @@ func processConfigFileSecrets(content string) string {
 	return processedContent
 }
 
+// ProcessSecrets is a centralized function for processing secrets in any configuration value
+func ProcessSecrets(value string) string {
+	return processConfigFileSecrets(value)
+}
+
+// ProcessSecretsInMap processes secrets in all string values within a map
+func ProcessSecretsInMap(options map[string]string) map[string]string {
+	processed := make(map[string]string, len(options))
+	for k, v := range options {
+		processed[k] = ProcessSecrets(v)
+	}
+	return processed
+}
+
 // Helper to parse a comma-separated list into a slice of strings
 func parseCommaList(s string) []string {
 	parts := strings.Split(s, ",")
