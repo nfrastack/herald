@@ -22,6 +22,79 @@ import (
 	"time"
 )
 
+// TailscaleDevice represents a device in a Tailscale network
+type TailscaleDevice struct {
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	Hostname          string    `json:"hostname"`
+	ClientVersion     string    `json:"clientVersion"`
+	OS                string    `json:"os"`
+	User              string    `json:"user"`
+	Created           time.Time `json:"created"`
+	LastSeen          time.Time `json:"lastSeen"`
+	Online            bool      `json:"online"`
+	Addresses         []string  `json:"addresses"`
+	TailscaleIPs      []string  `json:"tailscaleIPs"`
+	AllowedIPs        []string  `json:"allowedIPs"`
+	Blocked           bool      `json:"blocked"`
+	Tags              []string  `json:"tags"`
+	KeyExpiryDisabled bool      `json:"keyExpiryDisabled"`
+	Expires           time.Time `json:"expires"`
+	IsExternal        bool      `json:"isExternal"`
+	MachineKey        string    `json:"machineKey"`
+	NodeKey           string    `json:"nodeKey"`
+	UpdateAvailable   bool      `json:"updateAvailable"`
+}
+
+// HeadscaleDevice represents a device in a Headscale network
+type HeadscaleDevice struct {
+	ID                   uint64     `json:"id"`
+	MachineKey           string     `json:"machineKey"`
+	NodeKey              string     `json:"nodeKey"`
+	DiscoKey             string     `json:"discoKey"`
+	IPAddresses          []string   `json:"ipAddresses"`
+	Name                 string     `json:"name"`
+	User                 User       `json:"user"`
+	LastSeen             time.Time  `json:"lastSeen"`
+	LastSuccessfulUpdate time.Time  `json:"lastSuccessfulUpdate"`
+	Expiry               time.Time  `json:"expiry"`
+	PreAuthKey           PreAuthKey `json:"preAuthKey"`
+	CreatedAt            time.Time  `json:"createdAt"`
+	RegisterMethod       string     `json:"registerMethod"`
+	Online               bool       `json:"online"`
+	InvalidTags          []string   `json:"invalidTags"`
+	ValidTags            []string   `json:"validTags"`
+	GivenName            string     `json:"givenName"`
+	ForcedTags           []string   `json:"forcedTags"`
+}
+
+// User represents a Headscale user
+type User struct {
+	ID   uint64 `json:"id"`
+	Name string `json:"name"`
+}
+
+// PreAuthKey represents a Headscale pre-auth key
+type PreAuthKey struct {
+	Key        string    `json:"key"`
+	ID         uint64    `json:"id"`
+	Used       bool      `json:"used"`
+	Expiration time.Time `json:"expiration"`
+	CreatedAt  time.Time `json:"createdAt"`
+	ACLTags    []string  `json:"aclTags"`
+}
+
+// TailscaleAPIResponse represents the response from the Tailscale API
+type TailscaleAPIResponse struct {
+	Devices []TailscaleDevice `json:"devices"`
+}
+
+// HeadscaleAPIResponse represents the response from the Headscale API
+type HeadscaleAPIResponse struct {
+	Machines []HeadscaleDevice `json:"machines"`
+}
+
+// TailscaleProvider implements the polling interface for Tailscale networks
 type TailscaleProvider struct {
 	apiURL             string
 	apiKey             string
@@ -49,22 +122,6 @@ type TailscaleProvider struct {
 	clientID     string
 	clientSecret string
 	tlsConfig    pollCommon.TLSConfig
-}
-
-type TailscaleDevice struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	Hostname        string    `json:"hostname"`
-	Addresses       []string  `json:"addresses"`
-	User            string    `json:"user"`
-	OS              string    `json:"os"`
-	Online          bool      `json:"online"`
-	LastSeen        time.Time `json:"lastSeen"`
-	Tags            []string  `json:"tags"`
-	MachineKey      string    `json:"machineKey"`
-	NodeKey         string    `json:"nodeKey"`
-	ClientVersion   string    `json:"clientVersion"`
-	UpdateAvailable bool      `json:"updateAvailable"`
 }
 
 type TailscaleDevicesResponse struct {
