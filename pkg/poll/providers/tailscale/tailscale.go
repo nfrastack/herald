@@ -43,13 +43,13 @@ type TailscaleProvider struct {
 	lastEntries        []poll.DNSEntry   // Track last poll entries like ZeroTier
 
 	// Token management
-	tokenMutex    sync.RWMutex
-	accessToken   string
-	tokenExpiry   time.Time
-	refreshToken  string
-	clientID      string
-	clientSecret  string
-	tlsConfig     pollCommon.TLSConfig
+	tokenMutex   sync.RWMutex
+	accessToken  string
+	tokenExpiry  time.Time
+	refreshToken string
+	clientID     string
+	clientSecret string
+	tlsConfig    pollCommon.TLSConfig
 }
 
 type TailscaleDevice struct {

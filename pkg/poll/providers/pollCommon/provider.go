@@ -5,8 +5,9 @@
 package common
 
 import (
-	"context"
 	"dns-companion/pkg/log"
+
+	"context"
 	"time"
 )
 
@@ -24,17 +25,17 @@ type ProviderOptions struct {
 // ParseProviderOptions parses common provider options from a map
 func ParseProviderOptions(options map[string]string, defaults PollProviderOptions) ProviderOptions {
 	parsed := ParsePollProviderOptions(options, defaults)
-	
+
 	// Parse filter configuration
 	filterConfig, err := NewFilterFromOptions(options)
 	if err != nil {
 		log.Warn("Failed to parse filter configuration: %v", err)
 		filterConfig = DefaultFilterConfig()
 	}
-	
+
 	// Parse TLS configuration
 	tlsConfig := ParseTLSConfigFromOptions(options)
-	
+
 	return ProviderOptions{
 		Name:               parsed.Name,
 		Interval:           parsed.Interval,
@@ -65,14 +66,14 @@ type BaseProvider struct {
 // NewBaseProvider creates a new base provider with common functionality
 func NewBaseProvider(providerType string, options ProviderOptions) *BaseProvider {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	logPrefix := BuildLogPrefix(providerType, options.Name)
 	logger := log.NewScopedLogger(logPrefix, options.LogLevel)
-	
+
 	if options.LogLevel != "" {
 		logger.Info("Provider log_level set to: '%s'", options.LogLevel)
 	}
-	
+
 	return &BaseProvider{
 		name:               options.Name,
 		interval:           options.Interval,
@@ -89,12 +90,12 @@ func NewBaseProvider(providerType string, options ProviderOptions) *BaseProvider
 }
 
 // Common provider methods
-func (bp *BaseProvider) GetContext() context.Context { return bp.ctx }
+func (bp *BaseProvider) GetContext() context.Context  { return bp.ctx }
 func (bp *BaseProvider) GetLogger() *log.ScopedLogger { return bp.logger }
-func (bp *BaseProvider) GetLogPrefix() string { return bp.logPrefix }
-func (bp *BaseProvider) IsRunning() bool { return bp.running }
-func (bp *BaseProvider) SetRunning(running bool) { bp.running = running }
-func (bp *BaseProvider) GetTLSConfig() TLSConfig { return bp.tlsConfig }
+func (bp *BaseProvider) GetLogPrefix() string         { return bp.logPrefix }
+func (bp *BaseProvider) IsRunning() bool              { return bp.running }
+func (bp *BaseProvider) SetRunning(running bool)      { bp.running = running }
+func (bp *BaseProvider) GetTLSConfig() TLSConfig      { return bp.tlsConfig }
 
 func (bp *BaseProvider) StopPolling() error {
 	bp.running = false

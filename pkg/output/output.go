@@ -67,7 +67,7 @@ func RegisterAllFormats() {
 	_ = "dns-companion/pkg/output/formats/json"
 	_ = "dns-companion/pkg/output/formats/yaml"
 	_ = "dns-companion/pkg/output/formats/zonefile"
-	
+
 	// If we had dynamic loading, we could scan a directory here
 	// For now, the init() functions in each format package handle registration
 }

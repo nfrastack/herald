@@ -363,10 +363,31 @@ poll:
 ```
 
 **Tailscale with Headscale (self-signed):**
+
 ```yaml
 poll:
   providers:
     tailscale:
+      api_url: "https://headscale.example.com/api/v1"
+      api_key: "tskey-api-xxx"  # Static API key
+      tailnet: "your-tailnet"
+      tls:
+        ca: "/path/to/headscale-ca.pem"
+```
+
+**Tailscale with OAuth client credentials:**
+
+```yaml
+poll:
+  providers:
+    tailscale:
+      api_url: "https://api.tailscale.com/api/v2"
+      api_auth_id: "your-oauth-client-id"      # OAuth client ID
+      api_auth_token: "your-oauth-client-secret"  # OAuth client secret
+      tailnet: "your-tailnet"
+      tls:
+        verify: true  # Enabled by default for OAuth
+```
       api_url: "https://headscale.internal.company.com/api/v1"
       api_key: "your_headscale_api_key"
       tls:

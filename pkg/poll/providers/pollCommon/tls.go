@@ -8,7 +8,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"strconv"
@@ -28,6 +27,9 @@ type TLSConfig struct {
 func DefaultTLSConfig() TLSConfig {
 	return TLSConfig{
 		Verify: true,
+		CA:     "",
+		Cert:   "",
+		Key:    "",
 	}
 }
 
@@ -115,7 +117,7 @@ func (tc TLSConfig) CreateTLSConfig() (*tls.Config, error) {
 
 	// Load custom CA if specified
 	if tc.CA != "" {
-		caCert, err := ioutil.ReadFile(tc.CA)
+		caCert, err := os.ReadFile(tc.CA)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read CA certificate file %s: %w", tc.CA, err)
 		}
@@ -154,6 +156,21 @@ func (tc TLSConfig) CreateHTTPClient() (*http.Client, error) {
 		Transport: transport,
 		Timeout:   30 * time.Second,
 	}, nil
+}
+
+// CreateConfiguredHTTPClient creates an HTTP client with TLS configuration from options
+func CreateConfiguredHTTPClient(options map[string]string, logPrefix string) (*http.Client, error) {
+	tlsConfig := ParseTLSConfigFromOptions(options)
+	if err := tlsConfig.ValidateConfig(); err != nil {
+		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
+	}
+
+	client, err := tlsConfig.CreateHTTPClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
+	}
+
+	return client, nil
 }
 
 // RemoteProviderConfig represents configuration for remote-based providers

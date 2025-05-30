@@ -8,14 +8,15 @@ package providers
 import (
 	"dns-companion/pkg/dns/providers/cloudflare"
 	"dns-companion/pkg/log"
+
 	"fmt"
 )
 
 // ProviderInfo contains metadata about a DNS provider
 type ProviderInfo struct {
-	Name         string
-	Description  string
-	Capabilities []string
+	Name           string
+	Description    string
+	Capabilities   []string
 	RequiredFields []string
 }
 
@@ -23,9 +24,9 @@ type ProviderInfo struct {
 func GetProviderInfo() map[string]ProviderInfo {
 	return map[string]ProviderInfo{
 		"cloudflare": {
-			Name:        "cloudflare",
-			Description: "Cloudflare DNS provider",
-			Capabilities: []string{"A", "AAAA", "CNAME", "TXT"},
+			Name:           "cloudflare",
+			Description:    "Cloudflare DNS provider",
+			Capabilities:   []string{"A", "AAAA", "CNAME", "TXT"},
 			RequiredFields: []string{"api_token", "zone_id"},
 		},
 		// Add other providers here as they're implemented
@@ -48,10 +49,10 @@ func ValidateProviderExists(providerName string) error {
 // RegisterProviders registers all DNS providers
 func RegisterProviders() {
 	log.Debug("[dns/providers] Registering DNS providers")
-	
+
 	// Register all available providers
 	cloudflare.Register()
-	
+
 	log.Debug("[dns/providers] DNS provider registration complete")
 }
 
