@@ -114,6 +114,19 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	profileName := pollCommon.GetOptionOrEnv(options, "name", "DOCKER_PROFILE_NAME", parsed.Name)
 	logPrefix := pollCommon.BuildLogPrefix("docker", profileName)
 
+	// Parse TLS configuration using pollCommon utilities for consistency
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(options)
+	if err := tlsConfig.ValidateConfig(); err != nil {
+		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
+	}
+
+	// Log TLS configuration for consistency with other providers
+	if tlsConfig.HasCustomCerts() {
+		log.Debug("%s Custom TLS certificates configured (verify=%t)", logPrefix, tlsConfig.Verify)
+	} else if !tlsConfig.Verify {
+		log.Warn("%s TLS verification disabled - ensure your Docker daemon is secure", logPrefix)
+	}
+
 	// Create scoped logger using common helper
 	scopedLogger := pollCommon.CreateScopedLogger("docker", profileName, options)
 

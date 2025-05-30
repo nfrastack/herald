@@ -44,6 +44,10 @@ nfrastack <code@nfrastack.com>
     - [Example: YAML Include](#example-yaml-include)
   - [General Options](#general-options)
     - [Scoped Logging](#scoped-logging)
+  - [TLS Configuration for Remote Providers](#tls-configuration-for-remote-providers)
+    - [Configuration Options](#configuration-options)
+    - [Examples](#examples)
+    - [Security Notes](#security-notes)
 - [Environment Variables](#environment-variables)
   - [Default Options](#default-options)
   - [Pollers](#pollers)
@@ -54,10 +58,10 @@ nfrastack <code@nfrastack.com>
       - [Docker Poller Environment Variables](#docker-poller-environment-variables)
       - [Usage of Docker Provider](#usage-of-docker-provider)
       - [Creating Records with Container Labels](#creating-records-with-container-labels)
-        - [Examples](#examples)
+        - [Examples](#examples-1)
         - [Docker Label Configuration](#docker-label-configuration)
       - [Optional Record Configuration](#optional-record-configuration)
-        - [Examples](#examples-1)
+        - [Examples](#examples-2)
         - [Example: AAAA Record (IPv6)](#example-aaaa-record-ipv6)
         - [Example: Auto-detect AAAA Record](#example-auto-detect-aaaa-record)
         - [Example: Multiple A/AAAA Record Labels](#example-multiple-aaaaa-record-labels)
@@ -76,12 +80,12 @@ nfrastack <code@nfrastack.com>
       - [ZeroTier Provider](#zerotier-provider)
         - [ZeroTier vs ZT-Net](#zerotier-vs-zt-net)
         - [Filtering Options](#filtering-options)
-        - [Configuration Options](#configuration-options)
+        - [Configuration Options](#configuration-options-1)
     - [Basic Configuration](#basic-configuration)
-    - [Configuration Options](#configuration-options-1)
+    - [Configuration Options](#configuration-options-2)
     - [API Types](#api-types)
     - [Filtering Options](#filtering-options-1)
-    - [Examples](#examples-2)
+    - [Examples](#examples-3)
       - [Zerotier Poller](#zerotier-poller)
   - [Providers](#providers)
     - [Supported Providers](#supported-providers)
@@ -276,6 +280,136 @@ general:
 #### Scoped Logging
 
 Each provider supports individual log level configuration via the `log_level` option, allowing fine-grained control over logging verbosity per provider without affecting global log levels.
+
+### TLS Configuration for Remote Providers
+
+All remote poll providers (Docker, Traefik, Caddy, Remote, Tailscale, ZeroTier) support consistent TLS configuration:
+
+#### Configuration Options
+
+| Option       | Type    | Default | Description                                             |
+| ------------ | ------- | ------- | ------------------------------------------------------- |
+| `tls.verify` | boolean | `true`  | Enable TLS certificate verification                     |
+| `tls.ca`     | string  | `""`    | Path to custom CA certificate file                      |
+| `tls.cert`   | string  | `""`    | Path to client certificate file                         |
+| `tls.key`    | string  | `""`    | Path to client private key file                         |
+
+#### Examples
+
+**Basic HTTPS with system CA:**
+```yaml
+poll:
+  providers:
+    traefik:
+      endpoint: "https://traefik.example.com"
+      # Uses system CA, verification enabled by default
+```
+
+**Disable verification (development only):**
+```yaml
+poll:
+  providers:
+    traefik:
+      api_url: "https://traefik.example.com:8080/api/http/routers"
+      tls:
+        verify: false  # WARNING: Insecure for production
+```
+
+**Custom CA certificate:**
+```yaml
+poll:
+  providers:
+    traefik:
+      api_url: "https://traefik.internal.com:8080/api/http/routers"
+      tls:
+        verify: true
+        ca: "/etc/ssl/certs/internal-ca.pem"
+```
+
+**Mutual TLS (client certificate):**
+```yaml
+poll:
+  providers:
+    traefik:
+      api_url: "https://traefik.secure.com:8080/api/http/routers"
+      tls:
+        verify: true
+        ca: "/etc/ssl/certs/ca.pem"
+        cert: "/etc/ssl/certs/client.pem"
+        key: "/etc/ssl/private/client.key"
+```
+
+**Docker API over TLS:**
+```yaml
+poll:
+  providers:
+    docker:
+      api_url: "https://docker.example.com:2376"
+      tls:
+        verify: true
+        cert: "/etc/docker/certs/client-cert.pem"
+        key: "/etc/docker/certs/client-key.pem"
+        ca: "/etc/docker/certs/ca.pem"
+```
+
+**Remote file with custom CA:**
+```yaml
+poll:
+  providers:
+    remote:
+      remote_url: "https://internal-server.company.com/dns-records.yaml"
+      tls:
+        ca: "/etc/ssl/certs/company-ca.pem"
+```
+
+**Tailscale with Headscale (self-signed):**
+```yaml
+poll:
+  providers:
+    tailscale:
+      api_url: "https://headscale.internal.company.com/api/v1"
+      api_key: "your_headscale_api_key"
+      tls:
+        verify: false  # For self-signed certificates
+```
+
+**ZeroTier with ZT-Net (custom CA):**
+```yaml
+poll:
+  providers:
+    zerotier:
+      api_url: "https://ztnet.company.com/api"
+      api_token: "your_ztnet_token"
+      tls:
+        ca: "/etc/ssl/certs/ztnet-ca.crt"
+```
+
+**Caddy with client certificate:**
+```yaml
+poll:
+  providers:
+    caddy:
+      api_url: "https://caddy.secure.com:2019/config/"
+      tls:
+        cert: "/etc/ssl/certs/caddy-client.pem"
+        key: "/etc/ssl/private/caddy-client.key"
+```
+
+**Legacy configuration (still supported):**
+```yaml
+poll:
+  providers:
+    traefik:
+      endpoint: "https://traefik.example.com"
+      dns_verify: false  # Converts to tls.verify: false
+```
+
+#### Security Notes
+
+- Always enable TLS verification in production (`tls.verify: true`)
+- Use custom CA certificates for internal/private PKI
+- Protect private keys with appropriate file permissions (600)
+- The legacy `dns_verify` option is automatically converted to the new `tls.*` format
 
 ## Environment Variables
 
@@ -826,15 +960,15 @@ filter_value: "100.64.0.10"
 
 **Environment Variables:**
 
-| Variable                    | Description                        |
-| --------------------------- | ---------------------------------- |
-| `TAILSCALE_API_KEY`         | Tailscale API key                  |
-| `TAILSCALE_API_AUTH_TOKEN`  | OAuth client secret                |
-| `TAILSCALE_API_AUTH_ID`     | OAuth client ID                    |
-| `TAILSCALE_API_URL`         | Custom API URL (for Headscale)     |
-| `TAILSCALE_TAILNET`         | Tailnet ID or namespace            |
-| `TAILSCALE_DOMAIN`          | Domain suffix for DNS records      |
-| `TAILSCALE_HOSTNAME_FORMAT` | Hostname format style              |
+| Variable                    | Description                    |
+| --------------------------- | ------------------------------ |
+| `TAILSCALE_API_KEY`         | Tailscale API key              |
+| `TAILSCALE_API_AUTH_TOKEN`  | OAuth client secret            |
+| `TAILSCALE_API_AUTH_ID`     | OAuth client ID                |
+| `TAILSCALE_API_URL`         | Custom API URL (for Headscale) |
+| `TAILSCALE_TAILNET`         | Tailnet ID or namespace        |
+| `TAILSCALE_DOMAIN`          | Domain suffix for DNS records  |
+| `TAILSCALE_HOSTNAME_FORMAT` | Hostname format style          |
 
 #### Traefik Poller
 
@@ -1040,7 +1174,7 @@ Control which members create DNS records using `filter_type` and `filter_value`:
 | `nodeid`          | Node ID (ZT-Net only)        | `123`               |
 | `ipAssignments`   | Has specific IP assignment   | `10.0.0.100`        |
 | `physicalAddress` | Physical address match       | `1.2.3.4/9993`      |
-`
+
 
 #### Examples
 

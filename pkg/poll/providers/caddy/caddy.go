@@ -258,14 +258,22 @@ func (p *CaddyProvider) readCaddy() ([]caddyHost, error) {
 	p.logger.Debug("Fetching Caddy config: %s", p.apiURL)
 	httpUser := pollCommon.GetOptionOrEnv(p.options, "api_auth_user", "CADDY_API_AUTH_USER", "")
 	httpPass := pollCommon.GetOptionOrEnv(p.options, "api_auth_pass", "CADDY_API_AUTH_PASS", "")
-	tlsVerifyStr := pollCommon.GetOptionOrEnv(p.options, "tls_verify", "CADDY_TLS_VERIFY", "true")
-	tlsVerify := strings.ToLower(tlsVerifyStr) != "false" && tlsVerifyStr != "0"
 
-	if !tlsVerify {
+	// Parse TLS configuration using pollCommon utilities
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(p.options)
+
+	// Log TLS configuration details
+	if !tlsConfig.Verify {
 		p.logger.Debug("TLS certificate verification disabled")
 	}
+	if tlsConfig.CA != "" {
+		p.logger.Debug("Using custom CA certificate: %s", tlsConfig.CA)
+	}
+	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
+		p.logger.Debug("Using client certificate authentication")
+	}
 
-	body, err := pollCommon.FetchRemoteResourceWithTLS(p.apiURL, httpUser, httpPass, nil, p.logPrefix, tlsVerify)
+	body, err := pollCommon.FetchRemoteResourceWithTLSConfig(p.apiURL, httpUser, httpPass, nil, &tlsConfig, p.logPrefix)
 	if err != nil {
 		p.logger.Error("Failed to fetch data from Caddy API: %v", err)
 		return nil, fmt.Errorf("%s failed to fetch data: %w", p.logPrefix, err)

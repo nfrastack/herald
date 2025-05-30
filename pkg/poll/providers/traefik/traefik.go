@@ -44,8 +44,9 @@ type TraefikProvider struct {
 	ticker       *time.Ticker
 	authUser     string
 	authPass     string
-	profileName  string // Store profile name for logs
-	logPrefix    string // Store log prefix for consistent logging
+	profileName  string                // Store profile name for logs
+	logPrefix    string                // Store log prefix for consistent logging
+	tlsConfig    *pollCommon.TLSConfig // Store TLS configuration
 
 	// Filters
 	filterConfig pollCommon.FilterConfig
@@ -116,7 +117,24 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	log.Trace("%s Created context with cancel function", logPrefix)
 
-	// Set up filters from options (no FixTraefikFilterConfig)
+	// Parse TLS configuration
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(options)
+	if err := tlsConfig.ValidateConfig(); err != nil {
+		return nil, fmt.Errorf("%s invalid TLS configuration: %w", logPrefix, err)
+	}
+
+	// Log TLS configuration
+	if !tlsConfig.Verify {
+		log.Debug("%s TLS certificate verification disabled", logPrefix)
+	}
+	if tlsConfig.CA != "" {
+		log.Debug("%s Using custom CA certificate: %s", logPrefix, tlsConfig.CA)
+	}
+	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
+		log.Debug("%s Using client certificate authentication", logPrefix)
+	}
+
+	// Set up filters from options
 	filterConfig, err := pollCommon.NewFilterFromOptions(options)
 	if err != nil {
 		log.Error("%s Error setting up filters: %v", logPrefix, err)
@@ -158,6 +176,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		authPass:        authPass,
 		profileName:     profileName,
 		logPrefix:       logPrefix,
+		tlsConfig:       &tlsConfig,
 		filterConfig:    filterConfig,
 		initialPollDone: false,
 		opts:            parsed,
@@ -468,14 +487,21 @@ func (t *TraefikProvider) processTraefikRouters() error {
 
 // fetchTraefikAPI fetches data from the Traefik API using pollCommon.FetchRemoteResource
 func (p *TraefikProvider) fetchTraefikAPI(url, user, pass, logPrefix string) ([]byte, error) {
-	tlsVerifyStr := pollCommon.GetOptionOrEnv(p.options, "tls_verify", "TRAEFIK_TLS_VERIFY", "true")
-	tlsVerify := strings.ToLower(tlsVerifyStr) != "false" && tlsVerifyStr != "0"
+	// Parse TLS configuration using pollCommon utilities
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(p.options)
 
-	if !tlsVerify {
+	// Log TLS configuration details
+	if !tlsConfig.Verify {
 		log.Debug("%s TLS certificate verification disabled", logPrefix)
 	}
+	if tlsConfig.CA != "" {
+		log.Debug("%s Using custom CA certificate: %s", logPrefix, tlsConfig.CA)
+	}
+	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
+		log.Debug("%s Using client certificate authentication", logPrefix)
+	}
 
-	return pollCommon.FetchRemoteResourceWithTLS(url, user, pass, nil, logPrefix, tlsVerify)
+	return pollCommon.FetchRemoteResourceWithTLSConfig(url, user, pass, nil, &tlsConfig, logPrefix)
 }
 
 // routerStatesEqual compares two RouterState structs for equality

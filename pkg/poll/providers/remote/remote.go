@@ -221,14 +221,22 @@ func (p *RemoteProvider) readRemote() ([]poll.DNSEntry, error) {
 	log.Debug("%s Fetching remote source: %s", p.logPrefix, p.remoteURL)
 	httpUser := pollCommon.GetOptionOrEnv(p.options, "remote_auth_user", "REMOTE_AUTH_USER", "")
 	httpPass := pollCommon.GetOptionOrEnv(p.options, "remote_auth_pass", "REMOTE_AUTH_PASS", "")
-	tlsVerifyStr := pollCommon.GetOptionOrEnv(p.options, "tls_verify", "REMOTE_TLS_VERIFY", "true")
-	tlsVerify := strings.ToLower(tlsVerifyStr) != "false" && tlsVerifyStr != "0"
 
-	if !tlsVerify {
+	// Parse TLS configuration using pollCommon utilities
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(p.options)
+
+	// Log TLS configuration details
+	if !tlsConfig.Verify {
 		log.Debug("%s TLS certificate verification disabled", p.logPrefix)
 	}
+	if tlsConfig.CA != "" {
+		log.Debug("%s Using custom CA certificate: %s", p.logPrefix, tlsConfig.CA)
+	}
+	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
+		log.Debug("%s Using client certificate authentication", p.logPrefix)
+	}
 
-	data, err := pollCommon.FetchRemoteResourceWithTLS(p.remoteURL, httpUser, httpPass, nil, p.logPrefix, tlsVerify)
+	data, err := pollCommon.FetchRemoteResourceWithTLSConfig(p.remoteURL, httpUser, httpPass, nil, &tlsConfig, p.logPrefix)
 	if err != nil {
 		log.Error("%v", err)
 		return nil, err
