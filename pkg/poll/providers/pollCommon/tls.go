@@ -150,6 +150,11 @@ func (tc TLSConfig) CreateHTTPClient() (*http.Client, error) {
 
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
+		// Connection pooling optimizations
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		DisableCompression:  false,
 	}
 
 	return &http.Client{
