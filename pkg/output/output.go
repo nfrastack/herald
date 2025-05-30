@@ -59,6 +59,66 @@ func GetAvailableFormats() []string {
 	return formats
 }
 
+// RegisterAllFormats registers all available output formats
+func RegisterAllFormats() {
+	// Import all format packages to ensure they're registered
+	// This centralizes format registration instead of requiring imports everywhere
+	_ = "dns-companion/pkg/output/formats/hosts"
+	_ = "dns-companion/pkg/output/formats/json"
+	_ = "dns-companion/pkg/output/formats/yaml"
+	_ = "dns-companion/pkg/output/formats/zonefile"
+	
+	// If we had dynamic loading, we could scan a directory here
+	// For now, the init() functions in each format package handle registration
+}
+
+// ValidateFormatExists checks if a format is registered before using it
+func ValidateFormatExists(formatName string) error {
+	if _, exists := formatRegistry[formatName]; !exists {
+		availableFormats := GetAvailableFormats()
+		return fmt.Errorf("unknown output format '%s'. Available formats: %v", formatName, availableFormats)
+	}
+	return nil
+}
+
+// GetFormatInfo returns metadata about available formats
+func GetFormatInfo() map[string]FormatInfo {
+	return map[string]FormatInfo{
+		"hosts": {
+			Name:        "hosts",
+			Description: "Standard /etc/hosts file format",
+			Extensions:  []string{".hosts", ".txt"},
+			Multifile:   false,
+		},
+		"json": {
+			Name:        "json",
+			Description: "JSON export format with metadata",
+			Extensions:  []string{".json"},
+			Multifile:   true,
+		},
+		"yaml": {
+			Name:        "yaml",
+			Description: "YAML export format with metadata",
+			Extensions:  []string{".yaml", ".yml"},
+			Multifile:   true,
+		},
+		"zonefile": {
+			Name:        "zonefile",
+			Description: "BIND zone file format",
+			Extensions:  []string{".zone", ".db"},
+			Multifile:   false,
+		},
+	}
+}
+
+// FormatInfo provides metadata about output formats
+type FormatInfo struct {
+	Name        string
+	Description string
+	Extensions  []string
+	Multifile   bool // Whether the format supports multiple domains in one file
+}
+
 // BaseFormat provides common functionality for all output formats
 type BaseFormat struct {
 	filePath           string
