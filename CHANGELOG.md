@@ -16,6 +16,7 @@
 
    ### Changed
      - Created pollCommonfunctions for poll providers (http, records management, options, processing of parsed,received data, filter logic for easier implementation of future pollers)
+     - If docker PollProvider detects that it is Podman running then log it, and also throw errors if Podman is used for Swarm mode
      - Many log entries from DEBUG -> VERBOSE
 
    ### Fixed
