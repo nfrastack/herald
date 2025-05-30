@@ -334,6 +334,27 @@ func (p *Poller) StopPolling() error {
 
 // Helper functions for domain name handling
 
+// EngineType represents the container engine type
+type EngineType string
+
+const (
+	EngineDocker  EngineType = "docker"
+	EnginePodman  EngineType = "podman"
+	EngineUnknown EngineType = "unknown"
+)
+
+// EngineInfo contains information about the detected container engine
+type EngineInfo struct {
+	Type    EngineType
+	Version string
+}
+
+// ContainerEngineDetector interface for detecting container engines
+type ContainerEngineDetector interface {
+	DetectEngine() (*EngineInfo, error)
+	ValidateSwarmSupport() error
+}
+
 // extractDomainFromFQDN extracts the domain part from a fully qualified domain name
 func extractDomainFromFQDN(fqdn string) string {
 	// Simple implementation - this might need to be enhanced based on your needs

@@ -1,17 +1,14 @@
-<!-- vscode-markdown-toc off -->
 # DNS Companion
 
-## About
-
-This tool enables automatic DNS record management for containers. It monitors container events (creation, deletion, updates) and creates or removes DNS records accordingly. Whether you're using Docker containers with explicit DNS-related labels or Traefik with Host rules, DNS Companion provides seamless DNS integration, allowing your containers to be easily accessible by domain names without manual DNS configuration.
+Automate DNS record management for containers and services. DNS Companion monitors Containers from Docker, Reverse Proxies like Caddy and Traefik, VPNs like Tailscale and ZeroTier, and other sources to automatically create and manage DNS records to upstream providers or to local filesystems without manual intervention.
 
 > **Commercial/Enterprise Users:**
 >
-> This tool is free to use for all users. However, if you are using DNS Companion in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project, [please reach out](mailto:code+cdc@nfrastack.com).
+> This tool is free to use for all users. However, if you are using DNS Companion in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project [please reach out](mailto:code+dc@nfrastack.com).
 
 ## Disclaimer
 
-DNS Companion is an independent project and is not affiliated with, endorsed by, or sponsored by Docker, Inc. or Traefik Labs. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of container technologies. This tool is provided as-is and is not an official product of any container platform.
+DNS Companion is an independent project and is not affiliated with, endorsed by, or sponsored by Docker Inc, Tailscale Inc., Traefik Labs, ZeroTier Inc. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of their applications. This tool is provided as-is and is not an official product of any of their respective plaforms. I'm also not a lawyer, so if you represent commercial interests of companies above and have cocnerns, let's talk.
 
 ## Maintainer
 
@@ -19,19 +16,100 @@ nfrastack <code@nfrastack.com>
 
 ## Table of Contents
 
-- [About](#about)
 - [Disclaimer](#disclaimer)
 - [Maintainer](#maintainer)
 - [Table of Contents](#table-of-contents)
 - [Prerequisites and Assumptions](#prerequisites-and-assumptions)
 - [Installing](#installing)
+  - [From Source](#from-source)
+  - [Precompiled Binaries](#precompiled-binaries)
+    - [Supported Architectures](#supported-architectures)
+    - [How to Download](#how-to-download)
+    - [How to Use](#how-to-use)
+    - [Running in Background](#running-in-background)
+  - [Containers](#containers)
+  - [Distributions](#distributions)
+    - [NixOS](#nixos)
 - [Configuration](#configuration)
+  - [Overview](#overview)
+    - [Precedence Order](#precedence-order)
+  - [Example Configuration File](#example-configuration-file)
+  - [Configuration Examples and Files](#configuration-examples-and-files)
+    - [YAML Configuration Examples](#yaml-configuration-examples)
+    - [Container Configuration](#container-configuration)
+  - [NixOS Integration](#nixos-integration)
+    - [Using the NixOS Module](#using-the-nixos-module)
+    - [Multiple File Loading \& Includes](#multiple-file-loading--includes)
+    - [Example: Multiple Config Files](#example-multiple-config-files)
+    - [Example: YAML Include](#example-yaml-include)
+  - [General Options](#general-options)
+    - [Scoped Logging](#scoped-logging)
+  - [TLS Configuration for Remote Providers](#tls-configuration-for-remote-providers)
+    - [Configuration Options](#configuration-options)
+    - [Examples](#examples)
+    - [Security Notes](#security-notes)
 - [Environment Variables](#environment-variables)
-- [Pollers](#pollers)
-- [Providers](#providers)
-- [Domains](#domains)
-- [Output Providers](#output-providers)
+  - [Default Options](#default-options)
+  - [Pollers](#pollers)
+    - [Supported Pollers](#supported-pollers)
+    - [Caddy Poller](#caddy-poller)
+    - [Docker Poller](#docker-poller)
+      - [Config File](#config-file)
+      - [Docker Poller Environment Variables](#docker-poller-environment-variables)
+      - [Usage of Docker Provider](#usage-of-docker-provider)
+      - [Creating Records with Container Labels](#creating-records-with-container-labels)
+        - [Examples](#examples-1)
+        - [Docker Label Configuration](#docker-label-configuration)
+      - [Optional Record Configuration](#optional-record-configuration)
+        - [Examples](#examples-2)
+        - [Example: AAAA Record (IPv6)](#example-aaaa-record-ipv6)
+        - [Example: Auto-detect AAAA Record](#example-auto-detect-aaaa-record)
+        - [Example: Multiple A/AAAA Record Labels](#example-multiple-aaaaa-record-labels)
+      - [Traefik Integration](#traefik-integration)
+      - [Docker Container Filtering](#docker-container-filtering)
+  - [File Poller](#file-poller)
+  - [Remote Provider](#remote-provider)
+    - [Example configuration](#example-configuration)
+    - [Options](#options)
+    - [Tailscale Provider](#tailscale-provider)
+    - [Traefik Poller](#traefik-poller)
+  - [Simple filter (single filter)](#simple-filter-single-filter)
+  - [Advanced filters (multiple, AND/OR/NOT/Negate)](#advanced-filters-multiple-andornotnegate)
+      - [Poller Traefik Configuration File](#poller-traefik-configuration-file)
+      - [Poller Traefik Environment Variables](#poller-traefik-environment-variables)
+      - [ZeroTier Provider](#zerotier-provider)
+        - [ZeroTier vs ZT-Net](#zerotier-vs-zt-net)
+        - [Filtering Options](#filtering-options)
+        - [Configuration Options](#configuration-options-1)
+    - [Basic Configuration](#basic-configuration)
+    - [Configuration Options](#configuration-options-2)
+    - [API Types](#api-types)
+    - [Filtering Options](#filtering-options-1)
+    - [Examples](#examples-3)
+      - [Zerotier Poller](#zerotier-poller)
+  - [Providers](#providers)
+    - [Supported Providers](#supported-providers)
+    - [Provider Configuration (YAML)](#provider-configuration-yaml)
+    - [Provider Environment Variables](#provider-environment-variables)
+  - [Domains](#domains)
+  - [Output Providers](#output-providers)
+    - [Output Types](#output-types)
+    - [Common Features](#common-features)
+    - [Output Configuration System](#output-configuration-system)
+      - [Template Variables](#template-variables)
+      - [Domain Targeting](#domain-targeting)
+  - [Supported Output Types](#supported-output-types)
+    - [Hosts File Output](#hosts-file-output)
+    - [JSON Export Output](#json-export-output)
+    - [YAML Export Output](#yaml-export-output)
+    - [Zone File Output](#zone-file-output)
+    - [Metadata Fields (YAML/JSON)](#metadata-fields-yamljson)
 - [Support](#support)
+  - [Implementation](#implementation)
+  - [Usage](#usage)
+  - [Bugfixes](#bugfixes)
+  - [Feature Requests](#feature-requests)
+  - [Updates](#updates)
 - [License](#license)
 
 ## Prerequisites and Assumptions
@@ -199,6 +277,161 @@ general:
     - docker
 ```
 
+#### Scoped Logging
+
+Each provider supports individual log level configuration via the `log_level` option, allowing fine-grained control over logging verbosity per provider without affecting global log levels.
+
+### TLS Configuration for Remote Providers
+
+All remote poll providers (Docker, Traefik, Caddy, Remote, Tailscale, ZeroTier) support consistent TLS configuration:
+
+#### Configuration Options
+
+| Option       | Type    | Default | Description                                             |
+| ------------ | ------- | ------- | ------------------------------------------------------- |
+| `tls.verify` | boolean | `true`  | Enable TLS certificate verification                     |
+| `tls.ca`     | string  | `""`    | Path to custom CA certificate file                      |
+| `tls.cert`   | string  | `""`    | Path to client certificate file                         |
+| `tls.key`    | string  | `""`    | Path to client private key file                         |
+
+#### Examples
+
+**Basic HTTPS with system CA:**
+```yaml
+poll:
+  providers:
+    traefik:
+      endpoint: "https://traefik.example.com"
+      # Uses system CA, verification enabled by default
+```
+
+**Disable verification (development only):**
+```yaml
+poll:
+  providers:
+    traefik:
+      api_url: "https://traefik.example.com:8080/api/http/routers"
+      tls:
+        verify: false  # WARNING: Insecure for production
+```
+
+**Custom CA certificate:**
+```yaml
+poll:
+  providers:
+    traefik:
+      api_url: "https://traefik.internal.com:8080/api/http/routers"
+      tls:
+        verify: true
+        ca: "/etc/ssl/certs/internal-ca.pem"
+```
+
+**Mutual TLS (client certificate):**
+```yaml
+poll:
+  providers:
+    traefik:
+      api_url: "https://traefik.secure.com:8080/api/http/routers"
+      tls:
+        verify: true
+        ca: "/etc/ssl/certs/ca.pem"
+        cert: "/etc/ssl/certs/client.pem"
+        key: "/etc/ssl/private/client.key"
+```
+
+**Docker API over TLS:**
+```yaml
+poll:
+  providers:
+    docker:
+      api_url: "https://docker.example.com:2376"
+      tls:
+        verify: true
+        cert: "/etc/docker/certs/client-cert.pem"
+        key: "/etc/docker/certs/client-key.pem"
+        ca: "/etc/docker/certs/ca.pem"
+```
+
+**Remote file with custom CA:**
+```yaml
+poll:
+  providers:
+    remote:
+      remote_url: "https://internal-server.company.com/dns-records.yaml"
+      tls:
+        ca: "/etc/ssl/certs/company-ca.pem"
+```
+
+**Tailscale with Headscale (self-signed):**
+
+```yaml
+poll:
+  providers:
+    tailscale:
+      api_url: "https://headscale.example.com/api/v1"
+      api_key: "tskey-api-xxx"  # Static API key
+      tailnet: "your-tailnet"
+      tls:
+        ca: "/path/to/headscale-ca.pem"
+```
+
+**Tailscale with OAuth client credentials:**
+
+```yaml
+poll:
+  providers:
+    tailscale:
+      api_url: "https://api.tailscale.com/api/v2"
+      api_auth_id: "your-oauth-client-id"      # OAuth client ID
+      api_auth_token: "your-oauth-client-secret"  # OAuth client secret
+      tailnet: "your-tailnet"
+      tls:
+        verify: true  # Enabled by default for OAuth
+```
+      api_url: "https://headscale.internal.company.com/api/v1"
+      api_key: "your_headscale_api_key"
+      tls:
+        verify: false  # For self-signed certificates
+```
+
+**ZeroTier with ZT-Net (custom CA):**
+```yaml
+poll:
+  providers:
+    zerotier:
+      api_url: "https://ztnet.company.com/api"
+      api_token: "your_ztnet_token"
+      tls:
+        ca: "/etc/ssl/certs/ztnet-ca.crt"
+```
+
+**Caddy with client certificate:**
+```yaml
+poll:
+  providers:
+    caddy:
+      api_url: "https://caddy.secure.com:2019/config/"
+      tls:
+        cert: "/etc/ssl/certs/caddy-client.pem"
+        key: "/etc/ssl/private/caddy-client.key"
+```
+
+**Legacy configuration (still supported):**
+```yaml
+poll:
+  providers:
+    traefik:
+      endpoint: "https://traefik.example.com"
+      dns_verify: false  # Converts to tls.verify: false
+```
+
+#### Security Notes
+
+- Always enable TLS verification in production (`tls.verify: true`)
+- Use custom CA certificates for internal/private PKI
+- Protect private keys with appropriate file permissions (600)
+- The legacy `dns_verify` option is automatically converted to the new `tls.*` format
+
 ## Environment Variables
 
 Provider, poll, and domain-specific environment variables are also supported. See the sample [.env](contrib/config/env.sample) file and documentation for more details.
@@ -250,6 +483,64 @@ Pollers are components that discover containers or services to be managed. Each 
 **What is a Poller?**
 
 A poller is a module that discovers resources (like containers or routers) to be managed for DNS. Each poller type (e.g., Docker, Traefik) has its own configuration and options.
+
+#### Supported Pollers
+
+- **Caddy**: Polls the Caddy Admin API to discover routes and generate DNS records for services managed by Caddy.
+- **Docker**: Monitors Docker containers and their labels to generate DNS records automatically.
+- **File**: Reads DNS records from local files in YAML, JSON, hosts, or zone file formats. Supports real-time file watching and interval polling.
+- **Remote**: Fetches DNS records from remote YAML, JSON, hosts, or zone files over HTTP(S), with optional authentication and polling interval.
+- **Traefik**: Polls the Traefik API to discover router rules and generate DNS records for services managed by Traefik.
+- **Tailscale**: Monitors Tailscale devices and creates DNS records for them. Supports both Tailscale Central and Headscale, with OAuth client credentials and personal access tokens.
+- **ZeroTier**: Monitors ZeroTier networks (both ZeroTier Central and ZT-Net) and creates DNS records for network members.
+
+#### Caddy Poller
+
+The Caddy poll provider discovers domain names from Caddy route configurations via the Caddy Admin API. It extracts hostnames from the route match rules in the configuration.
+
+```yaml
+polls:
+  caddy_routes:
+    type: caddy
+    api_url: http://caddy:2019/config/
+    api_auth_user: admin
+    api_auth_pass: password
+    tls_verify: true  # Set to false to skip TLS certificate verification (like curl -k)
+    interval: 60s
+    record_remove_on_stop: true
+    process_existing: true
+    filter_type: host
+    filter_value: "*.localhost"
+```
+
+**Filter Options:**
+
+The Caddy provider supports filtering to precisely control which routes to process:
+
+- **host**: Filter by hostname patterns (e.g., `*.localhost`, `api*.example.com`)
+- **handler**: Filter by handler type (`reverse_proxy`, `file_server`, `static_response`, `vars`)
+- **upstream**: Filter by upstream dial addresses (e.g., `host.docker.internal:*`, `localhost:2019`)
+- **server**: Filter by server name (`srv0`, etc.)
+
+**Example Filters:**
+
+```yaml
+# Only process hosts ending in .localhost
+filter_type: host
+filter_value: "*.localhost"
+
+# Only process reverse proxy routes
+filter_type: handler
+filter_value: "reverse_proxy"
+
+# Only process routes with Docker upstreams
+filter_type: upstream
+filter_value: "host.docker.internal:*"
+
+# Only process routes from specific server
+filter_type: server
+filter_value: "srv0"
+```
 
 #### Docker Poller
 
@@ -519,6 +810,187 @@ Some advanced setups may support boolean logic or regular expressions for filter
 - Combine multiple filters for fine-grained control.
 - Use `filter_type: none` for development or testing, but restrict in production.
 
+### File Poller
+
+The file provider allows you to manage DNS records by reading from a YAML or JSON file. It supports real-time file watching (default) or interval-based polling.
+
+**Example configuration:**
+
+```yaml
+poll:
+  - type: file
+    name: file_example
+    source: ./result/records.yaml
+    format: yaml # or json - autodetects based on extension
+    interval: -1 # (default: watch mode)
+    record_remove_on_stop: true
+    process_existing: true
+```
+
+**File format (YAML):**
+
+```yaml
+records:
+  - host: www.example.com
+    type: A
+    ttl: 300
+    target: 192.0.2.10
+  - host: api.example.com
+    type: CNAME
+    target: www.example.com
+```
+
+**Options:**
+
+- `source` (required): Path to the file.
+- `format`: `yaml` (default) or `json`.
+- `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
+- `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
+- `process_existing`: Process all records on startup. Default: `false`.
+
+### Remote Provider
+
+The remote provider works just like the File provider but allows you to poll a remote YAML or JSON file over HTTP/HTTPS. It supports HTTP Basic Auth and interval-based polling.
+
+#### Example configuration
+
+```yaml
+polls:
+  remote_example:
+    type: remote
+    name: remote_example
+    remote_url: https://example.com/records.yaml
+    format: yaml # or json (optional, autodetects by extension)
+    interval: 30s # Poll every 30 seconds
+    process_existing: true
+    record_remove_on_stop: true
+    remote_auth_user: myuser # Optional HTTP Basic Auth
+    remote_auth_pass: mypassword # Optional HTTP Basic Auth
+```
+
+#### Options
+
+- `remote_url` (required): URL to the remote YAML or JSON file.
+- `format`: `yaml` (default) or `json`.
+- `interval`: How often to poll the remote file (e.g., `30s`).
+- `process_existing`: Process all records on startup. Default: `false`.
+- `record_remove_on_stop`: Remove DNS records when removed from remote. Default: `false`.
+- `remote_auth_user`: Username for HTTP Basic Auth (optional).
+- `remote_auth_pass`: Password for HTTP Basic Auth (optional).
+
+#### Tailscale Provider
+
+The Tailscale provider monitors Tailscale devices and automatically creates DNS records based on their online status and other configurable filters. It supports both Tailscale Central and Headscale, with OAuth client credentials and personal access tokens.
+
+**Example configuration:**
+
+```yaml
+polls:
+  tailscale_example:
+    type: tailscale
+    api_key: "your_tailscale_api_key_here"
+    tailnet: "-"  # Default tailnet, or specify tailnet ID
+    domain: "ts.example.com"
+    interval: 30s
+    hostname_format: "simple"  # "simple", "tailscale", or "full"
+    process_existing: true
+    record_remove_on_stop: true
+    # Optional filters (defaults to online=true if no filters specified)
+    filter_type: online
+    filter_value: "true"
+```
+
+**Authentication Methods:**
+
+1. **Personal Access Token** (recommended):
+
+```yaml
+api_key: "tskey-api-xxxxx"
+```
+
+2. **OAuth Client Credentials**:
+
+```yaml
+api_auth_token: "your_oauth_client_secret"
+api_auth_id: "your_oauth_client_id"
+```
+
+**Hostname Formats:**
+
+- `simple`: Use device name, remove `.tail` suffix (e.g., `laptop` from `laptop.tail12345.ts.net`)
+- `tailscale`: Use device name but sanitize for DNS (replace dots/underscores with hyphens)
+- `full`: Use complete Tailscale hostname as-is
+
+**Headscale Support:**
+
+For self-hosted Headscale instances:
+
+```yaml
+polls:
+  headscale_example:
+    type: tailscale
+    api_url: "https://headscale.example.com/api/v1"
+    api_key: "your_headscale_api_key"
+    tailnet: "your-headscale-namespace"
+    domain: "vpn.example.com"
+```
+
+**Filter Options:**
+
+- `online`: Filter by online status (`true`/`false`) - **default if no filters specified**
+- `name`: Filter by device name (substring match)
+- `hostname`: Filter by full hostname (substring match)
+- `tag`: Filter by device tags
+- `id`: Filter by exact device ID
+- `address`: Filter by assigned IP address
+- `user`: Filter by device user
+- `os`: Filter by operating system
+
+**Configuration Options:**
+
+- `type` (required): Must be `tailscale`
+- `api_key`: Tailscale API key or access token (required unless using OAuth)
+- `api_auth_token`: OAuth client secret (alternative to api_key)
+- `api_auth_id`: OAuth client ID (required with api_auth_token)
+- `api_url`: API URL (default: Tailscale Central, specify for Headscale)
+- `tailnet`: Tailnet ID or namespace (default: "-" for default tailnet)
+- `domain`: Domain suffix for DNS records (required)
+- `interval`: Polling interval (default: 120s)
+- `hostname_format`: How to format hostnames (default: "simple")
+- `process_existing`: Process existing devices on startup (default: false)
+- `record_remove_on_stop`: Remove DNS records when devices go offline (default: false)
+- `filter_type`: Filter devices by criteria (default: "online")
+- `filter_value`: Value for filter type (default: "true")
+- `log_level`: Provider-specific log level override
+
+**Advanced Filtering:**
+
+```yaml
+# Only process devices with specific tags
+filter_type: tag
+filter_value: "production"
+
+# Only process devices from specific user
+filter_type: user
+filter_value: "admin@company.com"
+
+# Only process devices with specific IP
+filter_type: address
+filter_value: "100.64.0.10"
+```
+
+**Environment Variables:**
+
+| Variable                    | Description                    |
+| --------------------------- | ------------------------------ |
+| `TAILSCALE_API_KEY`         | Tailscale API key              |
+| `TAILSCALE_API_AUTH_TOKEN`  | OAuth client secret            |
+| `TAILSCALE_API_AUTH_ID`     | OAuth client ID                |
+| `TAILSCALE_API_URL`         | Custom API URL (for Headscale) |
+| `TAILSCALE_TAILNET`         | Tailnet ID or namespace        |
+| `TAILSCALE_DOMAIN`          | Domain suffix for DNS records  |
+| `TAILSCALE_HOSTNAME_FORMAT` | Hostname format style          |
+
 #### Traefik Poller
 
 The Traefik poll provider discovers domain names from Traefik router rules via the Traefik API. It extracts hostnames from the `Host` rules in router configurations.
@@ -530,6 +1002,7 @@ polls:
     api_url: https://traefik.example.com/api/http/routers
     api_auth_user: admin
     api_auth_pass: password
+    tls_verify: true  # Set to false to skip TLS certificate verification
     interval: 5m
     filter_type: name
     filter_value: ^websecure-
@@ -610,75 +1083,168 @@ polls:
 | `POLL_<PROFILENAME>_INTERVAL`    | Poll interval (supports units, e.g., `15s`, `1m`, `60` for 60 seconds) |
 | `POLL_<PROFILENAME>_CONFIG_PATH` | Path to Traefik configuration file or directory (file-based)           |
 
-### Poller File Provider
+##### ZeroTier Provider
 
-The file provider allows you to manage DNS records by reading from a YAML or JSON file. It supports real-time file watching (default) or interval-based polling.
+The ZeroTier provider monitors ZeroTier network members and automatically creates DNS records based on their online status and other configurable filters.
 
-**Example configuration:**
+###### ZeroTier vs ZT-Net
 
-```yaml
-poll:
-  - type: file
-    name: file_example
-    source: ./result/records.yaml
-    format: yaml # or json - autodetects based on extension
-    interval: -1 # (default: watch mode)
-    record_remove_on_stop: true
-    process_existing: true
-```
+- **ZeroTier Central**: Official ZeroTier cloud service (my.zerotier.com)
+  - Uses Bearer token authentication
+  - Member status determined by `lastSeen` timestamp and configurable timeout
+  - Supports: online, name, authorized, id, address, ipAssignments filters
 
-**File format (YAML):**
+- **ZT-Net**: Self-hosted ZeroTier network controller
+  - Uses x-ztnet-auth header authentication
+  - Member status determined by boolean `online` field
+  - Supports all filters: online, name, authorized, tag, id, address, nodeid, ipAssignments, physicalAddress
+  - Network ID format: `org:domain:networkid` or `domain:networkid`
 
-```yaml
-records:
-  - host: www.example.com
-    type: A
-    ttl: 300
-    target: 192.0.2.10
-  - host: api.example.com
-    type: CNAME
-    target: www.example.com
-```
+###### Filtering Options
 
-**Options:**
+- `online`: Filter by online status (`true`/`false`)
+- `name`: Filter by member name (substring match)
+- `authorized`: Filter by authorization status (`true`/`false`)
+- `tag`: Filter by member tags (ZT-Net only)
+- `id`: Filter by exact member ID
+- `address`: Filter by exact ZeroTier address
+- `nodeid`: Filter by node ID (ZT-Net only)
+- `ipAssignments`: Filter by assigned IP address
+- `physicalAddress`: Filter by physical network address (ZT-Net only)
 
-- `source` (required): Path to the file.
-- `format`: `yaml` (default) or `json`.
-- `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
-- `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
-- `process_existing`: Process all records on startup. Default: `false`.
+###### Configuration Options
 
-### Remote Provider
+**Options for configuring a ZeroTier poll provider:**
 
-The remote provider works just like the File provider but allows you to poll a remote YAML or JSON file over HTTP/HTTPS. It supports HTTP Basic Auth and interval-based polling.
+- `type` (str): "zerotier"
+- `api_url` (str): ZeroTier Central or ZT-Net API base URL (optional, defaults to <https://my.zerotier.com>)
+- `api_token` (str): API token for authentication
+- `api_type` (str, optional): "zerotier" or "ztnet". If omitted, will attempt to autodetect
+- `network_id` (str): ZeroTier network ID (for ZT-Net: `org:domain:networkid` or `domain:networkid`)
+- `domain` (str): Domain to append to hostnames (e.g., `zt.example.com`)
+- `interval` (str, optional): Polling interval (e.g., "60s", default: "60s")
+- `online_timeout_seconds` (int): Seconds to consider a member offline (default: 60, recommend: 300+)
+- `process_existing` (bool): Process records on startup (default: false)
+- `record_remove_on_stop` (bool): Remove DNS records when node goes offline (default: false)
+- `use_address_fallback` (bool): Use ZeroTier address as hostname when name is empty (default: false)
+- `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`, `ipAssignments`, `physicalAddress`
+- `filter_value` (string): Value for filter_type (default: `online=true`)
+- `log_level` (string): Provider-specific log level override (optional)
 
-#### Example configuration
+**⚠️ Important**: For ZeroTier Central, set `online_timeout_seconds` to 300+ seconds (5+ minutes) to prevent erratic add/remove behavior due to inconsistent heartbeat timing. The default 120 seconds may cause members to flap online/offline frequently.
+
+#### Basic Configuration
 
 ```yaml
 polls:
-  remote_example:
-    type: remote
-    name: remote_example
-    remote_url: https://example.com/records.yaml
-    format: yaml # or json (optional, autodetects by extension)
-    interval: 30s # Poll every 30 seconds
-    process_existing: true
+  zerotier_example:
+    type: zerotier
+    api_token: "your_zerotier_api_token_here"
+    network_id: "YOUR_NETWORK_ID"
+    domain: "zt.example.com"
+    online_timeout_seconds: 300  # Recommended: 300+ seconds
     record_remove_on_stop: true
-    remote_auth_user: myuser # Optional HTTP Basic Auth
-    remote_auth_pass: mypassword # Optional HTTP Basic Auth
+    use_address_fallback: true
 ```
 
-#### Options
+#### Configuration Options
 
-- `remote_url` (required): URL to the remote YAML or JSON file.
-- `format`: `yaml` (default) or `json`.
-- `interval`: How often to poll the remote file (e.g., `30s`).
-- `process_existing`: Process all records on startup. Default: `false`.
-- `record_remove_on_stop`: Remove DNS records when removed from remote. Default: `false`.
-- `remote_auth_user`: Username for HTTP Basic Auth (optional).
-- `remote_auth_pass`: Password for HTTP Basic Auth (optional).
+| Option                   | Type     | Default                   | Description                                          |
+| ------------------------ | -------- | ------------------------- | ---------------------------------------------------- |
+| `api_url`                | string   | `https://my.zerotier.com` | ZeroTier Central or ZT-Net API URL                   |
+| `api_token`              | string   | **required**              | ZeroTier API token or ZT-Net auth token              |
+| `api_type`               | string   | auto-detect               | `zerotier` or `ztnet` (auto-detected from URL)       |
+| `network_id`             | string   | **required**              | Network ID. For ZT-Net: `org:domain.com:networkid`   |
+| `domain`                 | string   | optional                  | Domain suffix for DNS records                        |
+| `interval`               | duration | `60s`                     | Polling interval                                     |
+| `online_timeout_seconds` | int      | `120`                     | **Recommend 300+** - Time to consider member offline |
+| `process_existing`       | bool     | `false`                   | Process existing members on startup                  |
+| `record_remove_on_stop`  | bool     | `false`                   | Remove DNS records when member goes offline          |
+| `use_address_fallback`   | bool     | `false`                   | Use ZeroTier address as hostname when name is empty  |
+| `filter_type`            | string   | `online`                  | Filter type (see filtering options below)            |
+| `filter_value`           | string   | `true`                    | Value for filter type                                |
+| `log_level`              | string   | global                    | Provider-specific log level override                 |
 
-See `contrib/file-provider.md` for file format details (same as file provider).
+#### API Types
+
+**ZeroTier Central** (`api_type: zerotier`)
+
+- Official ZeroTier Central API
+- Uses `lastSeen` millisecond timestamps
+- Authentication: `Bearer` token
+
+**ZT-Net** (`api_type: ztnet`)
+
+- Self-hosted ZeroTier network controller
+- Uses `lastSeen` ISO timestamp format
+- Authentication: `x-ztnet-auth` header
+- Network ID format: `org:domain.com:networkid` or `domain.com:networkid`
+
+#### Filtering Options
+
+Control which members create DNS records using `filter_type` and `filter_value`:
+
+| Filter Type       | Description                  | Example Values      |
+| ----------------- | ---------------------------- | ------------------- |
+| `online`          | Member online status         | `true`, `false`     |
+| `authorized`      | Member authorization status  | `true`, `false`     |
+| `name`            | Member name contains value   | `server`, `prod-`   |
+| `tag`             | Member has specific tag      | `dns`, `production` |
+| `id`              | Exact member ID match        | `a1b2c3d4e5`        |
+| `address`         | Exact ZeroTier address match | `a1b2c3d4e5`        |
+| `nodeid`          | Node ID (ZT-Net only)        | `123`               |
+| `ipAssignments`   | Has specific IP assignment   | `10.0.0.100`        |
+| `physicalAddress` | Physical address match       | `1.2.3.4/9993`      |
+
+
+#### Examples
+
+**ZeroTier Central - Production Setup**
+
+```yaml
+zerotier_prod:
+  type: zerotier
+  api_token: "zt_token_here"
+  network_id: "a1b2c3d4e5f6g7h8"
+  domain: "vpn.company.com"
+  online_timeout_seconds: 600  # 10 minutes - very stable
+  filter_type: "authorized"
+  filter_value: "true"
+  record_remove_on_stop: true
+  log_level: "info"
+```
+
+**ZT-Net - Development Setup**
+
+```yaml
+zerotier_dev:
+  type: zerotier
+  api_url: "https://ztnet.company.com"
+  api_token: "ztnet_token_here"
+  network_id: "dev:dev.company.com:networkid123"
+  domain: "dev.company.com"
+  online_timeout_seconds: 300
+  filter_type: "tag"
+  filter_value: "development"
+  use_address_fallback: true
+  log_level: "debug"
+```
+
+##### Zerotier Poller
+
+**Options for configuring a Zerotier poll provider:**
+
+- `type` (str): "zerotier"
+- `api_url` (str): Zerotier Central or ZT-Net API base URL.
+- `api_token` (str): API token for authentication.
+- `api_type` (str, optional): "zerotier" or "ztnet". If omitted, will attempt to autodetect.
+- `interval` (str, optional): Polling interval (e.g., "60s").
+- `network_id` (str): Zerotier network ID.
+- `domain` (str): Domain to append to hostnames (e.g., `zt.example.com`).
+- `process_existing` (bool): Process records on startup.
+- `record_remove_on_stop` (bool): Remove DNS records when node is removed or offline.
+- `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`.
+- `filter_value` (string): Value for filter_type (default: `online=true`).
 
 ### Providers
 
@@ -1134,6 +1700,10 @@ mail            300   IN    A      192.0.2.3
 
 ## Support
 
+### Implementation
+
+[Cotnact us](mailto:code+dc@nfrastack.com) for rates.
+
 ### Usage
 
 - The [Discussions board](../../discussions) is a great place for working with the community.
@@ -1144,11 +1714,11 @@ mail            300   IN    A      192.0.2.3
 
 ### Feature Requests
 
-- Feel free to submit a feature request; however, there is no guarantee that it will be added or at what timeline.
+- Feel free to submit a feature request; however, there is no guarantee that it will be added or at what timeline.  [Cotnact us](mailto:code+dc@nfrastack.com) for custom development.
 
 ### Updates
 
-- Best effort to track upstream dependency changes, with more priority if I am actively using the tool.
+- Best effort to track upstream dependency changes, with more priority if the tool is actively used on our end.
 
 ## License
 

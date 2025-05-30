@@ -30,9 +30,10 @@ type Provider struct {
 	config      map[string]string
 	zoneID      string
 	defaultTTL  int
-	DryRun      bool   // Add DryRun field
-	profileName string // Store profile name for logs
-	logPrefix   string // Store log prefix for consistent logging
+	DryRun      bool              // Add DryRun field
+	profileName string            // Store profile name for logs
+	logPrefix   string            // Store log prefix for consistent logging
+	logger      *log.ScopedLogger // provider-specific logger
 }
 
 // NewProvider creates a new Cloudflare DNS provider
@@ -43,11 +44,24 @@ func NewProvider(config map[string]string) (dns.Provider, error) {
 
 	log.Debug("%s Resolved domain profile name: %s", logPrefix, profileName)
 
+	// Get provider-specific log level
+	logLevel := config["log_level"]
+
+	// Create scoped logger and test it immediately
+	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+
+	// Test the scoped logger immediately
+	log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	scopedLogger.Trace("%s SCOPED TEST: This should show if provider log_level='trace'", logPrefix)
+	scopedLogger.Debug("%s SCOPED TEST: This should show if provider log_level='debug' or higher", logPrefix)
+	scopedLogger.Info("%s SCOPED TEST: This should show if provider log_level='info' or higher", logPrefix)
+
 	p := &Provider{
 		config:      config,
 		zoneID:      config["zone_id"],
 		profileName: profileName,
 		logPrefix:   logPrefix,
+		logger:      scopedLogger,
 	}
 
 	// Set DryRun if present in config

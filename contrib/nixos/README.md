@@ -55,10 +55,18 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
     * `process_existing` (bool): Process existing routers on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when router is removed.
+  * `caddy` (attrs):
+    * `type` (str): "caddy"
+    * `api_url` (str): Caddy Admin API URL.
+    * `api_auth_user` (str): Username for basic auth to the Caddy API.
+    * `api_auth_pass` (str): Password for basic auth to the Caddy API.
+    * `interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
+    * `process_existing` (bool): Process existing routes on startup.
+    * `record_remove_on_stop` (bool): Remove DNS records when route is removed.
   * `file` (attrs):
     * `type` (str): "file"
     * `source` (str): Path to the YAML or JSON file.
-    * `format` (str): "yaml" (default) or "json".
+    * `format` (string): File format. Supported: `yaml`, `json`, `hosts`, `zone`.
     * `interval` (str): Poll interval (e.g., "-1" for watch mode, or "30s").
     * `process_existing` (bool): Process all records on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when removed from file.
@@ -71,6 +79,38 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `record_remove_on_stop` (bool): Remove DNS records when removed from remote.
     * `remote_auth_user` (str): Username for HTTP Basic Auth (optional).
     * `remote_auth_pass` (str): Password for HTTP Basic Auth (optional).
+  * `zerotier` (attrs):
+    * `type` (str): "zerotier"
+    * `api_url` (str): ZeroTier Central or ZT-Net API base URL (optional, defaults to <https://my.zerotier.com>)
+    * `api_token` (str): API token for authentication
+    * `api_type` (str, optional): "zerotier" or "ztnet". If omitted, will attempt to autodetect
+    * `interval` (str, optional): Polling interval (e.g., "60s")
+    * `network_id` (str): ZeroTier network ID (for ZT-Net: "org:domain:networkid" or "domain:networkid")
+    * `domain` (str): Domain to append to hostnames (e.g., `zt.example.com`)
+    * `online_timeout_seconds` (int): Seconds to consider a member offline (default: 60, recommend: 300+)
+    * `process_existing` (bool): Process records on startup
+    * `record_remove_on_stop` (bool): Remove DNS records when node goes offline
+    * `use_address_fallback` (bool): Use ZeroTier address as hostname when name is empty
+    * `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`, `ipAssignments`, `physicalAddress`
+    * `filter_value` (string): Value for filter_type (default: `online=true`)
+    * `log_level` (string): Provider-specific log level override (optional)
+  * `tailscale` (attrs):
+    * `type` (str): "tailscale"
+    * `api_key` (str): Tailscale API key or personal access token (required unless using OAuth)
+    * `api_auth_token` (str): OAuth client secret (alternative to api_key)
+    * `api_auth_id` (str): OAuth client ID (required with api_auth_token)
+    * `api_url` (str): API URL (optional, defaults to Tailscale Central API, specify for Headscale)
+    * `tailnet` (str): Tailnet ID or namespace (optional, defaults to "-" for default tailnet)
+    * `domain` (str): Domain suffix for DNS records (required)
+    * `interval` (str): Polling interval (default: "120s")
+    * `hostname_format` (str): Hostname format: "simple", "tailscale", "full" (default: "simple")
+    * `process_existing` (bool): Process existing devices on startup (default: false)
+    * `record_remove_on_stop` (bool): Remove DNS records when devices go offline (default: false)
+    * `filter_type` (str): Filter devices by criteria: "online", "name", "hostname", "tag", "id", "address", "user", "os" (defaults to "online")
+    * `filter_value` (str): Value for filter type (default: "true")
+    * `filter_operation` (str): Filter operation: "equals", "contains", "starts_with", "ends_with" (default: "equals")
+    * `filter_negate` (bool): Negate the filter result (default: false)
+    * `log_level` (str): Provider-specific log level override (optional)
 * `providers` (attrs): DNS provider profiles. Example:
   * `cloudflare` (attrs):
     * `type` (str): "cloudflare"

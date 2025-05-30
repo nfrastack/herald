@@ -46,6 +46,7 @@ type DockerProvider struct {
 	running            bool
 	swarmMode          bool
 	opts               pollCommon.PollProviderOptions
+	logger             *log.ScopedLogger // provider-specific logger
 }
 
 // Config defines configuration for the Docker provider
@@ -109,11 +110,28 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		RecordRemoveOnStop: false,
 		Name:               "docker",
 	})
+
 	profileName := pollCommon.GetOptionOrEnv(options, "name", "DOCKER_PROFILE_NAME", parsed.Name)
 	logPrefix := pollCommon.BuildLogPrefix("docker", profileName)
 
+	// Parse TLS configuration using pollCommon utilities for consistency
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(options)
+	if err := tlsConfig.ValidateConfig(); err != nil {
+		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
+	}
+
+	// Log TLS configuration for consistency with other providers
+	if tlsConfig.HasCustomCerts() {
+		log.Debug("%s Custom TLS certificates configured (verify=%t)", logPrefix, tlsConfig.Verify)
+	} else if !tlsConfig.Verify {
+		log.Warn("%s TLS verification disabled - ensure your Docker daemon is secure", logPrefix)
+	}
+
+	// Create scoped logger using common helper
+	scopedLogger := pollCommon.CreateScopedLogger("docker", profileName, options)
+
 	// Log resolved profile name at trace level only
-	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
+	scopedLogger.Trace("Resolved profile name: %s", profileName)
 
 	// Setup Docker client options from environment or provided options
 	clientOpts := []client.Opt{client.FromEnv}
@@ -121,7 +139,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	// Only use api_url and API_URL env var for Docker API endpoint
 	apiURL := pollCommon.GetOptionOrEnv(options, "api_url", "API_URL", "unix:///var/run/docker.sock")
 	if apiURL != "" {
-		log.Verbose("%s Using Docker API URL: %s", logPrefix, apiURL)
+		scopedLogger.Verbose("%s Using Docker API URL: %s", logPrefix, apiURL)
 		clientOpts = append(clientOpts, client.WithHost(apiURL))
 	}
 
@@ -139,12 +157,12 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		// Only add CA if path exists
 		if caPath != "" {
 			clientOpts = append(clientOpts, client.WithTLSClientConfig(caPath, certFile, keyFile))
-			log.Debug("%s Using Docker TLS config: ca=%s cert=%s key=%s", logPrefix, caPath, certFile, keyFile)
+			scopedLogger.Debug("%s Using Docker TLS config: ca=%s cert=%s key=%s", logPrefix, caPath, certFile, keyFile)
 		}
 		// If tlsVerify is explicitly set to false, skip server verification (not recommended)
 		if tlsVerifySet && !tlsVerify {
 			clientOpts = append(clientOpts, client.WithTLSClientConfig("", "", ""))
-			log.Warn("%s Docker TLS verification is disabled! Not recommended for production.", logPrefix)
+			scopedLogger.Warn("%s Docker TLS verification is disabled! Not recommended for production.", logPrefix)
 		}
 	}
 
@@ -152,11 +170,11 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	apiAuthUser := pollCommon.GetOptionOrEnv(options, "api_auth_user", "DOCKER_API_AUTH_USER", "")
 	apiAuthPass := pollCommon.GetOptionOrEnv(options, "api_auth_pass", "DOCKER_API_AUTH_PASS", "")
 	if apiAuthUser != "" {
-		log.Debug("%s Using Docker API basic auth user: %s", logPrefix, apiAuthUser)
+		scopedLogger.Debug("%s Using Docker API basic auth user: %s", logPrefix, apiAuthUser)
 		if apiAuthPass != "" {
-			log.Debug("%s Docker API basic auth password is set (masked)", logPrefix)
+			scopedLogger.Debug("%s Docker API basic auth password is set (masked)", logPrefix)
 		} else {
-			log.Warn("%s Docker API basic auth user provided without password", logPrefix)
+			scopedLogger.Warn("%s Docker API basic auth user provided without password", logPrefix)
 		}
 	}
 
@@ -177,6 +195,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		apiAuthUser:      apiAuthUser,
 		apiAuthPass:      apiAuthPass,
 		opts:             parsed,
+		logger:           scopedLogger,
 	}
 
 	// Parse configuration
@@ -191,16 +210,16 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	config.SwarmMode = false
 
 	// Log all available options for debugging
-	log.Trace("%s Provider options received: %v", logPrefix, options)
+	scopedLogger.Trace("%s Provider options received: %v", logPrefix, options)
 
 	// Check if we should expose all containers by default from options
 	if val, exists := options["expose_containers"]; exists {
 		lowerVal := strings.ToLower(val)
 		config.ExposeContainers = lowerVal == "true" || lowerVal == "1" || lowerVal == "yes"
-		log.Trace("%s Option 'expose_containers' found with value: '%s', parsed as: %v",
+		scopedLogger.Trace("%s Option 'expose_containers' found with value: '%s', parsed as: %v",
 			logPrefix, val, config.ExposeContainers)
 	} else {
-		log.Trace("%s No 'expose_containers' option found, using default: %v",
+		scopedLogger.Trace("%s No 'expose_containers' option found, using default: %v",
 			logPrefix, config.ExposeContainers)
 	}
 
@@ -592,29 +611,56 @@ func (p *DockerProvider) processService(ctx context.Context, serviceID string) {
 	}
 }
 
-// processDNSEntries sends DNS entries to the DNS provider
+// processDNSEntries sends DNS entries to the DNS provider using batch processing
 // If remove is true, perform DNS removal, otherwise always create/update
 func (p *DockerProvider) processDNSEntries(entries []poll.DNSEntry, remove bool) error {
+	// Create batch processor for efficient sync handling
+	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
+
 	for _, entry := range entries {
 		fqdn := entry.GetFQDN()
-		domainName := entry.Domain
-		state := domain.RouterState{
-			Name:        entry.SourceName, // Use SourceName for logging
-			Service:     entry.Target,
-			Rule:        "docker",
-			EntryPoints: nil,
-			RecordType:  entry.RecordType, // Set the actual DNS record type
+		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+		domainKey, subdomain := pollCommon.ExtractDomainAndSubdomain(fqdnNoDot, p.logPrefix)
+		p.logger.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", p.logPrefix, domainKey, subdomain, fqdnNoDot)
+		if domainKey == "" {
+			p.logger.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
+			continue
 		}
+		domainCfg, ok := config.GlobalConfig.Domains[domainKey]
+		if !ok {
+			p.logger.Error("%s Domain '%s' not found in config for fqdn='%s'", p.logPrefix, domainKey, fqdnNoDot)
+			continue
+		}
+		realDomain := domainCfg.Name
+		p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
+
+		state := domain.RouterState{
+			SourceType: "docker",
+			Name:       p.profileName,
+			Service:    entry.Target,
+			RecordType: entry.RecordType,
+		}
+
+		var err error
 		if remove {
-			if err := domain.EnsureDNSRemoveForRouterState(domainName, fqdn, state); err != nil {
-				log.Error("%s Failed to remove DNS for %s: %v", p.logPrefix, fqdn, err)
-			}
+			p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+			err = batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 		} else {
-			if err := domain.EnsureDNSForRouterState(domainName, fqdn, state); err != nil {
-				//log.Warn("%s Could not ensure DNS for %s: %v", p.logPrefix, fqdn, err)
+			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+			err = batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
+		}
+
+		if err != nil {
+			action := "ensure"
+			if remove {
+				action = "remove"
 			}
+			p.logger.Error("%s Failed to %s DNS for '%s': %v", p.logPrefix, action, fqdnNoDot, err)
 		}
 	}
+
+	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 	return nil
 }
 

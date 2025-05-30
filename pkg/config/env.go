@@ -308,8 +308,12 @@ func setLogLevelFromEnv(cfg *ConfigFile) {
 		// Only update the config struct, do not set the logger here
 		// Logger will be initialized later with the final value
 		switch upperLevel {
+		case "TRACE":
+			cfg.General.LogLevel = "trace"
 		case "DEBUG":
 			cfg.General.LogLevel = "debug"
+		case "VERBOSE":
+			cfg.General.LogLevel = "verbose"
 		case "INFO":
 			cfg.General.LogLevel = "info"
 		case "WARN", "WARNING":

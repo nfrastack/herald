@@ -1,11 +1,15 @@
 ## WIP
->>>>>>> main
+
 
    ### Added
      - Add log_level VERBOSE sitting in the middle of debug and info. This is the new default if not explicit in config.
-     - (poll) Added File provider to read YAML/JSON from filesystem
-     - (poll/file) Customizable interval to poll for changes or ondemand/fsnotify
-     - (poll) Added Remote provider to read YAML/JSON from a HTTP/HTTPS source with basic authentication supported
+     - Add scoped logging to each poller, dns provider, domain configuration, output provider - log_level will override per provider
+     - Add support for all network based pollProviders to supply their own TLS ca,cert, and keys. Also, ability to disable certificate verification.
+     - (poll) Added File provider to read YAML/JSON/Hosts/Zonefile from filesystem with customizable interval to poll for changes or ondemand/fsnotify
+     - (poll) Added Remote provider to read YAML/JSON/Hosts/Zonefile from a HTTP/HTTPS source with basic authentication supported
+     - (poll) Added Zerotier Poll provider to poll for nodes in a Zerotier Central or ZT-Net (Self hosted) network
+     - (poll) Added Tailscale Poll provider to poll for devices in a Tailscale tailnet or Headscale network
+     - (poll) Added Caddy Poll provider to read host.domains from Caddy Admin API
      - (dns) support multiple providers
      - (output) Add functionality to output records to various files (hosts, json, yaml, zone)
      - (output/hosts) auto flatten cnames to accomodate for deficiencies in host file format
@@ -13,6 +17,7 @@
 
    ### Changed
      - Created pollCommonfunctions for poll providers (http, records management, options, processing of parsed,received data, filter logic for easier implementation of future pollers)
+     - If docker PollProvider detects that it is Podman running then log it, and also throw errors if Podman is used for Swarm mode
      - Many log entries from DEBUG -> VERBOSE
 
    ### Fixed

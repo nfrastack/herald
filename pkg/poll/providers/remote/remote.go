@@ -21,6 +21,7 @@ type RemoteProvider struct {
 	lastRecords map[string]poll.DNSEntry
 	logPrefix   string
 	options     map[string]string
+	logger      *log.ScopedLogger // provider-specific logger
 }
 
 func NewProvider(options map[string]string) (poll.Provider, error) {
@@ -43,6 +44,16 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		}
 	}
 	logPrefix := pollCommon.BuildLogPrefix("remote", parsed.Name)
+	logLevel := options["log_level"] // Get provider-specific log level
+
+	// Create scoped logger
+	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	}
+
 	return &RemoteProvider{
 		remoteURL: remoteURL,
 		format:    format,
@@ -50,6 +61,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		opts:      parsed,
 		logPrefix: logPrefix,
 		options:   options,
+		logger:    scopedLogger,
 	}, nil
 }
 
@@ -100,7 +112,10 @@ func (p *RemoteProvider) processRemote() {
 	}
 	log.Verbose("%s Processing %d DNS entries from remote", p.logPrefix, len(entries))
 
+	// Create batch processor for efficient sync handling
+	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
 	current := make(map[string]poll.DNSEntry)
+
 	for _, e := range entries {
 		fqdn := e.GetFQDN()
 		recordType := e.GetRecordType()
@@ -143,8 +158,8 @@ func (p *RemoteProvider) processRemote() {
 				RecordType: recordType,
 			}
 
-			log.Trace("%s Calling EnsureDNSForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-			err := domain.EnsureDNSForRouterState(realDomain, fqdnNoDot, state)
+			log.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
 				log.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
 			}
@@ -187,8 +202,8 @@ func (p *RemoteProvider) processRemote() {
 					RecordType: recordType,
 				}
 
-				log.Trace("%s Calling EnsureDNSRemoveForRouterState(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-				err := domain.EnsureDNSRemoveForRouterState(realDomain, fqdnNoDot, state)
+				log.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
+				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
 					log.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
 				}
@@ -197,32 +212,62 @@ func (p *RemoteProvider) processRemote() {
 	}
 
 	p.lastRecords = current
+
+	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 }
 
 func (p *RemoteProvider) readRemote() ([]poll.DNSEntry, error) {
 	log.Debug("%s Fetching remote source: %s", p.logPrefix, p.remoteURL)
 	httpUser := pollCommon.GetOptionOrEnv(p.options, "remote_auth_user", "REMOTE_AUTH_USER", "")
 	httpPass := pollCommon.GetOptionOrEnv(p.options, "remote_auth_pass", "REMOTE_AUTH_PASS", "")
-	data, err := pollCommon.FetchRemoteResource(p.remoteURL, httpUser, httpPass, p.logPrefix)
+
+	// Parse TLS configuration using pollCommon utilities
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(p.options)
+
+	// Log TLS configuration details
+	if !tlsConfig.Verify {
+		log.Debug("%s TLS certificate verification disabled", p.logPrefix)
+	}
+	if tlsConfig.CA != "" {
+		log.Debug("%s Using custom CA certificate: %s", p.logPrefix, tlsConfig.CA)
+	}
+	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
+		log.Debug("%s Using client certificate authentication", p.logPrefix)
+	}
+
+	data, err := pollCommon.FetchRemoteResourceWithTLSConfig(p.remoteURL, httpUser, httpPass, nil, &tlsConfig, p.logPrefix)
 	if err != nil {
 		log.Error("%v", err)
 		return nil, err
 	}
 	log.Trace("%s Fetched %d bytes from %s", p.logPrefix, len(data), p.remoteURL)
-	if p.format == "yaml" {
-		log.Trace("%s Parsing as YAML", p.logPrefix)
-	} else {
-		log.Trace("%s Parsing as JSON", p.logPrefix)
-	}
+
 	var records []pollCommon.FileRecord
 	if p.format == "yaml" {
+		log.Trace("%s Parsing YAML from remote", p.logPrefix)
 		records, err = pollCommon.ParseRecordsYAML(data)
-	} else {
+		if err != nil {
+			log.Error("%s YAML unmarshal error: %v", p.logPrefix, err)
+			return nil, err
+		}
+	} else if p.format == "json" {
+		log.Trace("%s Parsing JSON from remote", p.logPrefix)
 		records, err = pollCommon.ParseRecordsJSON(data)
-	}
-	if err != nil {
-		log.Error("%s Failed to parse %s as %s: %v", p.logPrefix, p.remoteURL, p.format, err)
-		return nil, err
+		if err != nil {
+			log.Error("%s JSON unmarshal error: %v", p.logPrefix, err)
+			return nil, err
+		}
+	} else if p.format == "hosts" {
+		log.Trace("%s Parsing hosts file from remote", p.logPrefix)
+		records, err = pollCommon.ParseHostsFile(data)
+		if err != nil {
+			log.Error("%s Hosts file parse error: %v", p.logPrefix, err)
+			return nil, err
+		}
+	} else {
+		log.Error("%s Unsupported remote file format: %s", p.logPrefix, p.format)
+		return nil, fmt.Errorf("unsupported remote file format: %s", p.format)
 	}
 	entries := pollCommon.ConvertRecordsToDNSEntries(records, p.opts.Name)
 	return entries, nil

@@ -1,5 +1,5 @@
 {
-  description = "Manage DNS records based on DNS servers based on events from Docker or Traefik";
+  description = "DNS Companion - Dynamic DNS management for Docker, Traefik, Files, Remote sources, Tailscale, and ZeroTier/ZT-Net networks";
 
   inputs = { nixpkgs.url = "nixpkgs/nixos-unstable"; };
 
@@ -24,7 +24,7 @@
             src = ./.;
 
             meta = {
-              description = "Manage DNS records based on DNS servers based on events from Docker or Traefik";
+              description = "DNS Companion - Dynamic DNS record management for modern infrastructure. Supports Docker, Traefik, File, Remote, Tailscale, and ZeroTier/ZT-Net poll providers.";
               homepage = "https://github.com/nfrastack/dns-companion";
               license = "BSD-3-Clause";
               maintainers = [
@@ -176,6 +176,15 @@
                   record_remove_on_stop = true;
                   process_existing = true;
                 };
+                caddy = {
+                  type = "caddy";
+                  api_url = "http://caddy:2019/config/";
+                  api_auth_user = "";
+                  api_auth_pass = "";
+                  interval = "60s";
+                  record_remove_on_stop = true;
+                  process_existing = true;
+                };
                 file = {
                   type = "file";
                   source = "/var/lib/dns-companion/records.yaml";
@@ -193,6 +202,84 @@
                   record_remove_on_stop = true;
                   remote_auth_user = "myuser";
                   remote_auth_pass = "mypassword";
+                };
+                tailscale = {
+                  type = "tailscale";
+                  api_key = "tskey-api-xxxxx";
+                  tailnet = "-";
+                  domain = "ts.example.com";
+                  interval = "120s";
+                  hostname_format = "simple";
+                  process_existing = true;
+                  record_remove_on_stop = true;
+                  filter_type = "online";
+                  filter_value = "true";
+                };
+                zerotier = {
+                  enable = lib.mkEnableOption "Enable Zerotier poll provider";
+                  api_url = lib.mkOption {
+                    type = lib.types.str;
+                    description = "Zerotier Central or ZT-Net API base URL.";
+                  };
+                  api_type = lib.mkOption {
+                    type = lib.types.nullOr lib.types.str;
+                    default = null;
+                    description = "API type: 'zerotier' or 'ztnet'. Optional, autodetects if omitted.";
+                  };
+                  api_token = lib.mkOption {
+                    type = lib.types.str;
+                    description = "API token for Zerotier or ZT-Net.";
+                  };            interval = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              description = "Polling interval (e.g., '60s'). Optional.";
+            };
+
+            online_timeout_seconds = lib.mkOption {
+              type = lib.types.nullOr lib.types.int;
+              default = null;
+              description = "Seconds to consider a member offline (default: 60, recommend: 300+).";
+            };
+
+            use_address_fallback = lib.mkOption {
+              type = lib.types.nullOr lib.types.bool;
+              default = null;
+              description = "Use ZeroTier address as hostname when name is empty.";
+            };
+
+            log_level = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              description = "Provider-specific log level override (optional).";
+            };
+                  network_id = lib.mkOption {
+                    type = lib.types.str;
+                    description = "Zerotier network ID.";
+                  };
+                  domain = lib.mkOption {
+                    type = lib.types.str;
+                    description = "Domain to append to Zerotier hostnames.";
+                  };
+                  process_existing = lib.mkOption {
+                    type = lib.types.bool;
+                    default = true;
+                    description = "Process records on startup.";
+                  };
+                  record_remove_on_stop = lib.mkOption {
+                    type = lib.types.bool;
+                    default = true;
+                    description = "Remove DNS records when node is removed or offline.";
+                  };
+                  filter_type = lib.mkOption {
+                    type = lib.types.str;
+                    default = "online";
+                    description = "Filter by: online, name, authorized, tag, id, address, nodeid.";
+                  };
+                  filter_value = lib.mkOption {
+                    type = lib.types.str;
+                    default = "true";
+                    description = "Value for filter_type (default: online=true).";
+                  };
                 };
               };
               description = "Poll profiles for service/container discovery. Each key is the poller name, and the value is an attribute set of options for that poller. TLS options for Docker are nested under 'tls'.";
@@ -271,6 +358,14 @@
                 or
                 include = [ "/etc/dns-companion/extra1.yml" "/etc/dns-companion/extra2.yml" ];
                 Included files are merged into the main config. Later files override earlier ones.
+              '';
+            };
+
+            format = lib.mkOption {
+              type = lib.types.str;
+              default = "yaml";
+              description = ''
+                File format for DNS records. Supported: "yaml", "json", "hosts", "zone".
               '';
             };
           };

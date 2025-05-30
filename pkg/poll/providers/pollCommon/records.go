@@ -29,20 +29,76 @@ type JsonFile struct {
 	Records []FileRecord `json:"records"`
 }
 
-func ParseRecordsYAML(data []byte) ([]FileRecord, error) {
-	var y YamlFile
-	if err := yaml.Unmarshal(data, &y); err != nil {
+type FileMetadata struct {
+	Generator   string `yaml:"generator" json:"generator"`
+	GeneratedAt string `yaml:"generated_at" json:"generated_at"`
+	LastUpdated string `yaml:"last_updated" json:"last_updated"`
+}
+
+type DomainRecord struct {
+	Hostname  string `yaml:"hostname" json:"hostname"`
+	Type      string `yaml:"type" json:"type"`
+	Target    string `yaml:"target" json:"target"`
+	TTL       int    `yaml:"ttl" json:"ttl"`
+	CreatedAt string `yaml:"created_at" json:"created_at"`
+	Source    string `yaml:"source" json:"source"`
+}
+
+type DomainBlock struct {
+	Comment string         `yaml:"comment" json:"comment"`
+	Records []DomainRecord `yaml:"records" json:"records"`
+}
+
+type UnifiedFile struct {
+	Records  []FileRecord           `yaml:"records" json:"records"`
+	Metadata *FileMetadata          `yaml:"metadata" json:"metadata"`
+	Domains  map[string]DomainBlock `yaml:"domains" json:"domains"`
+}
+
+// ParseUnifiedFile parses the new YAML/JSON structure and returns a flat list of FileRecord
+func ParseUnifiedFile(data []byte, isYAML bool) ([]FileRecord, error) {
+	var uf UnifiedFile
+	var err error
+	if isYAML {
+		err = yaml.Unmarshal(data, &uf)
+	} else {
+		err = json.Unmarshal(data, &uf)
+	}
+	if err != nil {
 		return nil, err
 	}
-	return y.Records, nil
+	var out []FileRecord
+	// Top-level records
+	for _, r := range uf.Records {
+		out = append(out, r)
+	}
+	// Domain records
+	for domain, block := range uf.Domains {
+		for _, dr := range block.Records {
+			fqdn := dr.Hostname
+			if fqdn == "@" || fqdn == "" {
+				fqdn = domain
+			} else {
+				fqdn = dr.Hostname + "." + domain
+			}
+			rec := FileRecord{
+				Host:   fqdn,
+				Type:   dr.Type,
+				TTL:    dr.TTL,
+				Target: dr.Target,
+			}
+			out = append(out, rec)
+		}
+	}
+	return out, nil
+}
+
+func ParseRecordsYAML(data []byte) ([]FileRecord, error) {
+	return ParseUnifiedFile(data, true)
 }
 
 func ParseRecordsJSON(data []byte) ([]FileRecord, error) {
-	var j JsonFile
-	if err := json.Unmarshal(data, &j); err != nil {
-		return nil, err
-	}
-	return j.Records, nil
+	return ParseUnifiedFile(data, false)
 }
 
 func ConvertRecordsToDNSEntries(records []FileRecord, providerName string) []poll.DNSEntry {
