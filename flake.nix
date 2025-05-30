@@ -1,5 +1,5 @@
 {
-  description = "DNS Companion - Dynamic DNS management for Docker, Traefik, Files, Remote sources, and ZeroTier/ZT-Net networks";
+  description = "DNS Companion - Dynamic DNS management for Docker, Traefik, Files, Remote sources, Tailscale, and ZeroTier/ZT-Net networks";
 
   inputs = { nixpkgs.url = "nixpkgs/nixos-unstable"; };
 
@@ -24,7 +24,7 @@
             src = ./.;
 
             meta = {
-              description = "DNS Companion - Dynamic DNS record management for modern infrastructure. Supports Docker, Traefik, File, Remote, and ZeroTier/ZT-Net poll providers.";
+              description = "DNS Companion - Dynamic DNS record management for modern infrastructure. Supports Docker, Traefik, File, Remote, Tailscale, and ZeroTier/ZT-Net poll providers.";
               homepage = "https://github.com/nfrastack/dns-companion";
               license = "BSD-3-Clause";
               maintainers = [
@@ -202,6 +202,18 @@
                   record_remove_on_stop = true;
                   remote_auth_user = "myuser";
                   remote_auth_pass = "mypassword";
+                };
+                tailscale = {
+                  type = "tailscale";
+                  api_key = "tskey-api-xxxxx";
+                  tailnet = "-";
+                  domain = "ts.example.com";
+                  interval = "120s";
+                  hostname_format = "simple";
+                  process_existing = true;
+                  record_remove_on_stop = true;
+                  filter_type = "online";
+                  filter_value = "true";
                 };
                 zerotier = {
                   enable = lib.mkEnableOption "Enable Zerotier poll provider";

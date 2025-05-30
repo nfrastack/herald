@@ -14,12 +14,13 @@ import (
 )
 
 type RouterState struct {
-	Name        string
-	Rule        string
-	EntryPoints []string
-	Service     string
-	SourceType  string // e.g. "container", "router", "file", "remote", etc.
-	RecordType  string // DNS record type (A, AAAA, CNAME) - from poll provider
+	Name                 string
+	Rule                 string
+	EntryPoints          []string
+	Service              string
+	SourceType           string // e.g. "container", "router", "file", "remote", etc.
+	RecordType           string // DNS record type (A, AAAA, CNAME) - from poll provider
+	ForceServiceAsTarget bool   // When true, always use Service field as target (for VPN providers)
 }
 
 // getDomainLogger creates a scoped logger for domain-specific operations
@@ -86,6 +87,16 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 					target = state.Service
 				}
 			}
+			// IMPORTANT: Apply VPN provider logic for output-only mode too!
+			if state.ForceServiceAsTarget && state.Service != "" {
+				if ip := net.ParseIP(state.Service); ip != nil {
+					domainLogger.Info("Poll provider forcing IP '%s' for hostname '%s' (overriding domain target '%s')", state.Service, hostname, target)
+					target = state.Service
+				} else {
+					domainLogger.Error("ForceServiceAsTarget=true but Service field '%s' is not a valid IP address (SourceType=%s)", state.Service, state.SourceType)
+					return fmt.Errorf("invalid IP address in Service field for VPN provider: %s", state.Service)
+				}
+			}
 
 			// Smart record type detection if not set
 			if recordType == "" && target != "" {
@@ -128,8 +139,7 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	if providerKey == "" {
 		// Check if we have output providers configured for this domain
 		outputManager := output.GetOutputManager()
-		if outputManager != nil && len(outputManager.GetProfiles()) > 0 {
-			// We have output providers, so warn but don't fail
+		if outputManager != nil && len(outputManager.GetProfiles()) > 0 { // We have output providers, so warn but don't fail
 			domainLogger.Warn("No DNS provider specified for domain '%s' (hostname: %s) - will use output providers only", domain, fqdn)
 
 			// Only process output providers, skip DNS provider
@@ -156,6 +166,17 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 					target = state.Service
 				} else if strings.Contains(state.Service, ".") {
 					target = state.Service
+				}
+			}
+
+			// IMPORTANT: Apply VPN provider logic for output-only mode too!
+			if state.ForceServiceAsTarget && state.Service != "" {
+				if ip := net.ParseIP(state.Service); ip != nil {
+					domainLogger.Info("Poll provider forcing IP '%s' for hostname '%s' (overriding domain target '%s')", state.Service, hostname, target)
+					target = state.Service
+				} else {
+					domainLogger.Error("ForceServiceAsTarget=true but Service field '%s' is not a valid IP address for output-only no provider (SourceType=%s)", state.Service, state.SourceType)
+					return fmt.Errorf("invalid IP address in Service field for VPN provider (output-only no provider): %s", state.Service)
 				}
 			}
 
@@ -234,15 +255,50 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 		recordType = providerOptions["record_type"] // Use record_type from domain config as fallback
 	}
 	target := providerOptions["target"]
-	// Only override target if state.Service is a valid FQDN or IP
-	if state.Service != "" {
-		if ip := net.ParseIP(state.Service); ip != nil {
-			target = state.Service
-		} else if strings.Contains(state.Service, ".") {
-			target = state.Service
-		}
+	// Log what we have before processing
+	domainLogger.Trace("Initial target from config: '%s', Service from state: '%s', ForceServiceAsTarget: %t", target, state.Service, state.ForceServiceAsTarget)
 
+	// Use the subdomain part for the hostname
+	hostname := fqdn
+	if fqdn == domain {
+		hostname = "@"
+	} else if strings.HasSuffix(fqdn, "."+domain) {
+		hostname = strings.TrimSuffix(fqdn, "."+domain)
 	}
+
+	// If ForceServiceAsTarget is true (for VPN providers), ALWAYS use the Service field
+	if state.ForceServiceAsTarget {
+		domainLogger.Debug("ForceServiceAsTarget=true - checking Service field for mandatory IP override")
+		if state.Service != "" {
+			if ip := net.ParseIP(state.Service); ip != nil {
+				domainLogger.Info("Poll provider forcing IP '%s' for hostname '%s' (overriding domain target '%s')", state.Service, hostname, target)
+				target = state.Service
+			} else {
+				domainLogger.Error("ForceServiceAsTarget=true but Service field '%s' is not a valid IP address (SourceType=%s)", state.Service, state.SourceType)
+				return fmt.Errorf("invalid IP address in Service field for VPN provider: %s", state.Service)
+			}
+		} else {
+			domainLogger.Error("ForceServiceAsTarget=true but Service field is empty - this should never happen (SourceType=%s)", state.SourceType)
+			return fmt.Errorf("empty Service field for VPN provider")
+		}
+	} else {
+		// For non-VPN providers, use the original logic
+		if state.Service != "" {
+			if ip := net.ParseIP(state.Service); ip != nil {
+				domainLogger.Debug("Non-VPN IP detected - overriding target '%s' with Service IP '%s'", target, state.Service)
+				target = state.Service
+			} else if strings.Contains(state.Service, ".") {
+				domainLogger.Debug("Non-VPN FQDN detected - overriding target '%s' with Service FQDN '%s'", target, state.Service)
+				target = state.Service
+			} else {
+				domainLogger.Trace("Service field '%s' is not a valid IP or FQDN, keeping config target '%s'", state.Service, target)
+			}
+		} else {
+			domainLogger.Trace("No Service field provided, using config target '%s'", target)
+		}
+	}
+
+	domainLogger.Debug("Final target resolved to: '%s'", target)
 	if target == "" {
 		domainLogger.Error("No target specified for domain '%s' (fqdn: %s, service: %s)", domain, fqdn, state.Service)
 		return fmt.Errorf("no target specified for domain %s (fqdn: %s, service: %s)", domain, fqdn, state.Service)
@@ -271,7 +327,6 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 		overwrite = v == "true" || v == "1"
 	}
 	// Use the subdomain part for the hostname
-	hostname := fqdn
 	if fqdn == domain {
 		hostname = "@"
 	} else if strings.HasSuffix(fqdn, "."+domain) {
@@ -288,6 +343,7 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	}
 
 	domainLogger.Debug("DNS params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d, update=%v, %s=%s", domain, recordType, hostname, target, ttl, overwrite, label, state.Name)
+	domainLogger.Debug("FINAL RESOLVED TARGET: '%s' (was config='%s', service='%s')", target, providerOptions["target"], state.Service)
 
 	// Before calling LoadProviderFromConfig, merge global and provider-specific options
 	providerOptionsIface := make(map[string]interface{})
@@ -303,6 +359,13 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 	if err != nil {
 		domainLogger.Error("Failed to load DNS provider '%s': %v", providerKey, err)
 		return err
+	}
+
+	// Log if we're updating an existing record with a different target
+	if overwrite {
+		domainLogger.Verbose("Updating DNS record: %s -> %s (type: %s, source: %s)", hostname, target, recordType, label)
+	} else {
+		domainLogger.Verbose("Creating DNS record: %s -> %s (type: %s, source: %s)", hostname, target, recordType, label)
 	}
 	if cfProvider, ok := dnsProvider.(interface {
 		CreateOrUpdateRecordWithSource(string, string, string, string, int, bool, string, string) error

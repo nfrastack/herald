@@ -344,10 +344,11 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []poll.DNSEntry, last
 			p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
 
 			state := domain.RouterState{
-				SourceType: "zerotier",
-				Name:       p.profileName,
-				Service:    entry.Target,
-				RecordType: recordType,
+				SourceType:           "zerotier",
+				Name:                 p.profileName,
+				Service:              entry.Target,
+				RecordType:           recordType,
+				ForceServiceAsTarget: true, // VPN providers always use Service IP as target
 			}
 
 			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
@@ -384,10 +385,11 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []poll.DNSEntry, last
 				p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", p.logPrefix, realDomain, domainKey)
 
 				state := domain.RouterState{
-					SourceType: "zerotier",
-					Name:       p.profileName,
-					Service:    entry.Target,
-					RecordType: recordType,
+					SourceType:           "zerotier",
+					Name:                 p.profileName,
+					Service:              entry.Target,
+					RecordType:           recordType,
+					ForceServiceAsTarget: true, // VPN providers always use Service IP as target
 				}
 
 				p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)

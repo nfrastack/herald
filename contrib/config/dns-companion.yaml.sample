@@ -93,6 +93,29 @@ polls:
     # WARNING: online_timeout_seconds < 120 may cause erratic add/remove behavior due to ZeroTier Central heartbeat timing
     # For ZT-Net, this uses lastSeen timestamp; for ZeroTier Central, uses lastSeen milliseconds
 
+  tailscale_example:
+    type: tailscale
+    api_url: "https://api.tailscale.com"        # Tailscale API URL (optional, defaults to Tailscale Central, use custom for Headscale)
+    api_auth_token: "tskey-auth-xxxxxxxx"       # Personal access token (tskey-auth-*) OR OAuth client token (tskey-client-*)
+    # api_auth_id: "client_id_here"             # OAuth client ID (optional, for separate OAuth credentials)
+    # network: "your-tailnet"                   # Tailnet name (optional, defaults to "-" for default tailnet)
+    domain: "ts.example.com"                    # Domain suffix for DNS records
+    interval: 60s                               # Polling interval (optional, default: 60s)
+    process_existing: true                      # Process records on startup (default: false)
+    record_remove_on_stop: true                 # Remove DNS records when device goes offline (default: false)
+    hostname_format: "simple"                   # Hostname format: "simple", "tailscale", "full" (default: "simple")
+    # Standard filter syntax (same as other providers)
+    filters:
+      - type: online                            # Filter by online status
+        value: "true"                           # Only include online devices
+      - type: name                              # Filter by device name
+        value: "server"                         # Include devices with "server" in name
+        operation: contains                     # Operations: equals, contains, starts_with, ends_with, regex
+      - type: tag                               # Filter by Tailscale tags
+        value: "tag:server"                     # Include devices with this tag
+        negate: false                           # Set to true to exclude instead
+    log_level: "debug"                          # Provider-specific log level override (optional)
+
 domains:
   domainexample:
     name: "example.com"

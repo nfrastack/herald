@@ -1,5 +1,5 @@
 ## WIP
->>>>>>> main
+
 
    ### Added
      - Add log_level VERBOSE sitting in the middle of debug and info. This is the new default if not explicit in config.
@@ -7,6 +7,7 @@
      - (poll) Added File provider to read YAML/JSON/Hosts/Zonefile from filesystem with customizable interval to poll for changes or ondemand/fsnotify
      - (poll) Added Remote provider to read YAML/JSON/Hosts/Zonefile from a HTTP/HTTPS source with basic authentication supported
      - (poll) Added Zerotier Poll provider to poll for nodes in a Zerotier Central or ZT-Net (Self hosted) network
+     - (poll) Added Tailscale Poll provider to poll for devices in a Tailscale tailnet or Headscale network
      - (poll) Added Caddy Poll provider to read host.domains from Caddy Admin API
      - (dns) support multiple providers
      - (output) Add functionality to output records to various files (hosts, json, yaml, zone)

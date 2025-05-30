@@ -184,11 +184,19 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 			existingRecord.Target = target
 			existingRecord.TTL = uint32(ttl)
 			existingRecord.Source = source
-			c.logger.Verbose("Updated record: %s.%s (%s) %s -> %s", hostname, domain, recordType, oldTarget, target)
+			c.logger.Info("DNS record target updated: %s.%s (%s) %s -> %s (TTL: %d, source: %s)", hostname, domain, recordType, oldTarget, target, ttl, source)
 		} else {
-			// Just update metadata without logging
-			existingRecord.TTL = uint32(ttl)
-			existingRecord.Source = source
+			// Check if TTL changed and log that too
+			if existingRecord.TTL != uint32(ttl) {
+				oldTTL := existingRecord.TTL
+				existingRecord.TTL = uint32(ttl)
+				existingRecord.Source = source
+				c.logger.Verbose("DNS record TTL updated: %s.%s (%s) %d -> %d (target: %s, source: %s)", hostname, domain, recordType, oldTTL, ttl, target, source)
+			} else {
+				// Just update metadata without logging
+				existingRecord.TTL = uint32(ttl)
+				existingRecord.Source = source
+			}
 		}
 	} else {
 		// Create new record

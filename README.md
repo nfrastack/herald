@@ -10,7 +10,6 @@ Automate DNS record management for containers and services. DNS Companion monito
 
 DNS Companion is an independent project and is not affiliated with, endorsed by, or sponsored by Docker Inc, Tailscale Inc.. Traefik Labs, ZeroTier Inc. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of their applications. This tool is provided as-is and is not an official product of any of their respective plaforms. I'm also not a lawyer, so if you represent commercial interests of companies above and have cocnerns, let's talk.
 
-
 ## Maintainer
 
 nfrastack <code@nfrastack.com>
@@ -49,6 +48,7 @@ nfrastack <code@nfrastack.com>
   - [Default Options](#default-options)
   - [Pollers](#pollers)
     - [Supported Pollers](#supported-pollers)
+    - [Caddy Poller](#caddy-poller)
     - [Docker Poller](#docker-poller)
       - [Config File](#config-file)
       - [Docker Poller Environment Variables](#docker-poller-environment-variables)
@@ -63,16 +63,16 @@ nfrastack <code@nfrastack.com>
         - [Example: Multiple A/AAAA Record Labels](#example-multiple-aaaaa-record-labels)
       - [Traefik Integration](#traefik-integration)
       - [Docker Container Filtering](#docker-container-filtering)
+  - [File Poller](#file-poller)
+  - [Remote Provider](#remote-provider)
+    - [Example configuration](#example-configuration)
+    - [Options](#options)
+    - [Tailscale Provider](#tailscale-provider)
     - [Traefik Poller](#traefik-poller)
-    - [Caddy Poller](#caddy-poller)
   - [Simple filter (single filter)](#simple-filter-single-filter)
   - [Advanced filters (multiple, AND/OR/NOT/Negate)](#advanced-filters-multiple-andornotnegate)
       - [Poller Traefik Configuration File](#poller-traefik-configuration-file)
       - [Poller Traefik Environment Variables](#poller-traefik-environment-variables)
-  - [Poller File Provider](#poller-file-provider)
-  - [Remote Provider](#remote-provider)
-    - [Example configuration](#example-configuration)
-    - [Options](#options)
       - [ZeroTier Provider](#zerotier-provider)
         - [ZeroTier vs ZT-Net](#zerotier-vs-zt-net)
         - [Filtering Options](#filtering-options)
@@ -330,12 +330,61 @@ A poller is a module that discovers resources (like containers or routers) to be
 
 #### Supported Pollers
 
+- **Caddy**: Polls the Caddy Admin API to discover routes and generate DNS records for services managed by Caddy.
 - **Docker**: Monitors Docker containers and their labels to generate DNS records automatically.
 - **File**: Reads DNS records from local files in YAML, JSON, hosts, or zone file formats. Supports real-time file watching and interval polling.
 - **Remote**: Fetches DNS records from remote YAML, JSON, hosts, or zone files over HTTP(S), with optional authentication and polling interval.
 - **Traefik**: Polls the Traefik API to discover router rules and generate DNS records for services managed by Traefik.
-- **Caddy**: Polls the Caddy Admin API to discover routes and generate DNS records for services managed by Caddy.
+- **Tailscale**: Monitors Tailscale devices and creates DNS records for them. Supports both Tailscale Central and Headscale, with OAuth client credentials and personal access tokens.
 - **ZeroTier**: Monitors ZeroTier networks (both ZeroTier Central and ZT-Net) and creates DNS records for network members.
+
+#### Caddy Poller
+
+The Caddy poll provider discovers domain names from Caddy route configurations via the Caddy Admin API. It extracts hostnames from the route match rules in the configuration.
+
+```yaml
+polls:
+  caddy_routes:
+    type: caddy
+    api_url: http://caddy:2019/config/
+    api_auth_user: admin
+    api_auth_pass: password
+    tls_verify: true  # Set to false to skip TLS certificate verification (like curl -k)
+    interval: 60s
+    record_remove_on_stop: true
+    process_existing: true
+    filter_type: host
+    filter_value: "*.localhost"
+```
+
+**Filter Options:**
+
+The Caddy provider supports filtering to precisely control which routes to process:
+
+- **host**: Filter by hostname patterns (e.g., `*.localhost`, `api*.example.com`)
+- **handler**: Filter by handler type (`reverse_proxy`, `file_server`, `static_response`, `vars`)
+- **upstream**: Filter by upstream dial addresses (e.g., `host.docker.internal:*`, `localhost:2019`)
+- **server**: Filter by server name (`srv0`, etc.)
+
+**Example Filters:**
+
+```yaml
+# Only process hosts ending in .localhost
+filter_type: host
+filter_value: "*.localhost"
+
+# Only process reverse proxy routes
+filter_type: handler
+filter_value: "reverse_proxy"
+
+# Only process routes with Docker upstreams
+filter_type: upstream
+filter_value: "host.docker.internal:*"
+
+# Only process routes from specific server
+filter_type: server
+filter_value: "srv0"
+```
 
 #### Docker Poller
 
@@ -605,6 +654,187 @@ Some advanced setups may support boolean logic or regular expressions for filter
 - Combine multiple filters for fine-grained control.
 - Use `filter_type: none` for development or testing, but restrict in production.
 
+### File Poller
+
+The file provider allows you to manage DNS records by reading from a YAML or JSON file. It supports real-time file watching (default) or interval-based polling.
+
+**Example configuration:**
+
+```yaml
+poll:
+  - type: file
+    name: file_example
+    source: ./result/records.yaml
+    format: yaml # or json - autodetects based on extension
+    interval: -1 # (default: watch mode)
+    record_remove_on_stop: true
+    process_existing: true
+```
+
+**File format (YAML):**
+
+```yaml
+records:
+  - host: www.example.com
+    type: A
+    ttl: 300
+    target: 192.0.2.10
+  - host: api.example.com
+    type: CNAME
+    target: www.example.com
+```
+
+**Options:**
+
+- `source` (required): Path to the file.
+- `format`: `yaml` (default) or `json`.
+- `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
+- `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
+- `process_existing`: Process all records on startup. Default: `false`.
+
+### Remote Provider
+
+The remote provider works just like the File provider but allows you to poll a remote YAML or JSON file over HTTP/HTTPS. It supports HTTP Basic Auth and interval-based polling.
+
+#### Example configuration
+
+```yaml
+polls:
+  remote_example:
+    type: remote
+    name: remote_example
+    remote_url: https://example.com/records.yaml
+    format: yaml # or json (optional, autodetects by extension)
+    interval: 30s # Poll every 30 seconds
+    process_existing: true
+    record_remove_on_stop: true
+    remote_auth_user: myuser # Optional HTTP Basic Auth
+    remote_auth_pass: mypassword # Optional HTTP Basic Auth
+```
+
+#### Options
+
+- `remote_url` (required): URL to the remote YAML or JSON file.
+- `format`: `yaml` (default) or `json`.
+- `interval`: How often to poll the remote file (e.g., `30s`).
+- `process_existing`: Process all records on startup. Default: `false`.
+- `record_remove_on_stop`: Remove DNS records when removed from remote. Default: `false`.
+- `remote_auth_user`: Username for HTTP Basic Auth (optional).
+- `remote_auth_pass`: Password for HTTP Basic Auth (optional).
+
+#### Tailscale Provider
+
+The Tailscale provider monitors Tailscale devices and automatically creates DNS records based on their online status and other configurable filters. It supports both Tailscale Central and Headscale, with OAuth client credentials and personal access tokens.
+
+**Example configuration:**
+
+```yaml
+polls:
+  tailscale_example:
+    type: tailscale
+    api_key: "your_tailscale_api_key_here"
+    tailnet: "-"  # Default tailnet, or specify tailnet ID
+    domain: "ts.example.com"
+    interval: 30s
+    hostname_format: "simple"  # "simple", "tailscale", or "full"
+    process_existing: true
+    record_remove_on_stop: true
+    # Optional filters (defaults to online=true if no filters specified)
+    filter_type: online
+    filter_value: "true"
+```
+
+**Authentication Methods:**
+
+1. **Personal Access Token** (recommended):
+
+```yaml
+api_key: "tskey-api-xxxxx"
+```
+
+2. **OAuth Client Credentials**:
+
+```yaml
+api_auth_token: "your_oauth_client_secret"
+api_auth_id: "your_oauth_client_id"
+```
+
+**Hostname Formats:**
+
+- `simple`: Use device name, remove `.tail` suffix (e.g., `laptop` from `laptop.tail12345.ts.net`)
+- `tailscale`: Use device name but sanitize for DNS (replace dots/underscores with hyphens)
+- `full`: Use complete Tailscale hostname as-is
+
+**Headscale Support:**
+
+For self-hosted Headscale instances:
+
+```yaml
+polls:
+  headscale_example:
+    type: tailscale
+    api_url: "https://headscale.example.com/api/v1"
+    api_key: "your_headscale_api_key"
+    tailnet: "your-headscale-namespace"
+    domain: "vpn.example.com"
+```
+
+**Filter Options:**
+
+- `online`: Filter by online status (`true`/`false`) - **default if no filters specified**
+- `name`: Filter by device name (substring match)
+- `hostname`: Filter by full hostname (substring match)
+- `tag`: Filter by device tags
+- `id`: Filter by exact device ID
+- `address`: Filter by assigned IP address
+- `user`: Filter by device user
+- `os`: Filter by operating system
+
+**Configuration Options:**
+
+- `type` (required): Must be `tailscale`
+- `api_key`: Tailscale API key or access token (required unless using OAuth)
+- `api_auth_token`: OAuth client secret (alternative to api_key)
+- `api_auth_id`: OAuth client ID (required with api_auth_token)
+- `api_url`: API URL (default: Tailscale Central, specify for Headscale)
+- `tailnet`: Tailnet ID or namespace (default: "-" for default tailnet)
+- `domain`: Domain suffix for DNS records (required)
+- `interval`: Polling interval (default: 120s)
+- `hostname_format`: How to format hostnames (default: "simple")
+- `process_existing`: Process existing devices on startup (default: false)
+- `record_remove_on_stop`: Remove DNS records when devices go offline (default: false)
+- `filter_type`: Filter devices by criteria (default: "online")
+- `filter_value`: Value for filter type (default: "true")
+- `log_level`: Provider-specific log level override
+
+**Advanced Filtering:**
+
+```yaml
+# Only process devices with specific tags
+filter_type: tag
+filter_value: "production"
+
+# Only process devices from specific user
+filter_type: user
+filter_value: "admin@company.com"
+
+# Only process devices with specific IP
+filter_type: address
+filter_value: "100.64.0.10"
+```
+
+**Environment Variables:**
+
+| Variable                    | Description                        |
+| --------------------------- | ---------------------------------- |
+| `TAILSCALE_API_KEY`         | Tailscale API key                  |
+| `TAILSCALE_API_AUTH_TOKEN`  | OAuth client secret                |
+| `TAILSCALE_API_AUTH_ID`     | OAuth client ID                    |
+| `TAILSCALE_API_URL`         | Custom API URL (for Headscale)     |
+| `TAILSCALE_TAILNET`         | Tailnet ID or namespace            |
+| `TAILSCALE_DOMAIN`          | Domain suffix for DNS records      |
+| `TAILSCALE_HOSTNAME_FORMAT` | Hostname format style              |
+
 #### Traefik Poller
 
 The Traefik poll provider discovers domain names from Traefik router rules via the Traefik API. It extracts hostnames from the `Host` rules in router configurations.
@@ -620,54 +850,6 @@ polls:
     interval: 5m
     filter_type: name
     filter_value: ^websecure-
-```
-
-#### Caddy Poller
-
-The Caddy poll provider discovers domain names from Caddy route configurations via the Caddy Admin API. It extracts hostnames from the route match rules in the configuration.
-
-```yaml
-polls:
-  caddy_routes:
-    type: caddy
-    api_url: http://caddy:2019/config/
-    api_auth_user: admin
-    api_auth_pass: password
-    tls_verify: true  # Set to false to skip TLS certificate verification (like curl -k)
-    interval: 60s
-    record_remove_on_stop: true
-    process_existing: true
-    filter_type: host
-    filter_value: "*.localhost"
-```
-
-**Filter Options:**
-
-The Caddy provider supports filtering to precisely control which routes to process:
-
-- **host**: Filter by hostname patterns (e.g., `*.localhost`, `api*.example.com`)
-- **handler**: Filter by handler type (`reverse_proxy`, `file_server`, `static_response`, `vars`)
-- **upstream**: Filter by upstream dial addresses (e.g., `host.docker.internal:*`, `localhost:2019`)
-- **server**: Filter by server name (`srv0`, etc.)
-
-**Example Filters:**
-
-```yaml
-# Only process hosts ending in .localhost
-filter_type: host
-filter_value: "*.localhost"
-
-# Only process reverse proxy routes
-filter_type: handler
-filter_value: "reverse_proxy"
-
-# Only process routes with Docker upstreams
-filter_type: upstream
-filter_value: "host.docker.internal:*"
-
-# Only process routes from specific server
-filter_type: server
-filter_value: "srv0"
 ```
 
 **Options for configuring a Traefik poll provider:**
@@ -745,76 +927,6 @@ polls:
 | `POLL_<PROFILENAME>_INTERVAL`    | Poll interval (supports units, e.g., `15s`, `1m`, `60` for 60 seconds) |
 | `POLL_<PROFILENAME>_CONFIG_PATH` | Path to Traefik configuration file or directory (file-based)           |
 
-### Poller File Provider
-
-The file provider allows you to manage DNS records by reading from a YAML or JSON file. It supports real-time file watching (default) or interval-based polling.
-
-- **File and Remote Providers** now support reading DNS records from `hosts` and `zone` files, in addition to `yaml` and `json`.
-
-**Example configuration:**
-
-```yaml
-poll:
-  - type: file
-    name: file_example
-    source: ./result/records.yaml
-    format: yaml # or json - autodetects based on extension
-    interval: -1 # (default: watch mode)
-    record_remove_on_stop: true
-    process_existing: true
-```
-
-**File format (YAML):**
-
-```yaml
-records:
-  - host: www.example.com
-    type: A
-    ttl: 300
-    target: 192.0.2.10
-  - host: api.example.com
-    type: CNAME
-    target: www.example.com
-```
-
-**Options:**
-
-- `source` (required): Path to the file.
-- `format`: `yaml` (default) or `json`.
-- `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
-- `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
-- `process_existing`: Process all records on startup. Default: `false`.
-
-### Remote Provider
-
-The remote provider works just like the File provider but allows you to poll a remote YAML or JSON file over HTTP/HTTPS. It supports HTTP Basic Auth and interval-based polling.
-
-#### Example configuration
-
-```yaml
-polls:
-  remote_example:
-    type: remote
-    name: remote_example
-    remote_url: https://example.com/records.yaml
-    format: yaml # or json (optional, autodetects by extension)
-    interval: 30s # Poll every 30 seconds
-    process_existing: true
-    record_remove_on_stop: true
-    remote_auth_user: myuser # Optional HTTP Basic Auth
-    remote_auth_pass: mypassword # Optional HTTP Basic Auth
-```
-
-#### Options
-
-- `remote_url` (required): URL to the remote YAML or JSON file.
-- `format`: `yaml` (default) or `json`.
-- `interval`: How often to poll the remote file (e.g., `30s`).
-- `process_existing`: Process all records on startup. Default: `false`.
-- `record_remove_on_stop`: Remove DNS records when removed from remote. Default: `false`.
-- `remote_auth_user`: Username for HTTP Basic Auth (optional).
-- `remote_auth_pass`: Password for HTTP Basic Auth (optional).
-
 ##### ZeroTier Provider
 
 The ZeroTier provider monitors ZeroTier network members and automatically creates DNS records based on their online status and other configurable filters.
@@ -889,7 +1001,7 @@ polls:
 | `network_id`             | string   | **required**              | Network ID. For ZT-Net: `org:domain.com:networkid`   |
 | `domain`                 | string   | optional                  | Domain suffix for DNS records                        |
 | `interval`               | duration | `60s`                     | Polling interval                                     |
-| `online_timeout_seconds` | int      | `60`                      | **Recommend 300+** - Time to consider member offline |
+| `online_timeout_seconds` | int      | `120`                     | **Recommend 300+** - Time to consider member offline |
 | `process_existing`       | bool     | `false`                   | Process existing members on startup                  |
 | `record_remove_on_stop`  | bool     | `false`                   | Remove DNS records when member goes offline          |
 | `use_address_fallback`   | bool     | `false`                   | Use ZeroTier address as hostname when name is empty  |

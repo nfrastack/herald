@@ -94,6 +94,23 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`, `ipAssignments`, `physicalAddress`
     * `filter_value` (string): Value for filter_type (default: `online=true`)
     * `log_level` (string): Provider-specific log level override (optional)
+  * `tailscale` (attrs):
+    * `type` (str): "tailscale"
+    * `api_key` (str): Tailscale API key or personal access token (required unless using OAuth)
+    * `api_auth_token` (str): OAuth client secret (alternative to api_key)
+    * `api_auth_id` (str): OAuth client ID (required with api_auth_token)
+    * `api_url` (str): API URL (optional, defaults to Tailscale Central API, specify for Headscale)
+    * `tailnet` (str): Tailnet ID or namespace (optional, defaults to "-" for default tailnet)
+    * `domain` (str): Domain suffix for DNS records (required)
+    * `interval` (str): Polling interval (default: "120s")
+    * `hostname_format` (str): Hostname format: "simple", "tailscale", "full" (default: "simple")
+    * `process_existing` (bool): Process existing devices on startup (default: false)
+    * `record_remove_on_stop` (bool): Remove DNS records when devices go offline (default: false)
+    * `filter_type` (str): Filter devices by criteria: "online", "name", "hostname", "tag", "id", "address", "user", "os" (defaults to "online")
+    * `filter_value` (str): Value for filter type (default: "true")
+    * `filter_operation` (str): Filter operation: "equals", "contains", "starts_with", "ends_with" (default: "equals")
+    * `filter_negate` (bool): Negate the filter result (default: false)
+    * `log_level` (str): Provider-specific log level override (optional)
 * `providers` (attrs): DNS provider profiles. Example:
   * `cloudflare` (attrs):
     * `type` (str): "cloudflare"

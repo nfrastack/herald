@@ -85,6 +85,22 @@
           filter_value = "true";                      # Value for filter_type (default: online=true)
           log_level = "debug";                        # Provider-specific log level override (optional)
         };
+        tailscale_example = {
+          type = "tailscale";
+          api_key = "your_tailscale_api_key_here";    # Personal access token (tskey-api-*) or API key
+          # api_auth_token = "your_oauth_client_secret"; # OAuth client secret (alternative to api_key)
+          # api_auth_id = "your_oauth_client_id";       # OAuth client ID (required with api_auth_token)
+          api_url = "https://api.tailscale.com/api/v2"; # API URL (optional, defaults to Tailscale Central)
+          tailnet = "-";                              # Tailnet ID or namespace (optional, defaults to "-")
+          domain = "ts.example.com";                  # Domain suffix for DNS records
+          interval = "120s";                          # Polling interval (optional, default: 120s)
+          hostname_format = "simple";                 # Hostname format: "simple", "tailscale", "full"
+          process_existing = true;                    # Process records on startup (default: false)
+          record_remove_on_stop = true;               # Remove DNS records when device goes offline
+          filter_type = "online";                     # Filter by: online, name, hostname, tag, id, address, user, os
+          filter_value = "true";                      # Value for filter_type
+          log_level = "debug";                        # Provider-specific log level override (optional)
+        };
       };
       providers = {
         dnsprovider01 = {
