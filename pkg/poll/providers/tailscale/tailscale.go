@@ -25,7 +25,6 @@ import (
 type TailscaleProvider struct {
 	apiURL             string
 	apiKey             string
-	apiAuthID          string
 	tailnet            string
 	domain             string
 	interval           time.Duration
@@ -108,7 +107,7 @@ func (t *TailscaleProvider) refreshAccessToken() error {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	log.Debug("[tailscale] Requesting OAuth access token")
+	t.logger.Debug("%s Requesting OAuth access token", t.logPrefix)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("OAuth token request failed: %w", err)
@@ -136,7 +135,7 @@ func (t *TailscaleProvider) refreshAccessToken() error {
 	expiryDuration := time.Duration(tokenResp.ExpiresIn-60) * time.Second
 	t.tokenExpiry = time.Now().Add(expiryDuration)
 
-	log.Info("[tailscale] OAuth access token refreshed, expires at %s", t.tokenExpiry.Format(time.RFC3339))
+	t.logger.Verbose("%s OAuth access token refreshed, expires at %s", t.logPrefix, t.tokenExpiry.Format(time.RFC3339))
 	return nil
 }
 
@@ -152,9 +151,9 @@ func (t *TailscaleProvider) getValidAccessToken() (string, error) {
 
 	// Refresh token if needed
 	if needsRefresh && t.clientID != "" && t.clientSecret != "" {
-		log.Debug("[tailscale] Access token expiring soon, refreshing...")
+		t.logger.Debug("%s Access token expiring soon, refreshing...", t.logPrefix)
 		if err := t.refreshAccessToken(); err != nil {
-			log.Warn("[tailscale] Failed to refresh access token: %v", err)
+			t.logger.Warn("%s Failed to refresh access token: %v", t.logPrefix, err)
 			// Continue with current token if refresh fails
 			return currentToken, nil
 		}
@@ -171,41 +170,6 @@ func (t *TailscaleProvider) getValidAccessToken() (string, error) {
 	return currentToken, nil
 }
 
-// NewTailscaleProvider creates a new Tailscale provider with token management
-func NewTailscaleProvider(options map[string]string) (*TailscaleProvider, error) {
-	// Parse TLS configuration
-	tlsConfig := pollCommon.ParseTLSConfigFromOptions(options)
-	if err := tlsConfig.ValidateConfig(); err != nil {
-		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
-	}
-
-	provider := &TailscaleProvider{
-		tlsConfig: tlsConfig,
-	}
-
-	// Initialize OAuth credentials if provided
-	if clientID, ok := options["api_auth_id"]; ok {
-		provider.clientID = clientID
-	}
-	if clientSecret, ok := options["api_auth_token"]; ok {
-		provider.clientSecret = clientSecret
-	}
-
-	// If we have OAuth credentials, get initial token
-	if provider.clientID != "" && provider.clientSecret != "" {
-		if err := provider.refreshAccessToken(); err != nil {
-			return nil, fmt.Errorf("failed to get initial access token: %w", err)
-		}
-	} else if apiKey, ok := options["api_key"]; ok {
-		// Use static API key
-		provider.accessToken = apiKey
-		// Set a far future expiry for static tokens
-		provider.tokenExpiry = time.Now().Add(365 * 24 * time.Hour)
-	}
-
-	return provider, nil
-}
-
 func NewProvider(options map[string]string) (poll.Provider, error) {
 	parsed := pollCommon.ParsePollProviderOptions(options, pollCommon.PollProviderOptions{
 		Interval:           120 * time.Second,
@@ -217,26 +181,52 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	logPrefix := pollCommon.BuildLogPrefix("tailscale", parsed.Name)
 	profileName := parsed.Name
 
+	// Parse TLS configuration
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(options)
+	if err := tlsConfig.ValidateConfig(); err != nil {
+		return nil, fmt.Errorf("%s invalid TLS configuration: %w", logPrefix, err)
+	}
+
 	// Handle different authentication methods
 	var apiKey string
-	var apiAuthID string
+	var clientID string
+	var clientSecret string
 
-	// Method 1: Direct API key
+	// Method 1: Direct API key (traditional method)
 	apiKey = pollCommon.GetOptionOrEnv(options, "api_key", "TAILSCALE_API_KEY", "")
 
-	// Method 2: Auth token + Auth ID (need to exchange for access token)
+	// Method 2: OAuth client credentials (new method)
 	if apiKey == "" {
-		authToken := pollCommon.GetOptionOrEnv(options, "api_auth_token", "TAILSCALE_API_AUTH_TOKEN", "")
-		apiAuthID = pollCommon.GetOptionOrEnv(options, "api_auth_id", "TAILSCALE_API_AUTH_ID", "")
+		clientID = pollCommon.GetOptionOrEnv(options, "api_auth_id", "TAILSCALE_API_AUTH_ID", "")
+		clientSecret = pollCommon.GetOptionOrEnv(options, "api_auth_token", "TAILSCALE_API_AUTH_TOKEN", "")
 
-		if authToken != "" && apiAuthID != "" {
-			// Exchange auth token for access token
-			exchangedKey, err := exchangeAuthToken(authToken, apiAuthID, logPrefix)
+		// Also check for client_id/client_secret aliases
+		if clientID == "" {
+			clientID = pollCommon.GetOptionOrEnv(options, "client_id", "TAILSCALE_CLIENT_ID", "")
+		}
+		if clientSecret == "" {
+			clientSecret = pollCommon.GetOptionOrEnv(options, "client_secret", "TAILSCALE_CLIENT_SECRET", "")
+		}
+	}
+
+	// Method 3: Legacy auth token exchange (for backwards compatibility)
+	if apiKey == "" && clientID == "" && clientSecret == "" {
+		authToken := pollCommon.GetOptionOrEnv(options, "api_auth_token", "TAILSCALE_API_AUTH_TOKEN", "")
+		authID := pollCommon.GetOptionOrEnv(options, "api_auth_id", "TAILSCALE_API_AUTH_ID", "")
+
+		if authToken != "" && authID != "" {
+			// Exchange auth token for access token using the old method
+			exchangedKey, err := exchangeAuthToken(authToken, authID, logPrefix)
 			if err != nil {
 				return nil, fmt.Errorf("%s failed to exchange auth token: %v", logPrefix, err)
 			}
 			apiKey = exchangedKey
 		}
+	}
+
+	// Validate authentication
+	if apiKey == "" && (clientID == "" || clientSecret == "") {
+		return nil, fmt.Errorf("%s authentication required: provide either api_key OR (client_id + client_secret)", logPrefix)
 	}
 
 	// Support both network and tailnet for flexibility
@@ -259,8 +249,8 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		log.Debug("%s Using custom API URL: %s", logPrefix, apiURL)
 	}
 
-	if apiKey == "" || domain == "" {
-		return nil, fmt.Errorf("%s api_key and domain are required", logPrefix)
+	if domain == "" {
+		return nil, fmt.Errorf("%s domain is required", logPrefix)
 	}
 
 	// If no network/tailnet specified, we'll use "-" which is Tailscale's shorthand for default tailnet
@@ -309,10 +299,9 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		log.Debug("%s No filters configured, processing all devices", logPrefix)
 	}
 
-	return &TailscaleProvider{
+	provider := &TailscaleProvider{
 		apiURL:             apiURL,
 		apiKey:             apiKey,
-		apiAuthID:          apiAuthID,
 		tailnet:            tailnet,
 		domain:             domain,
 		interval:           parsed.Interval,
@@ -327,7 +316,23 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		logger:             scopedLogger,
 		lastKnownRecords:   make(map[string]string),
 		lastEntries:        make([]poll.DNSEntry, 0),
-	}, nil
+		tlsConfig:          tlsConfig,
+		clientID:           clientID,
+		clientSecret:       clientSecret,
+	}
+
+	// Set initial token state
+	if apiKey != "" {
+		// Static API key - set far future expiry
+		provider.accessToken = apiKey
+		provider.tokenExpiry = time.Now().Add(365 * 24 * time.Hour)
+		log.Debug("%s Using static API key", logPrefix)
+	} else {
+		// OAuth credentials - will get token on first API call
+		log.Debug("%s Using OAuth client credentials (client_id: %s)", logPrefix, clientID)
+	}
+
+	return provider, nil
 }
 
 func (p *TailscaleProvider) StartPolling() error {
@@ -451,11 +456,6 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-
-	if p.apiAuthID != "" {
-		req.Header.Set("Tailscale-Auth-User", p.apiAuthID)
-		p.logger.Trace("%s Using auth ID: %s", p.logPrefix, p.apiAuthID)
-	}
 
 	p.logger.Trace("%s Making HTTP request to Tailscale API", p.logPrefix)
 	resp, err := httpClient.Do(req)
@@ -601,24 +601,17 @@ func EvaluateTailscaleFilters(filterConfig pollCommon.FilterConfig, device Tails
 		return true
 	}
 
-	for i, filter := range filterConfig.Filters {
-		log.Trace("[tailscale] Evaluating filter %d: type=%s value=%s operation=%s negate=%t against device %s",
-			i, filter.Type, filter.Value, filter.Operation, filter.Negate, device.Name)
-
+	for _, filter := range filterConfig.Filters {
 		result := evaluateTailscaleFilter(filter, device)
 		if filter.Negate {
 			result = !result
 		}
 
-		log.Trace("[tailscale] Filter %d result: %t (after negate=%t)", i, result, filter.Negate)
-
 		if !result {
-			log.Trace("[tailscale] Device %s filtered out by filter %d", device.Name, i)
 			return false // All filters must pass
 		}
 	}
 
-	log.Trace("[tailscale] Device %s passed all filters", device.Name)
 	return true
 }
 
