@@ -1,5 +1,7 @@
-## WIP
+## 1.1.0 2025-05-30 <code at nfrastack dot com>
 
+Major drop of features for this release including some ways to output records to various file formats, the ability to connect to more reverse proxies, vpn providers like tailscale and zerotier making this into a DNS manager suitable for modern infrastructure. 
+Reach out if you have DNS servers with API support that I can have access to and I'll start building support for the next release..
 
    ### Added
      - Add log_level VERBOSE sitting in the middle of debug and info. This is the new default if not explicit in config.

@@ -23,87 +23,20 @@ nfrastack <code@nfrastack.com>
 - [Installing](#installing)
   - [From Source](#from-source)
   - [Precompiled Binaries](#precompiled-binaries)
-    - [Supported Architectures](#supported-architectures)
-    - [How to Download](#how-to-download)
-    - [How to Use](#how-to-use)
-    - [Running in Background](#running-in-background)
   - [Containers](#containers)
   - [Distributions](#distributions)
-    - [NixOS](#nixos)
 - [Configuration](#configuration)
   - [Overview](#overview)
-    - [Precedence Order](#precedence-order)
   - [Example Configuration File](#example-configuration-file)
   - [Configuration Examples and Files](#configuration-examples-and-files)
-    - [YAML Configuration Examples](#yaml-configuration-examples)
-    - [Container Configuration](#container-configuration)
-  - [NixOS Integration](#nixos-integration)
-    - [Using the NixOS Module](#using-the-nixos-module)
-    - [Multiple File Loading \& Includes](#multiple-file-loading--includes)
-    - [Example: Multiple Config Files](#example-multiple-config-files)
-    - [Example: YAML Include](#example-yaml-include)
   - [General Options](#general-options)
-    - [Scoped Logging](#scoped-logging)
   - [TLS Configuration for Remote Providers](#tls-configuration-for-remote-providers)
-    - [Configuration Options](#configuration-options)
-    - [Examples](#examples)
-    - [Security Notes](#security-notes)
-- [Environment Variables](#environment-variables)
+  - [Environment Variables](#environment-variables)
   - [Default Options](#default-options)
   - [Pollers](#pollers)
-    - [Supported Pollers](#supported-pollers)
-    - [Caddy Poller](#caddy-poller)
-    - [Docker Poller](#docker-poller)
-      - [Config File](#config-file)
-      - [Docker Poller Environment Variables](#docker-poller-environment-variables)
-      - [Usage of Docker Provider](#usage-of-docker-provider)
-      - [Creating Records with Container Labels](#creating-records-with-container-labels)
-        - [Examples](#examples-1)
-        - [Docker Label Configuration](#docker-label-configuration)
-      - [Optional Record Configuration](#optional-record-configuration)
-        - [Examples](#examples-2)
-        - [Example: AAAA Record (IPv6)](#example-aaaa-record-ipv6)
-        - [Example: Auto-detect AAAA Record](#example-auto-detect-aaaa-record)
-        - [Example: Multiple A/AAAA Record Labels](#example-multiple-aaaaa-record-labels)
-      - [Traefik Integration](#traefik-integration)
-      - [Docker Container Filtering](#docker-container-filtering)
-  - [File Poller](#file-poller)
-  - [Remote Provider](#remote-provider)
-    - [Example configuration](#example-configuration)
-    - [Options](#options)
-    - [Tailscale Provider](#tailscale-provider)
-    - [Traefik Poller](#traefik-poller)
-  - [Simple filter (single filter)](#simple-filter-single-filter)
-  - [Advanced filters (multiple, AND/OR/NOT/Negate)](#advanced-filters-multiple-andornotnegate)
-      - [Poller Traefik Configuration File](#poller-traefik-configuration-file)
-      - [Poller Traefik Environment Variables](#poller-traefik-environment-variables)
-      - [ZeroTier Provider](#zerotier-provider)
-        - [ZeroTier vs ZT-Net](#zerotier-vs-zt-net)
-        - [Filtering Options](#filtering-options)
-        - [Configuration Options](#configuration-options-1)
-    - [Basic Configuration](#basic-configuration)
-    - [Configuration Options](#configuration-options-2)
-    - [API Types](#api-types)
-    - [Filtering Options](#filtering-options-1)
-    - [Examples](#examples-3)
-      - [Zerotier Poller](#zerotier-poller)
-  - [Providers](#providers)
-    - [Supported Providers](#supported-providers)
-    - [Provider Configuration (YAML)](#provider-configuration-yaml)
-    - [Provider Environment Variables](#provider-environment-variables)
   - [Domains](#domains)
   - [Output Providers](#output-providers)
-    - [Output Types](#output-types)
-    - [Common Features](#common-features)
-    - [Output Configuration System](#output-configuration-system)
-      - [Template Variables](#template-variables)
-      - [Domain Targeting](#domain-targeting)
   - [Supported Output Types](#supported-output-types)
-    - [Hosts File Output](#hosts-file-output)
-    - [JSON Export Output](#json-export-output)
-    - [YAML Export Output](#yaml-export-output)
-    - [Zone File Output](#zone-file-output)
-    - [Metadata Fields (YAML/JSON)](#metadata-fields-yamljson)
 - [Support](#support)
   - [Implementation](#implementation)
   - [Usage](#usage)
@@ -221,19 +154,6 @@ For container deployments, see [`container/README.md`](container/README.md) whic
 - Container-specific examples
 - Docker Compose setup examples
 
-### NixOS Integration
-
-DNS Companion provides native NixOS integration through a Nix flake and NixOS module.
-
-#### Using the NixOS Module
-
-The flake provides a comprehensive NixOS module that allows declarative configuration. See [`contrib/nixos/README.md`](contrib/nixos/README.md) for complete documentation including:
-
-- How to add the flake as an input to your configuration
-- Full NixOS module options reference
-- Example configurations for all supported providers and pollers
-- Integration with systemd services
-
 #### Multiple File Loading & Includes
 
 You can load and merge multiple configuration files by specifying the `-config` flag multiple times on the command line. Files are loaded in order; later files override earlier ones. The YAML `include` key can also be used to merge in other files.
@@ -287,12 +207,12 @@ All remote poll providers (Docker, Traefik, Caddy, Remote, Tailscale, ZeroTier) 
 
 #### Configuration Options
 
-| Option       | Type    | Default | Description                                             |
-| ------------ | ------- | ------- | ------------------------------------------------------- |
-| `tls.verify` | boolean | `true`  | Enable TLS certificate verification                     |
-| `tls.ca`     | string  | `""`    | Path to custom CA certificate file                      |
-| `tls.cert`   | string  | `""`    | Path to client certificate file                         |
-| `tls.key`    | string  | `""`    | Path to client private key file                         |
+| Option       | Type    | Default | Description                         |
+| ------------ | ------- | ------- | ----------------------------------- |
+| `tls.verify` | boolean | `true`  | Enable TLS certificate verification |
+| `tls.ca`     | string  | `""`    | Path to custom CA certificate file  |
+| `tls.cert`   | string  | `""`    | Path to client certificate file     |
+| `tls.key`    | string  | `""`    | Path to client private key file     |
 
 #### Examples
 
@@ -810,7 +730,7 @@ Some advanced setups may support boolean logic or regular expressions for filter
 - Combine multiple filters for fine-grained control.
 - Use `filter_type: none` for development or testing, but restrict in production.
 
-### File Poller
+#### File Poller
 
 The file provider allows you to manage DNS records by reading from a YAML or JSON file. It supports real-time file watching (default) or interval-based polling.
 
@@ -848,7 +768,7 @@ records:
 - `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
 - `process_existing`: Process all records on startup. Default: `false`.
 
-### Remote Provider
+#### Remote Provider
 
 The remote provider works just like the File provider but allows you to poll a remote YAML or JSON file over HTTP/HTTPS. It supports HTTP Basic Auth and interval-based polling.
 
@@ -878,7 +798,7 @@ polls:
 - `remote_auth_user`: Username for HTTP Basic Auth (optional).
 - `remote_auth_pass`: Password for HTTP Basic Auth (optional).
 
-#### Tailscale Provider
+#### Tailscale Poller
 
 The Tailscale provider monitors Tailscale devices and automatically creates DNS records based on their online status and other configurable filters. It supports both Tailscale Central and Headscale, with OAuth client credentials and personal access tokens.
 
@@ -1063,7 +983,7 @@ Environment variables can also be used for authentication:
 - `TRAEFIK_API_AUTH_USER`: Basic auth username
 - `TRAEFIK_API_AUTH_PASS`: Basic auth password
 
-##### Poller Traefik Configuration File
+##### Traefik Poller Configuration File
 
 ```yaml
 polls:
@@ -1074,7 +994,7 @@ polls:
     config_path: /etc/traefik/dynamic
 ```
 
-##### Poller Traefik Environment Variables
+##### Traefik Poller Environment Variables
 
 | Variable                         | Description                                                            |
 | -------------------------------- | ---------------------------------------------------------------------- |
@@ -1083,7 +1003,7 @@ polls:
 | `POLL_<PROFILENAME>_INTERVAL`    | Poll interval (supports units, e.g., `15s`, `1m`, `60` for 60 seconds) |
 | `POLL_<PROFILENAME>_CONFIG_PATH` | Path to Traefik configuration file or directory (file-based)           |
 
-##### ZeroTier Provider
+#### ZeroTier Provider
 
 The ZeroTier provider monitors ZeroTier network members and automatically creates DNS records based on their online status and other configurable filters.
 
@@ -1230,7 +1150,7 @@ zerotier_dev:
   log_level: "debug"
 ```
 
-##### Zerotier Poller
+#### Zerotier Poller
 
 **Options for configuring a Zerotier poll provider:**
 
@@ -1254,7 +1174,7 @@ Providers are components that manage DNS records. Each provider has its own conf
 
 - **Cloudflare**: Manage DNS records via Cloudflare API.
 
-#### Provider Configuration (YAML)
+##### Provider Configuration (YAML)
 
 ```yaml
 providers:
@@ -1266,7 +1186,7 @@ providers:
     zone_id: your-zone-id          # (if required)
 ```
 
-#### Provider Environment Variables
+##### Provider Environment Variables
 
 | Variable                                          | Description                      |
 | ------------------------------------------------- | -------------------------------- |
