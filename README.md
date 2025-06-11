@@ -509,7 +509,7 @@ Docker container filtering allows you to control which containers are managed by
 **How Filtering Works:**
 
 - Filtering is evaluated before any DNS records are created or updated.
-- Use the modern filter array format with conditions for precise control.
+- Use the filter array format with conditions for precise control.
 
 **YAML Example:**
 
@@ -769,8 +769,10 @@ polls:
     api_auth_pass: password
     tls_verify: true  # Set to false to skip TLS certificate verification
     interval: 5m
-    filter_type: name
-    filter_value: ^websecure-
+    filter:
+      - type: name
+        conditions:
+          - value: ^websecure-
 ```
 
 **Options for configuring a Traefik poll provider:**
@@ -780,10 +782,24 @@ polls:
 - `api_auth_user`: Username for basic auth to the Traefik API (optional).
 - `api_auth_pass`: Password for basic auth to the Traefik API (optional).
 - `interval`: How often to poll the Traefik API for updates (e.g., `15s`, `1m`, `1h`).
+- `tls_verify`: Whether to verify TLS certificates (default: true).
+- `record_remove_on_stop`: Remove DNS records when routers are removed (default: false).
+- `process_existing`: Process existing routers on startup (default: false).
 
-**Filter options:**
+**Traefik Router Filtering:**
 
-The Traefik provider supports filtering to precisely control which routers to process:
+The Traefik provider supports advanced filtering to precisely control which routers to process. Use the filter format with conditions arrays for maximum flexibility:
+
+**Available filter types:**
+
+- `name`: Filter routers by name patterns (e.g., `^websecure-`, `*-internal`)
+- `service`: Filter by service name patterns
+- `provider`: Filter by provider (e.g., `docker`, `file`, `kubernetes`)
+- `entrypoint`: Filter by entrypoints (e.g., `websecure`, `web`)
+- `status`: Filter by router status
+- `rule`: Filter by router rule patterns
+
+**Basic filtering example:**
 
 ```yaml
 polls:
@@ -793,7 +809,7 @@ polls:
     filter:
       - type: name
         conditions:
-          - value: ^web-
+          - value: ^webcontainer.*
 ```
 
 **Advanced filters (multiple conditions):**
@@ -820,8 +836,40 @@ polls:
           - value: enabled
 ```
 
-- `operation` can be `AND`, `OR`, or `NOT` (default is `AND`).
-- `negate: true` inverts the filter result.
+**Filter features:**
+
+- `conditions`: Array of filter conditions with `value` and optional `logic` (and/or)
+- `operation`: How to combine multiple filters - `AND`, `OR`, or `NOT` (default is `AND`)
+- `negate: true`: Inverts the filter result
+- **Regex support**: Use regex patterns like `^websecure-.*` for name matching
+- **Wildcard support**: Use `*` and `?` for simple wildcard matching
+
+**Filter examples:**
+
+```yaml
+# Only routers starting with "webcontainer"
+filter:
+  - type: name
+    conditions:
+      - value: ^webcontainer.*
+
+# Only Docker provider routers with specific names
+filter:
+  - type: provider
+    conditions:
+      - value: docker
+  - type: name
+    operation: AND
+    conditions:
+      - value: websecure-*
+
+# Exclude internal routers
+filter:
+  - type: name
+    negate: true
+    conditions:
+      - value: "*-internal"
+```
 
 **Environment variables:**
 
@@ -829,6 +877,8 @@ Environment variables can also be used for authentication:
 
 - `TRAEFIK_API_AUTH_USER`: Basic auth username
 - `TRAEFIK_API_AUTH_PASS`: Basic auth password
+- `TRAEFIK_API_URL`: Traefik API URL
+
 
 ##### Traefik Poller Configuration File
 
@@ -838,7 +888,10 @@ polls:
     type: traefik
     api_url: http://traefik:8080/api/http/routers
     interval: 30s  # or 60, 1m, 1h, etc.
-    config_path: /etc/traefik/dynamic
+    filter:
+      - type: name
+        conditions:
+          - value: ^websecure-.*
 ```
 
 ##### Traefik Poller Environment Variables
@@ -848,7 +901,6 @@ polls:
 | `POLL_<PROFILENAME>_TYPE`        | Value should be `traefik`                                              |
 | `POLL_<PROFILENAME>_API_URL`     | Traefik API URL                                                        |
 | `POLL_<PROFILENAME>_INTERVAL`    | Poll interval (supports units, e.g., `15s`, `1m`, `60` for 60 seconds) |
-| `POLL_<PROFILENAME>_CONFIG_PATH` | Path to Traefik configuration file or directory (file-based)           |
 
 #### ZeroTier Poller
 

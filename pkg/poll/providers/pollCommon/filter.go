@@ -5,6 +5,8 @@
 package common
 
 import (
+	"dns-companion/pkg/log"
+
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -82,22 +84,34 @@ func NewFilterFromStructuredOptions(options map[string]interface{}) (FilterConfi
 	if filterInterface, exists := options["filter"]; exists {
 		// Try to manually parse the string representation we're seeing in the logs
 		if filterStr, ok := filterInterface.(string); ok {
-			// Try to manually extract filter data from the string representation
-			// Looking for patterns like: [map[conditions:[map[key:traefik.proxy.visibility value:internal]] type:label]]
-			if strings.Contains(filterStr, "type:label") && strings.Contains(filterStr, "traefik.proxy.visibility") && strings.Contains(filterStr, "value:internal") {
-				config := FilterConfig{
-					Filters: []Filter{{
-						Type:      FilterTypeLabel,
-						Operation: FilterOperationAND,
-						Negate:    false,
-						Conditions: []FilterCondition{{
-							Key:   "traefik.proxy.visibility",
-							Value: "internal",
-							Logic: "and",
+			// Handle stringified filter data like: "[map[conditions:[map[value:^monica.*]] type:name]]"
+			log.Debug("[filter] Received stringified filter: %s", filterStr)
+
+			// Try to parse common patterns
+			if strings.Contains(filterStr, "type:name") && strings.Contains(filterStr, "value:") {
+				// Extract the value from the string
+				valueRegex := `value:([^\]]+)`
+				re := regexp.MustCompile(valueRegex)
+				matches := re.FindStringSubmatch(filterStr)
+				if len(matches) > 1 {
+					value := strings.TrimSpace(matches[1])
+					log.Debug("[filter] Extracted filter value: '%s'", value)
+
+					config := FilterConfig{
+						Filters: []Filter{{
+							Type:      FilterTypeName,
+							Operation: FilterOperationAND,
+							Negate:    false,
+							Conditions: []FilterCondition{{
+								Key:   "", // Name filters don't use key
+								Value: value,
+								Logic: "and",
+							}},
 						}},
-					}},
+					}
+					log.Debug("[filter] Created filter config from stringified data: Type=%s, Value=%s", FilterTypeName, value)
+					return config, nil
 				}
-				return config, nil
 			}
 		}
 
