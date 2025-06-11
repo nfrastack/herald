@@ -306,15 +306,15 @@ func NewProviderFromStructured(options map[string]interface{}) (poll.Provider, e
 			if filter.Type == pollCommon.FilterTypeNone || filter.Type == "" {
 				continue
 			}
-			
+
 			if i > 0 {
 				filterDescription.WriteString(fmt.Sprintf(" %s ", filter.Operation))
 			}
-			
+
 			if filter.Negate {
 				filterDescription.WriteString("NOT ")
 			}
-			
+
 			switch filter.Type {
 			case pollCommon.FilterTypeLabel:
 				if len(filter.Conditions) > 0 {
@@ -366,7 +366,7 @@ func NewProviderFromStructured(options map[string]interface{}) (poll.Provider, e
 				}
 			}
 		}
-		
+
 		if filterDescription.Len() > 0 {
 			log.Verbose("%s Active filter: %s", logPrefix, filterDescription.String())
 		}
@@ -607,7 +607,7 @@ func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 	}
 
 	if processedCount != len(containers) {
-		log.Verbose("%s Processed %d of %d containers (filtered %d)", 
+		log.Verbose("%s Processed %d of %d containers (filtered %d)",
 			p.logPrefix, processedCount, len(containers), len(containers)-processedCount)
 	}
 }
