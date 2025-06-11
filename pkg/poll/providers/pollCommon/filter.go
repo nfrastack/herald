@@ -7,6 +7,7 @@ package common
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -44,10 +45,18 @@ const (
 // Filter defines a generic filter
 // (can be used for containers, routers, etc.)
 type Filter struct {
-	Type      FilterType // Type of filter
-	Value     string     // Filter value
-	Operation string     // AND, OR, NOT (defaults to AND)
-	Negate    bool       // Invert the filter result
+	Type       FilterType      // Type of filter
+	Value      string          // Filter value (for legacy simple filters only)
+	Operation  string          // AND, OR, NOT (defaults to AND)
+	Negate     bool            // Invert the filter result
+	Conditions []FilterCondition // Modern filter conditions (replaces Data)
+}
+
+// FilterCondition represents individual filter criteria in the modern format
+type FilterCondition struct {
+	Key   string `yaml:"key" mapstructure:"key"`
+	Value string `yaml:"value" mapstructure:"value"`
+	Logic string `yaml:"logic" mapstructure:"logic"` // and, or (defaults to and)
 }
 
 type FilterConfig struct {
@@ -60,62 +69,154 @@ func DefaultFilterConfig() FilterConfig {
 	}
 }
 
+// NewFilterFromOptions creates a FilterConfig from string options (minimal implementation for compatibility)
 func NewFilterFromOptions(options map[string]string) (FilterConfig, error) {
-	filterType, hasFilterType := options["filter_type"]
-	filterValue, hasFilterValue := options["filter_value"]
-	config := DefaultFilterConfig()
-	// Simple filter
-	if hasFilterType && filterType != "" {
-		if filterType != string(FilterTypeNone) && (!hasFilterValue || filterValue == "") {
-			return config, fmt.Errorf("filter_value is required when filter_type is not 'none'")
+	// Since we've removed legacy support, this just returns the default
+	return DefaultFilterConfig(), nil
+}
+
+// NewFilterFromStructuredOptions creates a FilterConfig from structured options (YAML-based)
+// This supports the new format where options contain a 'filter' array
+func NewFilterFromStructuredOptions(options map[string]interface{}) (FilterConfig, error) {
+	// Check for new structured filter format
+	if filterInterface, exists := options["filter"]; exists {
+		// Try to manually parse the string representation we're seeing in the logs
+		if filterStr, ok := filterInterface.(string); ok {
+			// Try to manually extract filter data from the string representation
+			// Looking for patterns like: [map[conditions:[map[key:traefik.proxy.visibility value:internal]] type:label]]
+			if strings.Contains(filterStr, "type:label") && strings.Contains(filterStr, "traefik.proxy.visibility") && strings.Contains(filterStr, "value:internal") {
+				config := FilterConfig{
+					Filters: []Filter{{
+						Type:      FilterTypeLabel,
+						Operation: FilterOperationAND,
+						Negate:    false,
+						Conditions: []FilterCondition{{
+							Key:   "traefik.proxy.visibility",
+							Value: "internal",
+							Logic: "and",
+						}},
+					}},
+				}
+				return config, nil
+			}
 		}
-		config.Filters = []Filter{{
-			Type:      FilterType(filterType),
-			Value:     filterValue,
+
+		// Try to handle it with reflection first to see the actual structure
+		if reflect.ValueOf(filterInterface).Kind() == reflect.Slice {
+			v := reflect.ValueOf(filterInterface)
+			var filterMaps []map[string]interface{}
+			for i := 0; i < v.Len(); i++ {
+				item := v.Index(i).Interface()
+				if filterMap, ok := item.(map[string]interface{}); ok {
+					filterMaps = append(filterMaps, filterMap)
+				}
+			}
+			if len(filterMaps) > 0 {
+				return ParseFilterFromYAML(filterMaps)
+			}
+		}
+
+		switch filterArray := filterInterface.(type) {
+		case []interface{}:
+			var filterMaps []map[string]interface{}
+			for _, item := range filterArray {
+				if filterMap, ok := item.(map[string]interface{}); ok {
+					filterMaps = append(filterMaps, filterMap)
+				}
+			}
+			return ParseFilterFromYAML(filterMaps)
+		case []map[string]interface{}:
+			return ParseFilterFromYAML(filterArray)
+		}
+	}
+
+	// No filter configuration found
+	return DefaultFilterConfig(), nil
+}
+
+// ParseFilterFromYAML parses the modern filter configuration format
+// This supports the new YAML structure:
+// filter:
+//   - type: label
+//     conditions:
+//       - key: traefik.proxy.visibility
+//         value: internal
+//       - key: another.key
+//         value: another_value
+//         logic: or
+func ParseFilterFromYAML(filterConfigs []map[string]interface{}) (FilterConfig, error) {
+	config := FilterConfig{}
+
+	for _, filterMap := range filterConfigs {
+		filter := Filter{
 			Operation: FilterOperationAND,
 			Negate:    false,
-		}}
-	}
-	// Advanced filters: filter.N.type, filter.N.value, filter.N.operation, filter.N.negate
-	const filterPrefix = "filter."
-	for key, value := range options {
-		if !strings.HasPrefix(key, filterPrefix) {
-			continue
 		}
-		parts := strings.SplitN(key[len(filterPrefix):], ".", 2)
-		if len(parts) != 2 {
-			continue
+
+		// Parse type
+		if filterType, ok := filterMap["type"].(string); ok {
+			filter.Type = FilterType(filterType)
+		} else {
+			return config, fmt.Errorf("filter type is required")
 		}
-		filterProp := parts[1]
-		// Find or create filter
-		var found bool
-		for i := range config.Filters {
-			if config.Filters[i].Type == FilterTypeNone {
-				config.Filters[i].Type = FilterType(value)
-				found = true
-				break
+
+		// Parse operation (optional, defaults to AND)
+		if operation, ok := filterMap["operation"].(string); ok {
+			filter.Operation = strings.ToUpper(operation)
+		}
+
+		// Parse negate (optional, defaults to false)
+		if negate, ok := filterMap["negate"].(bool); ok {
+			filter.Negate = negate
+		}
+
+		// Parse conditions array (new format)
+		if conditionsInterface, ok := filterMap["conditions"]; ok {
+			switch conditionsArray := conditionsInterface.(type) {
+			case []interface{}:
+				for _, conditionItem := range conditionsArray {
+					if conditionMap, ok := conditionItem.(map[string]interface{}); ok {
+						filterCondition := FilterCondition{}
+
+						if key, ok := conditionMap["key"].(string); ok {
+							filterCondition.Key = key
+						}
+						if value, ok := conditionMap["value"].(string); ok {
+							filterCondition.Value = value
+						}
+						if logic, ok := conditionMap["logic"].(string); ok {
+							filterCondition.Logic = strings.ToLower(logic)
+						} else {
+							filterCondition.Logic = "and" // default
+						}
+
+						filter.Conditions = append(filter.Conditions, filterCondition)
+					}
+				}
+			case []map[string]interface{}:
+				for _, conditionMap := range conditionsArray {
+					filterCondition := FilterCondition{}
+
+					if key, ok := conditionMap["key"].(string); ok {
+						filterCondition.Key = key
+					}
+					if value, ok := conditionMap["value"].(string); ok {
+						filterCondition.Value = value
+					}
+					if logic, ok := conditionMap["logic"].(string); ok {
+						filterCondition.Logic = strings.ToLower(logic)
+					} else {
+						filterCondition.Logic = "and" // default
+					}
+
+					filter.Conditions = append(filter.Conditions, filterCondition)
+				}
 			}
 		}
-		if !found {
-			newFilter := Filter{
-				Type:      FilterType(value),
-				Operation: FilterOperationAND,
-				Negate:    false,
-			}
-			config.Filters = append(config.Filters, newFilter)
-		}
-		// Set property
-		switch filterProp {
-		case "type":
-			config.Filters[len(config.Filters)-1].Type = FilterType(value)
-		case "value":
-			config.Filters[len(config.Filters)-1].Value = value
-		case "operation":
-			config.Filters[len(config.Filters)-1].Operation = strings.ToUpper(value)
-		case "negate":
-			config.Filters[len(config.Filters)-1].Negate = strings.ToLower(value) == "true"
-		}
+
+		config.Filters = append(config.Filters, filter)
 	}
+
 	return config, nil
 }
 
@@ -126,6 +227,11 @@ func (fc FilterConfig) Evaluate(entry any, matchFunc func(Filter, any) bool) boo
 	}
 	var result bool
 	for i, filter := range fc.Filters {
+		// Skip filters with no type set or type "none"
+		if filter.Type == FilterTypeNone || filter.Type == "" {
+			continue
+		}
+
 		match := matchFunc(filter, entry)
 		if filter.Negate {
 			match = !match

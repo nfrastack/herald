@@ -267,8 +267,10 @@ polls:
     interval: 60s
     record_remove_on_stop: true
     process_existing: true
-    filter_type: host
-    filter_value: "*.localhost"
+    filter:
+      - type: host
+        conditions:
+          - value: "*.localhost"
 ```
 
 **Filter Options:**
@@ -284,20 +286,28 @@ The Caddy provider supports filtering to precisely control which routes to proce
 
 ```yaml
 # Only process hosts ending in .localhost
-filter_type: host
-filter_value: "*.localhost"
+filter:
+  - type: host
+    conditions:
+      - value: "*.localhost"
 
 # Only process reverse proxy routes
-filter_type: handler
-filter_value: "reverse_proxy"
+filter:
+  - type: handler
+    conditions:
+      - value: "reverse_proxy"
 
 # Only process routes with Docker upstreams
-filter_type: upstream
-filter_value: "host.docker.internal:*"
+filter:
+  - type: upstream
+    conditions:
+      - value: "host.docker.internal:*"
 
 # Only process routes from specific server
-filter_type: server
-filter_value: "srv0"
+filter:
+  - type: server
+    conditions:
+      - value: "srv0"
 ```
 
 #### Docker Poller
@@ -491,69 +501,67 @@ Docker container filtering allows you to control which containers are managed by
 
 **Available filter types:**
 
-- `none`: No filtering, all containers are considered.
-- `label`: Only containers with specific labels are considered.
-- `name`: Only containers with specific names are considered.
+- `label`: Filter containers by labels and their values.
+- `name`: Filter containers by name patterns.
+- `network`: Filter containers by networks they're connected to.
+- `image`: Filter containers by the image they use.
 
 **How Filtering Works:**
 
-- The `filter_type` option determines the filtering method. You can specify additional filter options depending on the type.
 - Filtering is evaluated before any DNS records are created or updated.
+- Use the modern filter array format with conditions for precise control.
 
-**YAML Example: No Filtering (all containers):**
+**YAML Example:**
 
 ```yaml
 polls:
   docker_example:
     type: docker
-    ...
-    filter_type: none
+    filter:
+      - type: label
+        conditions:
+          - key: environment
+            value: production
 ```
 
-**YAML Example: Label Filtering**
+**Filter Format**
 
-Only containers with the label `nfrastack.dns.enable=true` will be managed:
+The filter format supports complex filtering with conditions and boolean logic:
 
 ```yaml
-    filter_type: label
-    filter_label: nfrastack.dns.enable
-    filter_label_value: "true"
+polls:
+  docker_internal:
+    type: docker
+    expose_containers: true
+    process_existing: true
+    record_remove_on_stop: true
+    log_level: trace
+    filter:
+      - type: label
+        conditions:
+          - key: traefik.proxy.visibility
+            value: internal
+          - key: environment
+            value: production
+            logic: and
 ```
 
-You can also filter by multiple labels (AND logic):
+**Advanced filtering with multiple conditions:**
 
 ```yaml
-    filter_type: label
-    filter_labels:
-      - key: nfrastack.dns.enable
-        value: "true"
-      - key: environment
-        value: "production"
-```
-
-**YAML Example: Name Filtering**
-
-Only containers with names matching the given list will be managed:
-
-```yaml
-    filter_type: name
-    filter_names:
-      - webapp
-      - db
-```
-
-**Advanced Filtering (Boolean/Compound):**
-
-Some advanced setups may support boolean logic or regular expressions for filtering. For example:
-
-```yaml
-    filter_type: label
-    filter_labels:
-      - key: nfrastack.dns.enable
-        value: "true"
-      - key: environment
-        value: ".*prod.*" # regex match
-    filter_label_logic: and # or 'or'
+    filter:
+      - type: label
+        conditions:
+          - key: traefik.proxy.visibility
+            value: internal
+          - key: app.type
+            value: web*
+            logic: or
+      - type: name
+        conditions:
+          - value: webapp-*
+          - value: api-*
+            logic: or
 ```
 
 **Processing Order:**
@@ -566,7 +574,6 @@ Some advanced setups may support boolean logic or regular expressions for filter
 
 - Use label filtering to target only containers that should be managed by DNS Companion.
 - Combine multiple filters for fine-grained control.
-- Use `filter_type: none` for development or testing, but restrict in production.
 
 #### File Poller
 
@@ -776,43 +783,45 @@ polls:
 
 **Filter options:**
 
-The Traefik provider supports filtering to precisely control which routers to process.
-
-### Simple filter (single filter)
+The Traefik provider supports filtering to precisely control which routers to process:
 
 ```yaml
 polls:
   traefik_example:
     type: traefik
     api_url: http://traefik:8080/api/http/routers
-    filter_type: name
-    filter_value: ^web-
+    filter:
+      - type: name
+        conditions:
+          - value: ^web-
 ```
 
-This will only process routers whose `name` matches the regex `^web-`.
-
-### Advanced filters (multiple, AND/OR/NOT/Negate)
+**Advanced filters (multiple conditions):**
 
 ```yaml
 polls:
   traefik_advanced:
     type: traefik
     api_url: http://traefik:8080/api/http/routers
-    filter.0.type: name
-    filter.0.value: ^web-
-    filter.0.operation: AND
-    filter.1.type: provider
-    filter.1.value: docker
-    filter.1.operation: OR
-    filter.2.type: status
-    filter.2.value: enabled
-    filter.2.negate: true
+    filter:
+      - type: name
+        conditions:
+          - value: ^web-
+          - value: ^api-
+            logic: or
+      - type: provider
+        operation: AND
+        conditions:
+          - value: docker
+      - type: status
+        operation: AND
+        negate: true
+        conditions:
+          - value: enabled
 ```
 
 - `operation` can be `AND`, `OR`, or `NOT` (default is `AND`).
 - `negate: true` inverts the filter result.
-
-You can use either style—**the loader will dynamically handle both**.
 
 **Environment variables:**
 

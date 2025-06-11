@@ -10,6 +10,7 @@ import (
 	"dns-companion/pkg/domain"
 	"dns-companion/pkg/log"
 	"dns-companion/pkg/poll"
+	dockerFilter "dns-companion/pkg/poll/providers/docker/filter"
 	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
 	"dns-companion/pkg/utils"
 
@@ -40,7 +41,7 @@ type DockerProvider struct {
 	filterConfig       pollCommon.FilterConfig
 	lastContainerIDs   map[string]bool
 	logPrefix          string
-	options            map[string]string
+	options            map[string]interface{}
 	profileName        string
 	recordRemoveOnStop bool
 	running            bool
@@ -104,18 +105,44 @@ func extractHostsFromRule(rule string) []string {
 
 // NewProvider creates a new Docker poll provider
 func NewProvider(options map[string]string) (poll.Provider, error) {
-	parsed := pollCommon.ParsePollProviderOptions(options, pollCommon.PollProviderOptions{
+	// Convert string options to interface{} for structured parsing
+	structuredOptions := make(map[string]interface{})
+	for key, value := range options {
+		structuredOptions[key] = value
+	}
+
+	return NewProviderFromStructured(structuredOptions)
+}
+
+// NewProviderFromStructured creates a new Docker poll provider from structured options
+func NewProviderFromStructured(options map[string]interface{}) (poll.Provider, error) {
+	// Parse the filter configuration BEFORE converting to strings to preserve structured data
+	filterConfig, err := pollCommon.NewFilterFromStructuredOptions(options)
+	if err != nil {
+		log.Info("Error creating filter configuration: %v, using default", err)
+		filterConfig = pollCommon.DefaultFilterConfig()
+	}
+
+	// Convert interface{} options to string options for compatibility with existing functions
+	stringOptions := make(map[string]string)
+	for key, value := range options {
+		if strValue, ok := value.(string); ok {
+			stringOptions[key] = strValue
+		}
+	}
+
+	parsed := pollCommon.ParsePollProviderOptions(stringOptions, pollCommon.PollProviderOptions{
 		Interval:           30 * time.Second,
 		ProcessExisting:    false,
 		RecordRemoveOnStop: false,
 		Name:               "docker",
 	})
 
-	profileName := pollCommon.GetOptionOrEnv(options, "name", "DOCKER_PROFILE_NAME", parsed.Name)
+	profileName := pollCommon.GetOptionOrEnv(stringOptions, "name", "DOCKER_PROFILE_NAME", parsed.Name)
 	logPrefix := pollCommon.BuildLogPrefix("docker", profileName)
 
 	// Parse TLS configuration using pollCommon utilities for consistency
-	tlsConfig := pollCommon.ParseTLSConfigFromOptions(options)
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(stringOptions)
 	if err := tlsConfig.ValidateConfig(); err != nil {
 		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
 	}
@@ -128,7 +155,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 
 	// Create scoped logger using common helper
-	scopedLogger := pollCommon.CreateScopedLogger("docker", profileName, options)
+	scopedLogger := pollCommon.CreateScopedLogger("docker", profileName, stringOptions)
 
 	// Log resolved profile name at trace level only
 	scopedLogger.Trace("Resolved profile name: %s", profileName)
@@ -137,7 +164,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	clientOpts := []client.Opt{client.FromEnv}
 
 	// Only use api_url and API_URL env var for Docker API endpoint
-	apiURL := pollCommon.GetOptionOrEnv(options, "api_url", "API_URL", "unix:///var/run/docker.sock")
+	apiURL := pollCommon.GetOptionOrEnv(stringOptions, "api_url", "API_URL", "unix:///var/run/docker.sock")
 	if apiURL != "" {
 		scopedLogger.Verbose("%s Using Docker API URL: %s", logPrefix, apiURL)
 		clientOpts = append(clientOpts, client.WithHost(apiURL))
@@ -145,13 +172,13 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 
 	// Check for TLS options (nested under tls.*)
 	var tlsVerifySet, tlsVerify bool
-	if val, exists := options["tls.verify"]; exists {
+	if val, exists := stringOptions["tls.verify"]; exists {
 		tlsVerifySet = true
 		tlsVerify = strings.ToLower(val) == "true" || val == "1"
 	}
-	caPath := options["tls.ca"]
-	certFile := options["tls.cert"]
-	keyFile := options["tls.key"]
+	caPath := stringOptions["tls.ca"]
+	certFile := stringOptions["tls.cert"]
+	keyFile := stringOptions["tls.key"]
 
 	if caPath != "" || certFile != "" || keyFile != "" || tlsVerifySet {
 		// Only add CA if path exists
@@ -167,8 +194,8 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 
 	// Parse API auth options
-	apiAuthUser := pollCommon.GetOptionOrEnv(options, "api_auth_user", "DOCKER_API_AUTH_USER", "")
-	apiAuthPass := pollCommon.GetOptionOrEnv(options, "api_auth_pass", "DOCKER_API_AUTH_PASS", "")
+	apiAuthUser := pollCommon.GetOptionOrEnv(stringOptions, "api_auth_user", "DOCKER_API_AUTH_USER", "")
+	apiAuthPass := pollCommon.GetOptionOrEnv(stringOptions, "api_auth_pass", "DOCKER_API_AUTH_PASS", "")
 	if apiAuthUser != "" {
 		scopedLogger.Debug("%s Using Docker API basic auth user: %s", logPrefix, apiAuthUser)
 		if apiAuthPass != "" {
@@ -214,10 +241,12 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 
 	// Check if we should expose all containers by default from options
 	if val, exists := options["expose_containers"]; exists {
-		lowerVal := strings.ToLower(val)
-		config.ExposeContainers = lowerVal == "true" || lowerVal == "1" || lowerVal == "yes"
-		scopedLogger.Trace("%s Option 'expose_containers' found with value: '%s', parsed as: %v",
-			logPrefix, val, config.ExposeContainers)
+		if strVal, ok := val.(string); ok {
+			lowerVal := strings.ToLower(strVal)
+			config.ExposeContainers = lowerVal == "true" || lowerVal == "1" || lowerVal == "yes"
+			scopedLogger.Trace("%s Option 'expose_containers' found with value: '%s', parsed as: %v",
+				logPrefix, strVal, config.ExposeContainers)
+		}
 	} else {
 		scopedLogger.Trace("%s No 'expose_containers' option found, using default: %v",
 			logPrefix, config.ExposeContainers)
@@ -225,10 +254,12 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 
 	// Check if we're running in Swarm mode
 	if val, exists := options["swarm_mode"]; exists {
-		lowerVal := strings.ToLower(val)
-		config.SwarmMode = lowerVal == "true" || lowerVal == "1" || lowerVal == "yes"
-		log.Trace("%s Option 'swarm_mode' found with value: '%s', parsed as: %v",
-			logPrefix, val, config.SwarmMode)
+		if strVal, ok := val.(string); ok {
+			lowerVal := strings.ToLower(strVal)
+			config.SwarmMode = lowerVal == "true" || lowerVal == "1" || lowerVal == "yes"
+			log.Trace("%s Option 'swarm_mode' found with value: '%s', parsed as: %v",
+				logPrefix, strVal, config.SwarmMode)
+		}
 	} else {
 		log.Trace("%s No 'swarm_mode' option found, using default: %v",
 			logPrefix, config.SwarmMode)
@@ -236,9 +267,11 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 
 	// Parse process_existing from options or env
 	if val, exists := options["process_existing"]; exists {
-		config.ProcessExisting = strings.ToLower(val) == "true" || val == "1"
-		log.Trace("%s Option 'process_existing' found with value: '%s', parsed as: %v",
-			logPrefix, val, config.ProcessExisting)
+		if strVal, ok := val.(string); ok {
+			config.ProcessExisting = strings.ToLower(strVal) == "true" || strVal == "1"
+			log.Trace("%s Option 'process_existing' found with value: '%s', parsed as: %v",
+				logPrefix, strVal, config.ProcessExisting)
+		}
 	} else {
 		envKey := fmt.Sprintf("POLL_%s_PROCESS_EXISTING", strings.ToUpper(profileName))
 		if envVal := utils.GetEnvDefault(envKey, ""); envVal != "" {
@@ -247,16 +280,99 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		}
 	}
 
-	// Create filter configuration
-	filterConfig, err := pollCommon.NewFilterFromOptions(options)
-	if err != nil {
-		log.Info("%s Error creating filter configuration: %v, using default", logPrefix, err)
-		filterConfig = pollCommon.DefaultFilterConfig()
-	}
+	// Create filter configuration with Docker-specific handling
+	// Filter config was already parsed at the beginning to preserve structured data
+	// filterConfig is already available from the top of the function
 
 	// Store the config and filter config in the provider
 	provider.config = config
 	provider.filterConfig = filterConfig
+
+	// Debug: Log the actual filter configuration
+	log.Debug("%s Created filter config with %d filters", logPrefix, len(filterConfig.Filters))
+	for i, filter := range filterConfig.Filters {
+		log.Debug("%s Filter %d: Type='%s', Value='%s', Operation='%s', Negate=%v, Conditions=%d",
+			logPrefix, i, filter.Type, filter.Value, filter.Operation, filter.Negate, len(filter.Conditions))
+		for j, condition := range filter.Conditions {
+			log.Debug("%s   Condition %d: Key='%s', Value='%s', Logic='%s'",
+				logPrefix, j, condition.Key, condition.Value, condition.Logic)
+		}
+	}
+
+	// Log active filter details for user awareness in verbose mode
+	if len(filterConfig.Filters) > 0 && filterConfig.Filters[0].Type != pollCommon.FilterTypeNone {
+		var filterDescription strings.Builder
+		for i, filter := range filterConfig.Filters {
+			if filter.Type == pollCommon.FilterTypeNone || filter.Type == "" {
+				continue
+			}
+			
+			if i > 0 {
+				filterDescription.WriteString(fmt.Sprintf(" %s ", filter.Operation))
+			}
+			
+			if filter.Negate {
+				filterDescription.WriteString("NOT ")
+			}
+			
+			switch filter.Type {
+			case pollCommon.FilterTypeLabel:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("labels(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						if condition.Key != "" && condition.Value != "" {
+							filterDescription.WriteString(fmt.Sprintf("%s=%s", condition.Key, condition.Value))
+						} else if condition.Key != "" {
+							filterDescription.WriteString(condition.Key)
+						}
+					}
+					filterDescription.WriteString(")")
+				}
+			case pollCommon.FilterTypeName:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("names(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			case pollCommon.FilterTypeNetwork:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("networks(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			case pollCommon.FilterTypeImage:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("images(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			}
+		}
+		
+		if filterDescription.Len() > 0 {
+			log.Verbose("%s Active filter: %s", logPrefix, filterDescription.String())
+		}
+	} else {
+		log.Verbose("%s Active filter: none (all containers will be processed)", logPrefix)
+	}
 
 	// Parse record_remove_on_stop option
 	provider.recordRemoveOnStop = parsed.RecordRemoveOnStop
@@ -267,7 +383,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	filterSummary := "none"
 	realFilterCount := 0
 	for _, f := range filterConfig.Filters {
-		if (f.Type != "none" && f.Type != "") || f.Value != "" {
+		if (f.Type != "none" && f.Type != "") || f.Value != "" || len(f.Conditions) > 0 {
 			realFilterCount++
 		}
 	}
@@ -471,9 +587,28 @@ func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 
 	log.Info("%s Found %d containers", p.logPrefix, len(containers))
 
+	// Track how many containers actually get processed
+	processedCount := 0
+
 	// Process each container
 	for _, container := range containers {
-		p.processContainer(ctx, container.ID)
+		// Get container details for filtering
+		containerDetails, err := p.client.ContainerInspect(ctx, container.ID)
+		if err != nil {
+			log.Warn("%s Failed to inspect container '%s': %v", p.logPrefix, container.ID[:12], err)
+			continue
+		}
+
+		// Check if container should be processed
+		if p.shouldProcessContainer(containerDetails) {
+			processedCount++
+			p.processContainer(ctx, container.ID)
+		}
+	}
+
+	if processedCount != len(containers) {
+		log.Verbose("%s Processed %d of %d containers (filtered %d)", 
+			p.logPrefix, processedCount, len(containers), len(containers)-processedCount)
 	}
 }
 
@@ -501,16 +636,6 @@ func (p *DockerProvider) processRunningServices(ctx context.Context) {
 	}
 }
 
-// matchDockerFilter is a provider-specific match function for Docker filters
-func matchDockerFilter(filter pollCommon.Filter, entry any) bool {
-	container, ok := entry.(types.ContainerJSON)
-	if !ok {
-		return false
-	}
-	// Implement match logic for Docker filters
-	return strings.Contains(container.Name, filter.Value)
-}
-
 // shouldProcessContainer determines if the container should be processed based on labels and configuration
 func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) bool {
 	// Ensure container name doesn't have slash prefix
@@ -520,8 +645,8 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 	}
 
 	// First, check if the container passes our filter configuration
-	if !p.filterConfig.Evaluate(container, matchDockerFilter) {
-		log.Debug("%s Skipping container '%s' because it does not match filter criteria", p.logPrefix, containerName)
+	if !dockerFilter.EvaluateDockerFilters(p.filterConfig, container) {
+		p.logger.Debug("Skipping container '%s' because it does not match filter criteria", containerName)
 		return false
 	}
 
@@ -530,30 +655,30 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 
 	// If the label is explicitly set to "false", always skip the container
 	if hasLabel && (strings.ToLower(enableDNS) == "false" || enableDNS == "0") {
-		log.Verbose("%s Skipping container '%s' because it has an explicit 'nfrastack.dns.enable=false' label", p.logPrefix, containerName)
+		p.logger.Verbose("Skipping container '%s' because it has an explicit 'nfrastack.dns.enable=false' label", containerName)
 		return false
 	}
 
 	// If expose_containers is true, process all containers unless explicitly disabled above
 	if p.config.ExposeContainers {
-		log.Debug("%s Processing container '%s' because 'expose_containers=true' in config", p.logPrefix, containerName)
+		p.logger.Debug("Processing container '%s' because 'expose_containers=true' in config", containerName)
 		return true
 	}
 
 	// If expose_containers is false and no label exists, skip the container due to config
 	if !hasLabel {
-		log.Debug("%s Skipping container '%s' because 'expose_containers=false' in config and no 'nfrastack.dns.enable' label exists", p.logPrefix, containerName)
+		p.logger.Debug("Skipping container '%s' because 'expose_containers=false' in config and no 'nfrastack.dns.enable' label exists", containerName)
 		return false
 	}
 
 	// If expose_containers is false but label exists and is true, process the container
 	if strings.ToLower(enableDNS) == "true" || enableDNS == "1" {
-		log.Verbose("%s Processing container '%s' because it has 'nfrastack.dns.enable=true' label (overriding expose_containers=false)", p.logPrefix, containerName)
+		p.logger.Verbose("Processing container '%s' because it has 'nfrastack.dns.enable=true' label (overriding expose_containers=false)", containerName)
 		return true
 	}
 
 	// If we get here, label exists but is not true or false (some other value)
-	log.Warn("%s Skipping container '%s' because it has 'nfrastack.dns.enable=%s' (not 'true') and 'expose_containers=false'", p.logPrefix, containerName, enableDNS)
+	p.logger.Warn("Skipping container '%s' because it has 'nfrastack.dns.enable=%s' (not 'true') and 'expose_containers=false'", containerName, enableDNS)
 	return false
 }
 
@@ -573,6 +698,11 @@ func (p *DockerProvider) processContainer(ctx context.Context, containerID strin
 	}
 
 	// Extract DNS entries for this container
+	if !p.shouldProcessContainer(container) {
+		p.logger.Debug("%s Container '%s' filtered out", p.logPrefix, containerName)
+		return
+	}
+
 	entries := p.extractDNSEntriesFromContainer(container)
 
 	// If we found DNS entries, process them
@@ -1064,29 +1194,37 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 
 	// Global config fallback (if still unset)
 	if target == "" && p.options != nil {
-		if globalTarget, ok := p.options["dns_record_target"]; ok && globalTarget != "" {
-			log.Debug("%s Using global config for '%s': value: 'target=%s'", p.logPrefix, domain, globalTarget)
-			target = globalTarget
+		if globalTarget, ok := p.options["dns_record_target"]; ok {
+			if strTarget, ok := globalTarget.(string); ok && strTarget != "" {
+				log.Debug("%s Using global config for '%s': value: 'target=%s'", p.logPrefix, domain, strTarget)
+				target = strTarget
+			}
 		}
 	}
 	if recordType == "" && p.options != nil {
-		if globalType, ok := p.options["dns_record_type"]; ok && globalType != "" {
-			log.Debug("%s Using global config for '%s': value: 'dns_record_type %s'", p.logPrefix, domain, globalType)
-			recordType = globalType
+		if globalType, ok := p.options["dns_record_type"]; ok {
+			if strType, ok := globalType.(string); ok && strType != "" {
+				log.Debug("%s Using global config for '%s': value: 'dns_record_type %s'", p.logPrefix, domain, strType)
+				recordType = strType
+			}
 		}
 	}
 	if ttl == 0 && p.options != nil {
-		if globalTTL, ok := p.options["dns_record_ttl"]; ok && globalTTL != "" {
-			if parsed, err := strconv.Atoi(globalTTL); err == nil {
-				log.Debug("%s Using global config for '%s': value: 'dns_record_ttl=%d'", p.logPrefix, domain, parsed)
-				ttl = parsed
+		if globalTTL, ok := p.options["dns_record_ttl"]; ok {
+			if strTTL, ok := globalTTL.(string); ok && strTTL != "" {
+				if parsed, err := strconv.Atoi(strTTL); err == nil {
+					log.Debug("%s Using global config for '%s': value: 'dns_record_ttl=%d'", p.logPrefix, domain, parsed)
+					ttl = parsed
+				}
 			}
 		}
 	}
 	if !overwrite && p.options != nil {
-		if globalOverwrite, ok := p.options["record_updating_existing"]; ok && (globalOverwrite == "true" || globalOverwrite == "1") {
-			log.Debug("%s Using global config for '%s': value: 'record_update_existing=true'", p.logPrefix, domain)
-			overwrite = true
+		if globalOverwrite, ok := p.options["record_updating_existing"]; ok {
+			if strOverwrite, ok := globalOverwrite.(string); ok && (strOverwrite == "true" || strOverwrite == "1") {
+				log.Debug("%s Using global config for '%s': value: 'record_update_existing=true'", p.logPrefix, domain)
+				overwrite = true
+			}
 		}
 	}
 
