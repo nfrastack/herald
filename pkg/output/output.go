@@ -591,7 +591,79 @@ func (om *OutputManager) GetDomains() []string {
 	return domains
 }
 
-// InitializeOutputManager initializes the output manager with profiles from config
+// InitializeOutputManagerWithProfiles initializes the output manager with specific profiles from config
+func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, enabledProfiles []string) error {
+	outputManager := NewOutputManager()
+
+	log.Trace("[output] Starting output manager initialization with profiles: %v", enabledProfiles)
+
+	if outputConfigs != nil {
+		log.Debug("[output] Found outputs configuration")
+
+		// Create a set for faster lookup
+		enabledSet := make(map[string]bool)
+		for _, profile := range enabledProfiles {
+			enabledSet[profile] = true
+		}
+
+		// Process only enabled profiles
+		for profileName, profileConfig := range outputConfigs {
+			// Skip profiles not in the enabled list (if list is provided)
+			if len(enabledProfiles) > 0 && !enabledSet[profileName] {
+				log.Debug("[output] Skipping disabled profile: %s", profileName)
+				continue
+			}
+
+			log.Debug("[output] Processing profile: %s", profileName)
+			if configMap, ok := profileConfig.(map[string]interface{}); ok {
+				format, _ := configMap["format"].(string)
+				path, _ := configMap["path"].(string)
+				domainsRaw := configMap["domains"]
+
+				log.Trace("[output] Output Profile %s: format=%s, path=%s, domains=%v", profileName, format, path, domainsRaw)
+
+				var domains []string
+				switch v := domainsRaw.(type) {
+				case string:
+					if v == "ALL" {
+						domains = []string{"ALL"}
+					} else {
+						domains = []string{v}
+					}
+				case []interface{}:
+					for _, d := range v {
+						if ds, ok := d.(string); ok {
+							domains = append(domains, ds)
+						}
+					}
+				}
+
+				// Remove known keys to get the rest of the config
+				profileConfigCopy := make(map[string]interface{})
+				for k, v := range configMap {
+					if k != "format" && k != "path" && k != "domains" {
+						profileConfigCopy[k] = v
+					}
+				}
+
+				err := outputManager.AddProfile(profileName, format, path, domains, profileConfigCopy)
+				if err != nil {
+					log.Error("[output] Failed to add output profile '%s': %v", profileName, err)
+					return err
+				} else {
+					log.Verbose("[output] Registered output profile '%s' (%s)", profileName, format)
+				}
+			} else {
+				log.Warn("[output] Profile '%s' has invalid configuration type", profileName)
+			}
+		}
+	} else {
+		log.Debug("[output] No outputs configuration found")
+	}
+
+	SetGlobalOutputManager(outputManager)
+	return nil
+}
 func InitializeOutputManager(outputsConfig map[string]interface{}) error {
 	manager := NewOutputManager()
 

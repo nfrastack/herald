@@ -25,11 +25,12 @@ type ConfigFile struct {
 }
 
 type GeneralConfig struct {
-	LogLevel      string   `yaml:"log_level"`
-	LogTimestamps bool     `yaml:"log_timestamps"`
-	LogType       string   `yaml:"log_type"`
-	PollProfiles  []string `yaml:"poll_profiles"`
-	DryRun        bool     `yaml:"dry_run"`
+	LogLevel       string   `yaml:"log_level"`
+	LogTimestamps  bool     `yaml:"log_timestamps"`
+	LogType        string   `yaml:"log_type"`
+	PollProfiles   []string `yaml:"poll_profiles"`
+	OutputProfiles []string `yaml:"output_profiles"`
+	DryRun         bool     `yaml:"dry_run"`
 }
 
 type DefaultsConfig struct {
@@ -258,14 +259,32 @@ func (ppc *PollProviderConfig) GetOptions(profileName string) map[string]string 
 
 // InitializeOutputManager initializes the output manager with profiles from config
 func InitializeOutputManager() error {
+	return InitializeOutputManagerWithProfiles(GlobalConfig.Outputs, GlobalConfig.General.OutputProfiles)
+}
+
+// InitializeOutputManagerWithProfiles initializes the output manager with specific profiles from config
+func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, enabledProfiles []string) error {
 	outputManager := output.NewOutputManager()
 
 	log.Trace("[config/output] Starting output manager initialization")
 
-	if GlobalConfig.Outputs != nil {
+	if outputConfigs != nil {
 		log.Debug("[config/output] Found outputs configuration")
+
+		// Create a set for faster lookup
+		enabledSet := make(map[string]bool)
+		for _, profile := range enabledProfiles {
+			enabledSet[profile] = true
+		}
+
 		// Treat everything under outputs as profile names directly
-		for profileName, profileConfig := range GlobalConfig.Outputs {
+		for profileName, profileConfig := range outputConfigs {
+			// Skip profiles not in the enabled list (if list is provided)
+			if len(enabledProfiles) > 0 && !enabledSet[profileName] {
+				log.Debug("[config/output] Skipping disabled profile: %s", profileName)
+				continue
+			}
+
 			log.Debug("[config/output] Processing profile: %s", profileName)
 			if configMap, ok := profileConfig.(map[string]interface{}); ok {
 				format, _ := configMap["format"].(string)
