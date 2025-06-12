@@ -58,8 +58,227 @@ type TraefikProvider struct {
 	logger *log.ScopedLogger // provider-specific logger
 }
 
+// NewProviderFromStructured creates a new Traefik poll provider from structured options
+func NewProviderFromStructured(options map[string]interface{}) (poll.Provider, error) {
+	// Parse the filter configuration BEFORE converting to strings to preserve structured data
+	filterConfig, err := pollCommon.NewFilterFromStructuredOptions(options)
+	if err != nil {
+		log.Info("Error creating filter configuration: %v, using default", err)
+		filterConfig = pollCommon.DefaultFilterConfig()
+	}
+
+	// Convert interface{} options to string options for compatibility with existing functions
+	stringOptions := make(map[string]string)
+	for key, value := range options {
+		if strValue, ok := value.(string); ok {
+			stringOptions[key] = strValue
+		}
+	}
+
+	parsed := pollCommon.ParsePollProviderOptions(stringOptions, pollCommon.PollProviderOptions{
+		Interval:           30 * time.Second,
+		ProcessExisting:    false,
+		RecordRemoveOnStop: false,
+		Name:               "traefik",
+	})
+	profileName := pollCommon.GetOptionOrEnv(stringOptions, "name", "TRAEFIK_PROFILE_NAME", parsed.Name)
+	logPrefix := pollCommon.BuildLogPrefix("traefik", profileName)
+
+	// Trace all options keys at the start to help troubleshoot
+	log.Trace("%s Provider options received: %+v", logPrefix, options)
+
+	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
+
+	// Get api URL from options
+	apiURL := pollCommon.GetOptionOrEnv(stringOptions, "api_url", "TRAEFIK_API_URL", "http://localhost:8080/api/http/routers")
+	log.Debug("%s Using configured URL: %s", logPrefix, apiURL)
+
+	// Get basic auth credentials if provided
+	authUser := pollCommon.GetOptionOrEnv(stringOptions, "api_auth_user", "TRAEFIK_API_AUTH_USER", "")
+	authPass := pollCommon.GetOptionOrEnv(stringOptions, "api_auth_pass", "TRAEFIK_API_AUTH_PASS", "")
+
+	// Log whether auth credentials were found
+	if authUser != "" {
+		log.Trace("%s Basic auth user configured: %s", logPrefix, authUser)
+		if authPass != "" {
+			log.Trace("%s Basic auth password configured: %s", logPrefix, utils.MaskSensitiveValue(authPass))
+		} else {
+			log.Warn("%s Basic auth user provided without password", logPrefix)
+		}
+	} else {
+		log.Debug("%s No basic auth user found in options or environment", logPrefix)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	log.Trace("%s Created context with cancel function", logPrefix)
+
+	// Parse TLS configuration
+	tlsConfig := pollCommon.ParseTLSConfigFromOptions(stringOptions)
+	if err := tlsConfig.ValidateConfig(); err != nil {
+		return nil, fmt.Errorf("%s invalid TLS configuration: %w", logPrefix, err)
+	}
+
+	// Log TLS configuration
+	if !tlsConfig.Verify {
+		log.Debug("%s TLS certificate verification disabled", logPrefix)
+	}
+	if tlsConfig.CA != "" {
+		log.Debug("%s Using custom CA certificate: %s", logPrefix, tlsConfig.CA)
+	}
+	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
+		log.Debug("%s Using client certificate authentication", logPrefix)
+	}
+
+	// Check if we have active filters (not just "none" filter)
+	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == pollCommon.FilterTypeNone)
+
+	if hasActiveFilters {
+		// Log active filter details for user awareness in verbose mode
+		var filterDescription strings.Builder
+		for i, filter := range filterConfig.Filters {
+			if filter.Type == pollCommon.FilterTypeNone || filter.Type == "" {
+				continue
+			}
+
+			if i > 0 {
+				filterDescription.WriteString(fmt.Sprintf(" %s ", filter.Operation))
+			}
+
+			if filter.Negate {
+				filterDescription.WriteString("NOT ")
+			}
+
+			switch filter.Type {
+			case pollCommon.FilterTypeName:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("names(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			case pollCommon.FilterTypeService:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("services(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			case pollCommon.FilterTypeProvider:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("providers(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			case pollCommon.FilterTypeRule:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("rules(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			}
+		}
+
+		if filterDescription.Len() > 0 {
+			log.Verbose("%s Active filter: %s", logPrefix, filterDescription.String())
+		}
+
+		log.Debug("%s Filter configuration: %d active filters", logPrefix, len(filterConfig.Filters))
+		for i, f := range filterConfig.Filters {
+			log.Debug("%s   Filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v, Conditions=%d",
+				logPrefix, i, f.Type, f.Value, f.Operation, f.Negate, len(f.Conditions))
+			for j, condition := range f.Conditions {
+				log.Debug("%s     Condition %d: Key='%s', Value='%s', Logic='%s'",
+					logPrefix, j, condition.Key, condition.Value, condition.Logic)
+			}
+		}
+	} else {
+		log.Verbose("%s Active filter: none (all routers will be processed)", logPrefix)
+		log.Debug("%s No active filters configured, processing all routers", logPrefix)
+	}
+
+	logLevel := stringOptions["log_level"] // Get provider-specific log level
+
+	// Create scoped logger
+	scopedLogger := pollCommon.CreateScopedLogger("traefik", profileName, stringOptions)
+
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	}
+
+	provider := &TraefikProvider{
+		apiURL:          apiURL,
+		pollInterval:    parsed.Interval,
+		running:         false,
+		ctx:             ctx,
+		cancel:          cancel,
+		options:         stringOptions,
+		routerCache:     make(map[string]domain.RouterState),
+		authUser:        authUser,
+		authPass:        authPass,
+		profileName:     profileName,
+		logPrefix:       logPrefix,
+		tlsConfig:       &tlsConfig,
+		filterConfig:    filterConfig,
+		initialPollDone: false,
+		opts:            parsed,
+		logger:          scopedLogger,
+	}
+
+	// Log the actual filterConfig.Filters slice for diagnosis
+	log.Debug("%s Filter Configuration: %+v", logPrefix, filterConfig.Filters)
+	// Only show a count if there are real, user-configured filters
+	filterSummary := "none"
+	realFilterCount := 0
+	for _, f := range filterConfig.Filters {
+		if (f.Type != "none" && f.Type != "") || f.Value != "" || len(f.Conditions) > 0 {
+			realFilterCount++
+		}
+	}
+	if realFilterCount > 0 {
+		filterSummary = fmt.Sprintf("%d", realFilterCount)
+	}
+
+	log.Info("%s Successfully created new Traefik provider with filters=%s", logPrefix, filterSummary)
+	log.Debug("%s Provider details: URL=%s, interval=%s",
+		logPrefix, provider.apiURL, provider.pollInterval)
+
+	return provider, nil
+}
+
 // NewProvider creates a new Traefik poll provider
 func NewProvider(options map[string]string) (poll.Provider, error) {
+	// Convert string options to interface{} for structured parsing
+	structuredOptions := make(map[string]interface{})
+	for key, value := range options {
+		structuredOptions[key] = value
+	}
+
+	// Parse the filter configuration BEFORE other processing to preserve structured data
+	filterConfig, err := pollCommon.NewFilterFromStructuredOptions(structuredOptions)
+	if err != nil {
+		log.Debug("Error creating filter configuration: %v, using default", err)
+		filterConfig = pollCommon.DefaultFilterConfig()
+	}
+
 	parsed := pollCommon.ParsePollProviderOptions(options, pollCommon.PollProviderOptions{
 		Interval:           30 * time.Second,
 		ProcessExisting:    false,
@@ -68,31 +287,6 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	})
 	profileName := pollCommon.GetOptionOrEnv(options, "name", "TRAEFIK_PROFILE_NAME", parsed.Name)
 	logPrefix := pollCommon.BuildLogPrefix("traefik", profileName)
-
-	// Trace all options keys at the start to help troubleshoot
-	log.Trace("%s Provider options received: %+v", logPrefix, options)
-
-	log.Trace("%s Resolved profile name: %s", logPrefix, profileName)
-
-	// Mask sensitive values before logging using shared utility
-	maskedOptions := utils.MaskSensitiveOptions(options)
-	log.Debug("%s Creating new Traefik provider with options: %+v", logPrefix, maskedOptions)
-
-	// Add more detailed logging of received options to help debug
-	availableKeys := make([]string, 0, len(options))
-	for k := range options {
-		availableKeys = append(availableKeys, k)
-	}
-	log.Debug("%s Available options keys: %v", logPrefix, availableKeys)
-
-	// Debug all keys and values for troubleshooting
-	for k, v := range options {
-		if utils.IsSensitiveKey(k) {
-			log.Trace("%s Option: %s = %s", logPrefix, k, utils.MaskSensitiveValue(v))
-		} else {
-			log.Trace("%s Option: %s = %s", logPrefix, k, v)
-		}
-	}
 
 	// Get api URL from options
 	apiURL := pollCommon.GetOptionOrEnv(options, "api_url", "TRAEFIK_API_URL", "http://localhost:8080/api/http/routers")
@@ -104,18 +298,10 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 
 	// Log whether auth credentials were found
 	if authUser != "" {
-		log.Trace("%s Basic auth user configured: %s", logPrefix, authUser)
-		if authPass != "" {
-			log.Trace("%s Basic auth password configured: %s", logPrefix, utils.MaskSensitiveValue(authPass))
-		} else {
-			log.Warn("%s Basic auth user provided without password", logPrefix)
-		}
-	} else {
-		log.Debug("%s No basic auth user found in options or environment. Available keys: %v", logPrefix, utils.GetMapKeys(options))
+		log.Debug("%s Using basic auth user: %s", logPrefix, authUser)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	log.Trace("%s Created context with cancel function", logPrefix)
 
 	// Parse TLS configuration
 	tlsConfig := pollCommon.ParseTLSConfigFromOptions(options)
@@ -134,23 +320,84 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		log.Debug("%s Using client certificate authentication", logPrefix)
 	}
 
-	// Set up filters from options
-	filterConfig, err := pollCommon.NewFilterFromOptions(options)
-	if err != nil {
-		log.Error("%s Error setting up filters: %v", logPrefix, err)
-		return nil, fmt.Errorf("%s filter setup error: %w", logPrefix, err)
-	}
-
 	// Check if we have active filters (not just "none" filter)
 	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == pollCommon.FilterTypeNone)
 
 	if hasActiveFilters {
+		// Log active filter details for user awareness in verbose mode
+		var filterDescription strings.Builder
+		for i, filter := range filterConfig.Filters {
+			if filter.Type == pollCommon.FilterTypeNone || filter.Type == "" {
+				continue
+			}
+
+			if i > 0 {
+				filterDescription.WriteString(fmt.Sprintf(" %s ", filter.Operation))
+			}
+
+			if filter.Negate {
+				filterDescription.WriteString("NOT ")
+			}
+
+			switch filter.Type {
+			case pollCommon.FilterTypeName:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("names(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			case pollCommon.FilterTypeService:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("services(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			case pollCommon.FilterTypeProvider:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("providers(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			case pollCommon.FilterTypeRule:
+				if len(filter.Conditions) > 0 {
+					filterDescription.WriteString("rules(")
+					for j, condition := range filter.Conditions {
+						if j > 0 {
+							filterDescription.WriteString(fmt.Sprintf(" %s ", condition.Logic))
+						}
+						filterDescription.WriteString(condition.Value)
+					}
+					filterDescription.WriteString(")")
+				}
+			}
+		}
+
+		if filterDescription.Len() > 0 {
+			log.Verbose("%s Active filter: %s", logPrefix, filterDescription.String())
+		}
+
 		log.Debug("%s Filter configuration: %d active filters", logPrefix, len(filterConfig.Filters))
 		for i, f := range filterConfig.Filters {
 			log.Debug("%s   Filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v",
 				logPrefix, i, f.Type, f.Value, f.Operation, f.Negate)
 		}
 	} else {
+		log.Verbose("%s Active filter: none (all routers will be processed)", logPrefix)
 		log.Debug("%s No active filters configured, processing all routers", logPrefix)
 	}
 
@@ -290,7 +537,7 @@ func (t *TraefikProvider) pollLoop() {
 
 // processTraefikRouters polls the Traefik API for routers
 func (t *TraefikProvider) processTraefikRouters() error {
-	log.Debug("%s Processing Traefik routers from API", t.logPrefix)
+	t.logger.Debug("Processing Traefik routers from API")
 
 	// Fetch data from Traefik API using pollCommon.FetchRemoteResource
 	body, err := t.fetchTraefikAPI(t.apiURL, t.authUser, t.authPass, t.logPrefix)
@@ -300,7 +547,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 	}
 
 	// Parse JSON response
-	log.Trace("%s Parsing JSON response", t.logPrefix)
+	t.logger.Debug("Parsing JSON response")
 
 	// Try to parse as an array first (which is what the Traefik API returns)
 	var routersArray []map[string]interface{}
@@ -311,7 +558,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 			log.Error("%s Failed to parse JSON response: %v", t.logPrefix, err)
 			return fmt.Errorf("%s failed to parse JSON: %w", t.logPrefix, err)
 		}
-		log.Debug("%s Found %d routers in API response (map format)", t.logPrefix, len(routersMap))
+		t.logger.Debug("Found %d routers in API response (map format)", len(routersMap))
 
 		// Process the map format (convert to our array format for processing)
 		routersArray = make([]map[string]interface{}, 0, len(routersMap))
@@ -323,7 +570,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 		}
 	}
 
-	log.Debug("%s Found %d routers in API response", t.logPrefix, len(routersArray))
+	t.logger.Debug("Found %d routers in API response", len(routersArray))
 
 	filteredRouters := make([]map[string]interface{}, 0, len(routersArray))
 	initialLog := !t.initialPollDone
@@ -340,10 +587,10 @@ func (t *TraefikProvider) processTraefikRouters() error {
 			if initialLog {
 				rule, _ := router["rule"].(string)
 				hosts := extractHostsFromRule(rule)
-				log.Debug("%s Router PASSED filter: %s | Hostnames: %v", t.logPrefix, routerName, hosts)
+				t.logger.Debug("Router PASSED filter: %s | Hostnames: %v", routerName, hosts)
 			}
 		} else if initialLog {
-			log.Debug("%s Router FILTERED OUT: %s", t.logPrefix, routerName)
+			t.logger.Debug("Router FILTERED OUT: %s", routerName)
 		}
 	}
 

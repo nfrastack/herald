@@ -8,7 +8,6 @@ import (
 	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
 
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/docker/docker/api/types"
@@ -21,14 +20,13 @@ func MatchDockerFilter(filter pollCommon.Filter, container types.ContainerJSON) 
 	case pollCommon.FilterTypeNone:
 		return true
 	case pollCommon.FilterTypeLabel:
-		return matchLabelFilter(filter.Value, container)
+		return matchLabelFilterWithConditions(filter.Conditions, container)
 	case pollCommon.FilterTypeName:
-		return matchNameFilter(filter.Value, container)
+		return matchNameFilterWithConditions(filter.Conditions, container)
 	case pollCommon.FilterTypeNetwork:
-		return matchNetworkFilter(filter.Value, container)
+		return matchNetworkFilterWithConditions(filter.Conditions, container)
 	case pollCommon.FilterTypeImage:
-		return matchImageFilter(filter.Value, container)
-	// For service and health, use pollCommon logic if needed in the future
+		return matchImageFilterWithConditions(filter.Conditions, container)
 	default:
 		return false
 	}
@@ -36,115 +34,179 @@ func MatchDockerFilter(filter pollCommon.Filter, container types.ContainerJSON) 
 
 // EvaluateDockerFilters applies a FilterConfig to a Docker container
 func EvaluateDockerFilters(fc pollCommon.FilterConfig, container types.ContainerJSON) bool {
-	return fc.Evaluate(container, func(f pollCommon.Filter, entry any) bool {
+	// Get container name for debug logging
+	containerName := container.Name
+	if strings.HasPrefix(containerName, "/") {
+		containerName = containerName[1:]
+	}
+
+	result := fc.Evaluate(container, func(f pollCommon.Filter, entry any) bool {
 		c, ok := entry.(types.ContainerJSON)
 		if !ok {
 			return false
 		}
 		return MatchDockerFilter(f, c)
 	})
+
+	return result
 }
 
-// matchLabelFilter checks if a container matches a label filter
-func matchLabelFilter(filterValue string, container types.ContainerJSON) bool {
-	// Filter value can be either "label" or "label=value"
-	parts := strings.SplitN(filterValue, "=", 2)
-	labelName := parts[0]
-
-	// Check if the label exists
-	labelValue, hasLabel := container.Config.Labels[labelName]
-	if !hasLabel {
-		return false
-	}
-
-	// If we're just checking for label existence
-	if len(parts) == 1 {
+// matchLabelFilterWithConditions checks if a container matches a label filter using the conditions array format
+func matchLabelFilterWithConditions(conditions []pollCommon.FilterCondition, container types.ContainerJSON) bool {
+	if len(conditions) == 0 {
 		return true
 	}
 
-	// Check if the label value matches
-	labelPattern := parts[1]
+	var result bool
+	for i, condition := range conditions {
+		var match bool
 
-	// Check for wildcard matches
-	if strings.Contains(labelPattern, "*") {
-		// Convert glob pattern to regex
-		regexPattern := "^" + strings.Replace(strings.Replace(regexp.QuoteMeta(labelPattern), "\\*", ".*", -1), "\\?", ".", -1) + "$"
-		match, err := regexp.MatchString(regexPattern, labelValue)
-		if err != nil {
-			// In case of regex error, just do a direct compare
-			return labelValue == labelPattern
+		if condition.Key != "" {
+			// Check if the label exists and optionally matches a value
+			labelValue, hasLabel := container.Config.Labels[condition.Key]
+			if !hasLabel {
+				match = false
+			} else if condition.Value == "" {
+				// Just checking for label existence
+				match = true
+			} else {
+				// Check if the label value matches
+				match = matchStringValue(labelValue, condition.Value)
+			}
 		}
-		return match
+
+		// Apply logic for combining results
+		if i == 0 {
+			result = match
+		} else {
+			logic := strings.ToLower(condition.Logic)
+			if logic == "or" {
+				result = result || match
+			} else { // default to "and"
+				result = result && match
+			}
+		}
 	}
 
-	// Direct comparison
-	return labelValue == labelPattern
+	return result
 }
 
-// matchNameFilter checks if a container matches a name filter
-func matchNameFilter(filterValue string, container types.ContainerJSON) bool {
+// matchNameFilterWithConditions checks if a container matches a name filter using the conditions array format
+func matchNameFilterWithConditions(conditions []pollCommon.FilterCondition, container types.ContainerJSON) bool {
+	if len(conditions) == 0 {
+		return true
+	}
+
 	// Clean container name (remove leading slash)
 	containerName := container.Name
 	if strings.HasPrefix(containerName, "/") {
 		containerName = containerName[1:]
 	}
 
+	var result bool
+	for i, condition := range conditions {
+		var match bool
+
+		if condition.Value != "" {
+			match = matchStringValue(containerName, condition.Value)
+		}
+
+		// Apply logic for combining results
+		if i == 0 {
+			result = match
+		} else {
+			logic := strings.ToLower(condition.Logic)
+			if logic == "or" {
+				result = result || match
+			} else { // default to "and"
+				result = result && match
+			}
+		}
+	}
+
+	return result
+}
+
+// matchNetworkFilterWithConditions checks if a container belongs to networks using the conditions array format
+func matchNetworkFilterWithConditions(conditions []pollCommon.FilterCondition, container types.ContainerJSON) bool {
+	if len(conditions) == 0 {
+		return true
+	}
+
+	var result bool
+	for i, condition := range conditions {
+		var match bool
+
+		if condition.Value != "" {
+			// Check each network the container is connected to
+			for networkName := range container.NetworkSettings.Networks {
+				if matchStringValue(networkName, condition.Value) {
+					match = true
+					break
+				}
+			}
+		}
+
+		// Apply logic for combining results
+		if i == 0 {
+			result = match
+		} else {
+			logic := strings.ToLower(condition.Logic)
+			if logic == "or" {
+				result = result || match
+			} else { // default to "and"
+				result = result && match
+			}
+		}
+	}
+
+	return result
+}
+
+// matchImageFilterWithConditions checks if a container's image matches using the conditions array format
+func matchImageFilterWithConditions(conditions []pollCommon.FilterCondition, container types.ContainerJSON) bool {
+	if len(conditions) == 0 {
+		return true
+	}
+
+	imageName := container.Config.Image
+
+	var result bool
+	for i, condition := range conditions {
+		var match bool
+
+		if condition.Value != "" {
+			match = matchStringValue(imageName, condition.Value)
+		}
+
+		// Apply logic for combining results
+		if i == 0 {
+			result = match
+		} else {
+			logic := strings.ToLower(condition.Logic)
+			if logic == "or" {
+				result = result || match
+			} else { // default to "and"
+				result = result && match
+			}
+		}
+	}
+
+	return result
+}
+
+// matchStringValue handles wildcard and direct string matching
+func matchStringValue(actual, pattern string) bool {
 	// Check for wildcard matches
-	if strings.Contains(filterValue, "*") || strings.Contains(filterValue, "?") {
-		matched, err := filepath.Match(filterValue, containerName)
+	if strings.Contains(pattern, "*") || strings.Contains(pattern, "?") {
+		matched, err := filepath.Match(pattern, actual)
 		if err != nil {
 			// If pattern is invalid, fall back to direct comparison
-			return containerName == filterValue
+			return actual == pattern
 		}
 		return matched
 	}
 
 	// Direct comparison
-	return containerName == filterValue
-}
-
-// matchNetworkFilter checks if a container belongs to a specific network
-func matchNetworkFilter(filterValue string, container types.ContainerJSON) bool {
-	// Check each network the container is connected to
-	for networkName := range container.NetworkSettings.Networks {
-		// Direct name match
-		if networkName == filterValue {
-			return true
-		}
-
-		// Wildcard match
-		if strings.Contains(filterValue, "*") || strings.Contains(filterValue, "?") {
-			matched, err := filepath.Match(filterValue, networkName)
-			if err != nil {
-				continue // Invalid pattern, try next network
-			}
-			if matched {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// matchImageFilter checks if a container's image matches the filter
-func matchImageFilter(filterValue string, container types.ContainerJSON) bool {
-	// Get container image name
-	imageName := container.Config.Image
-
-	// Check for direct match
-	if imageName == filterValue {
-		return true
-	}
-
-	// Check for wildcard match
-	if strings.Contains(filterValue, "*") || strings.Contains(filterValue, "?") {
-		matched, err := filepath.Match(filterValue, imageName)
-		if err != nil {
-			// If pattern is invalid, fall back to direct comparison
-			return imageName == filterValue
-		}
-		return matched
-	}
-
-	return false
+	return actual == pattern
 }

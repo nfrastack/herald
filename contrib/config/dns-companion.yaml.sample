@@ -28,7 +28,10 @@ polls:
     api_url: "https://caddy.api.local/config/"
     #api_auth_user: ""
     #api_auth_pass: ""
-    filter_type: "none"
+    filter:
+      - type: host
+        conditions:
+          - value: "*.localhost"
     process_existing: true
     record_remove_on_stop: true
     #tls:
@@ -44,7 +47,11 @@ polls:
     #api_auth_pass: ""
     #api_url: "tcp://docker.example.com:2376" #TLS
     expose_containers: true
-    filter_type: "none"
+    filter:
+      - type: label
+        conditions:
+          - key: environment
+            value: production
     process_existing: false
     record_remove_on_stop: true
     #tls:
@@ -60,6 +67,10 @@ polls:
     interval: -1 # watch mode (default)
     process_existing: true
     record_remove_on_stop: true
+    filter:
+      - type: hostname
+        conditions:
+          - value: "*.example.com"
 
   remote_example:
     type: remote
@@ -70,6 +81,10 @@ polls:
     record_remove_on_stop: true
     remote_auth_user: myuser # Optional HTTP Basic Auth
     remote_auth_pass: mypassword # Optional HTTP Basic Auth
+    filter:
+      - type: hostname
+        conditions:
+          - value: "*.example.com"
     #tls:
     #  verify: true
     #  ca: "/etc/docker/certs/ca.pem"
@@ -88,11 +103,11 @@ polls:
     hostname_format: "simple"                   # Hostname format: "simple", "tailscale", "full" (default: "simple")
     process_existing: true                      # Process records on startup (default: false)
     record_remove_on_stop: true                 # Remove DNS records when device goes offline (default: false)
-    # Optional filters (defaults to online=true if no filters specified)
-    filter_type: online                         # Filter by: online, name, hostname, tag, id, address, user, os
-    filter_value: "true"                        # Value for filter_type
-    # filter_operation: equals                  # Operation: equals, contains, starts_with, ends_with, regex
-    # filter_negate: false                      # Set to true to exclude instead of include
+    # Modern filtering (defaults to online=true if no filters specified)
+    filter:
+      - type: online
+        conditions:
+          - value: "true"
     log_level: "debug"                          # Provider-specific log level override (optional)
     #tls:
     #  verify: true
@@ -107,6 +122,10 @@ polls:
     config_path: /etc/traefik/dynamic
     process_existing: true  # Process existing routers on startup
     record_remove_on_stop: true  # Remove DNS records when router is removed
+    filter:
+      - type: name
+        conditions:
+          - value: ^websecure-.*
     #tls:
     #  verify: true
     #  ca: "/etc/docker/certs/ca.pem"
@@ -125,8 +144,14 @@ polls:
     process_existing: true                      # Process records on startup (default: false)
     record_remove_on_stop: true                 # Remove DNS records when node goes offline (default: false)
     use_address_fallback: true                  # Use ZeroTier address as hostname when name is empty (default: false)
-    filter_type: "online"                       # Filter by: online, name, authorized, tag, id, address, nodeid, ipAssignments, physicalAddress
-    filter_value: "true"                        # Value for filter_type (default: online=true)
+    filter:
+      - type: online
+        conditions:
+          - value: "true"
+      - type: authorized
+        operation: AND
+        conditions:
+          - value: "true"
     log_level: "debug"                          # Provider-specific log level override (optional)
     # WARNING: online_timeout_seconds < 120 may cause erratic add/remove behavior due to ZeroTier Central heartbeat timing
     # For ZT-Net, this uses lastSeen timestamp; for ZeroTier Central, uses lastSeen milliseconds

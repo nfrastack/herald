@@ -267,8 +267,10 @@ polls:
     interval: 60s
     record_remove_on_stop: true
     process_existing: true
-    filter_type: host
-    filter_value: "*.localhost"
+    filter:
+      - type: host
+        conditions:
+          - value: "*.localhost"
 ```
 
 **Filter Options:**
@@ -284,20 +286,40 @@ The Caddy provider supports filtering to precisely control which routes to proce
 
 ```yaml
 # Only process hosts ending in .localhost
-filter_type: host
-filter_value: "*.localhost"
+filter:
+  - type: host
+    conditions:
+      - value: "*.localhost"
 
 # Only process reverse proxy routes
-filter_type: handler
-filter_value: "reverse_proxy"
+filter:
+  - type: handler
+    conditions:
+      - value: "reverse_proxy"
 
 # Only process routes with Docker upstreams
-filter_type: upstream
-filter_value: "host.docker.internal:*"
+filter:
+  - type: upstream
+    conditions:
+      - value: "host.docker.internal:*"
 
 # Only process routes from specific server
-filter_type: server
-filter_value: "srv0"
+filter:
+  - type: server
+    conditions:
+      - value: "srv0"
+
+# Complex filtering with multiple conditions
+filter:
+  - type: host
+    conditions:
+      - value: "*.localhost"
+      - value: "*.internal"
+        logic: or
+  - type: handler
+    operation: AND
+    conditions:
+      - value: "reverse_proxy"
 ```
 
 #### Docker Poller
@@ -491,69 +513,67 @@ Docker container filtering allows you to control which containers are managed by
 
 **Available filter types:**
 
-- `none`: No filtering, all containers are considered.
-- `label`: Only containers with specific labels are considered.
-- `name`: Only containers with specific names are considered.
+- `label`: Filter containers by labels and their values.
+- `name`: Filter containers by name patterns.
+- `network`: Filter containers by networks they're connected to.
+- `image`: Filter containers by the image they use.
 
 **How Filtering Works:**
 
-- The `filter_type` option determines the filtering method. You can specify additional filter options depending on the type.
 - Filtering is evaluated before any DNS records are created or updated.
+- Use the filter array format with conditions for precise control.
 
-**YAML Example: No Filtering (all containers):**
+**YAML Example:**
 
 ```yaml
 polls:
   docker_example:
     type: docker
-    ...
-    filter_type: none
+    filter:
+      - type: label
+        conditions:
+          - key: environment
+            value: production
 ```
 
-**YAML Example: Label Filtering**
+**Filter Format**
 
-Only containers with the label `nfrastack.dns.enable=true` will be managed:
+The filter format supports complex filtering with conditions and boolean logic:
 
 ```yaml
-    filter_type: label
-    filter_label: nfrastack.dns.enable
-    filter_label_value: "true"
+polls:
+  docker_internal:
+    type: docker
+    expose_containers: true
+    process_existing: true
+    record_remove_on_stop: true
+    log_level: trace
+    filter:
+      - type: label
+        conditions:
+          - key: traefik.proxy.visibility
+            value: internal
+          - key: environment
+            value: production
+            logic: and
 ```
 
-You can also filter by multiple labels (AND logic):
+**Advanced filtering with multiple conditions:**
 
 ```yaml
-    filter_type: label
-    filter_labels:
-      - key: nfrastack.dns.enable
-        value: "true"
-      - key: environment
-        value: "production"
-```
-
-**YAML Example: Name Filtering**
-
-Only containers with names matching the given list will be managed:
-
-```yaml
-    filter_type: name
-    filter_names:
-      - webapp
-      - db
-```
-
-**Advanced Filtering (Boolean/Compound):**
-
-Some advanced setups may support boolean logic or regular expressions for filtering. For example:
-
-```yaml
-    filter_type: label
-    filter_labels:
-      - key: nfrastack.dns.enable
-        value: "true"
-      - key: environment
-        value: ".*prod.*" # regex match
-    filter_label_logic: and # or 'or'
+    filter:
+      - type: label
+        conditions:
+          - key: traefik.proxy.visibility
+            value: internal
+          - key: app.type
+            value: web*
+            logic: or
+      - type: name
+        conditions:
+          - value: webapp-*
+          - value: api-*
+            logic: or
 ```
 
 **Processing Order:**
@@ -566,7 +586,6 @@ Some advanced setups may support boolean logic or regular expressions for filter
 
 - Use label filtering to target only containers that should be managed by DNS Companion.
 - Combine multiple filters for fine-grained control.
-- Use `filter_type: none` for development or testing, but restrict in production.
 
 #### File Poller
 
@@ -575,14 +594,19 @@ The file provider allows you to manage DNS records by reading from a YAML or JSO
 **Example configuration:**
 
 ```yaml
-poll:
-  - type: file
+polls:
+  file_example:
+    type: file
     name: file_example
     source: ./result/records.yaml
     format: yaml # or json - autodetects based on extension
     interval: -1 # (default: watch mode)
     record_remove_on_stop: true
     process_existing: true
+    filter:
+      - type: hostname
+        conditions:
+          - value: "*.example.com"
 ```
 
 **File format (YAML):**
@@ -596,6 +620,42 @@ records:
   - host: api.example.com
     type: CNAME
     target: www.example.com
+```
+
+**Filter Options:**
+
+The File provider supports filtering to control which records from the file are processed:
+
+- **hostname**: Filter by hostname patterns
+- **type**: Filter by DNS record type (A, AAAA, CNAME)
+- **target**: Filter by target values
+
+**Example Filters:**
+
+```yaml
+# Only process A records
+filter:
+  - type: type
+    conditions:
+      - value: "A"
+
+# Only process records for specific domain
+filter:
+  - type: hostname
+    conditions:
+      - value: "*.example.com"
+
+# Complex filtering
+filter:
+  - type: hostname
+    conditions:
+      - value: "*.example.com"
+      - value: "*.test.com"
+        logic: or
+  - type: type
+    operation: AND
+    conditions:
+      - value: "A"
 ```
 
 **Options:**
@@ -624,6 +684,46 @@ polls:
     record_remove_on_stop: true
     remote_auth_user: myuser # Optional HTTP Basic Auth
     remote_auth_pass: mypassword # Optional HTTP Basic Auth
+    filter:
+      - type: hostname
+        conditions:
+          - value: "*.example.com"
+```
+
+**Filter Options:**
+
+The Remote provider supports filtering to control which records from the remote file are processed:
+
+- **hostname**: Filter by hostname patterns
+- **type**: Filter by DNS record type (A, AAAA, CNAME)
+- **target**: Filter by target values
+
+**Example Filters:**
+
+```yaml
+# Only process CNAME records
+filter:
+  - type: type
+    conditions:
+      - value: "CNAME"
+
+# Only process records matching domain patterns
+filter:
+  - type: hostname
+    conditions:
+      - value: "api.*"
+      - value: "web.*"
+        logic: or
+
+# Complex filtering with multiple conditions
+filter:
+  - type: target
+    conditions:
+      - value: "192.168.*"
+  - type: type
+    operation: AND
+    conditions:
+      - value: "A"
 ```
 
 ##### Options
@@ -653,9 +753,11 @@ polls:
     hostname_format: "simple"  # "simple", "tailscale", or "full"
     process_existing: true
     record_remove_on_stop: true
-    # Optional filters (defaults to online=true if no filters specified)
-    filter_type: online
-    filter_value: "true"
+    #Filtering (defaults to online=true if no filters specified)
+    filter:
+      - type: online
+        conditions:
+          - value: "true"
 ```
 
 **Authentication Methods:**
@@ -717,24 +819,40 @@ polls:
 - `hostname_format`: How to format hostnames (default: "simple")
 - `process_existing`: Process existing devices on startup (default: false)
 - `record_remove_on_stop`: Remove DNS records when devices go offline (default: false)
-- `filter_type`: Filter devices by criteria (default: "online")
-- `filter_value`: Value for filter type (default: "true")
 - `log_level`: Provider-specific log level override
 
 **Advanced Filtering:**
 
 ```yaml
 # Only process devices with specific tags
-filter_type: tag
-filter_value: "production"
+filter:
+  - type: tag
+    conditions:
+      - value: production
 
 # Only process devices from specific user
-filter_type: user
-filter_value: "admin@company.com"
+filter:
+  - type: user
+    conditions:
+      - value: admin@company.com
 
 # Only process devices with specific IP
-filter_type: address
-filter_value: "100.64.0.10"
+filter:
+  - type: address
+    conditions:
+      - value: 100.64.0.10
+
+# Multiple conditions with logic operators
+filter:
+  - type: name
+    conditions:
+      - value: prod-*
+      - value: staging-*
+        logic: or
+  - type: online
+    operation: AND
+    conditions:
+      - value: true
 ```
 
 **Environment Variables:**
@@ -762,8 +880,10 @@ polls:
     api_auth_pass: password
     tls_verify: true  # Set to false to skip TLS certificate verification
     interval: 5m
-    filter_type: name
-    filter_value: ^websecure-
+    filter:
+      - type: name
+        conditions:
+          - value: ^websecure-
 ```
 
 **Options for configuring a Traefik poll provider:**
@@ -773,46 +893,94 @@ polls:
 - `api_auth_user`: Username for basic auth to the Traefik API (optional).
 - `api_auth_pass`: Password for basic auth to the Traefik API (optional).
 - `interval`: How often to poll the Traefik API for updates (e.g., `15s`, `1m`, `1h`).
+- `tls_verify`: Whether to verify TLS certificates (default: true).
+- `record_remove_on_stop`: Remove DNS records when routers are removed (default: false).
+- `process_existing`: Process existing routers on startup (default: false).
 
-**Filter options:**
+**Traefik Router Filtering:**
 
-The Traefik provider supports filtering to precisely control which routers to process.
+The Traefik provider supports advanced filtering to precisely control which routers to process. Use the filter format with conditions arrays for maximum flexibility:
 
-### Simple filter (single filter)
+**Available filter types:**
+
+- `name`: Filter routers by name patterns (e.g., `^websecure-`, `*-internal`)
+- `service`: Filter by service name patterns
+- `provider`: Filter by provider (e.g., `docker`, `file`, `kubernetes`)
+- `entrypoint`: Filter by entrypoints (e.g., `websecure`, `web`)
+- `status`: Filter by router status
+- `rule`: Filter by router rule patterns
+
+**Basic filtering example:**
 
 ```yaml
 polls:
   traefik_example:
     type: traefik
     api_url: http://traefik:8080/api/http/routers
-    filter_type: name
-    filter_value: ^web-
+    filter:
+      - type: name
+        conditions:
+          - value: ^webcontainer.*
 ```
 
-This will only process routers whose `name` matches the regex `^web-`.
-
-### Advanced filters (multiple, AND/OR/NOT/Negate)
+**Advanced filters (multiple conditions):**
 
 ```yaml
 polls:
   traefik_advanced:
     type: traefik
     api_url: http://traefik:8080/api/http/routers
-    filter.0.type: name
-    filter.0.value: ^web-
-    filter.0.operation: AND
-    filter.1.type: provider
-    filter.1.value: docker
-    filter.1.operation: OR
-    filter.2.type: status
-    filter.2.value: enabled
-    filter.2.negate: true
+    filter:
+      - type: name
+        conditions:
+          - value: ^web-
+          - value: ^api-
+            logic: or
+      - type: provider
+        operation: AND
+        conditions:
+          - value: docker
+      - type: status
+        operation: AND
+        negate: true
+        conditions:
+          - value: enabled
 ```
 
-- `operation` can be `AND`, `OR`, or `NOT` (default is `AND`).
-- `negate: true` inverts the filter result.
+**Filter features:**
 
-You can use either style—**the loader will dynamically handle both**.
+- `conditions`: Array of filter conditions with `value` and optional `logic` (and/or)
+- `operation`: How to combine multiple filters - `AND`, `OR`, or `NOT` (default is `AND`)
+- `negate: true`: Inverts the filter result
+- **Regex support**: Use regex patterns like `^websecure-.*` for name matching
+- **Wildcard support**: Use `*` and `?` for simple wildcard matching
+
+**Filter examples:**
+
+```yaml
+# Only routers starting with "webcontainer"
+filter:
+  - type: name
+    conditions:
+      - value: ^webcontainer.*
+
+# Only Docker provider routers with specific names
+filter:
+  - type: provider
+    conditions:
+      - value: docker
+  - type: name
+    operation: AND
+    conditions:
+      - value: websecure-*
+
+# Exclude internal routers
+filter:
+  - type: name
+    negate: true
+    conditions:
+      - value: "*-internal"
+```
 
 **Environment variables:**
 
@@ -820,6 +988,8 @@ Environment variables can also be used for authentication:
 
 - `TRAEFIK_API_AUTH_USER`: Basic auth username
 - `TRAEFIK_API_AUTH_PASS`: Basic auth password
+- `TRAEFIK_API_URL`: Traefik API URL
+
 
 ##### Traefik Poller Configuration File
 
@@ -829,7 +999,10 @@ polls:
     type: traefik
     api_url: http://traefik:8080/api/http/routers
     interval: 30s  # or 60, 1m, 1h, etc.
-    config_path: /etc/traefik/dynamic
+    filter:
+      - type: name
+        conditions:
+          - value: ^websecure-.*
 ```
 
 ##### Traefik Poller Environment Variables
@@ -839,7 +1012,6 @@ polls:
 | `POLL_<PROFILENAME>_TYPE`        | Value should be `traefik`                                              |
 | `POLL_<PROFILENAME>_API_URL`     | Traefik API URL                                                        |
 | `POLL_<PROFILENAME>_INTERVAL`    | Poll interval (supports units, e.g., `15s`, `1m`, `60` for 60 seconds) |
-| `POLL_<PROFILENAME>_CONFIG_PATH` | Path to Traefik configuration file or directory (file-based)           |
 
 #### ZeroTier Poller
 
@@ -885,11 +1057,65 @@ The ZeroTier provider monitors ZeroTier network members and automatically create
 - `process_existing` (bool): Process records on startup (default: false)
 - `record_remove_on_stop` (bool): Remove DNS records when node goes offline (default: false)
 - `use_address_fallback` (bool): Use ZeroTier address as hostname when name is empty (default: false)
-- `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`, `ipAssignments`, `physicalAddress`
-- `filter_value` (string): Value for filter_type (default: `online=true`)
 - `log_level` (string): Provider-specific log level override (optional)
 
 **⚠️ Important**: For ZeroTier Central, set `online_timeout_seconds` to 300+ seconds (5+ minutes) to prevent erratic add/remove behavior due to inconsistent heartbeat timing. The default 120 seconds may cause members to flap online/offline frequently.
+
+##### Filtering
+
+The ZeroTier provider supports advanced filtering with conditions arrays:
+
+```yaml
+# Only online and authorized members
+polls:
+  zerotier_example:
+    type: zerotier
+    api_token: "your_token"
+    network_id: "your_network"
+    domain: "zt.example.com"
+    filter:
+      - type: online
+        conditions:
+          - value: true
+      - type: authorized
+        operation: AND
+        conditions:
+          - value: true
+
+# Only members with specific tags (ZT-Net only)
+filter:
+  - type: tag
+    conditions:
+      - value: production
+
+# Complex filtering with multiple conditions
+filter:
+  - type: name
+    conditions:
+      - value: server-*
+      - value: prod-*
+        logic: or
+  - type: authorized
+    operation: AND
+    conditions:
+      - value: true
+```
+
+**Available filter types:**
+
+| Filter Type       | Description                  | Example Values      | Supported APIs |
+| ----------------- | ---------------------------- | ------------------- | -------------- |
+| `online`          | Member online status         | `true`, `false`     | Both           |
+| `authorized`      | Member authorization status  | `true`, `false`     | Both           |
+| `name`            | Member name pattern match    | `server-*`, `^prod` | Both           |
+| `tag`             | Member has specific tag      | `dns`, `production` | ZT-Net only    |
+| `id`              | Exact member ID match        | `a1b2c3d4e5`        | Both           |
+| `address`         | Exact ZeroTier address match | `a1b2c3d4e5`        | Both           |
+| `nodeid`          | Node ID (ZT-Net only)        | `123`               | ZT-Net only    |
+| `ipAssignments`   | Has specific IP assignment   | `10.0.0.100`        | Both           |
+| `physicalAddress` | Physical address match       | `1.2.3.4/9993`      | ZT-Net only    |
+
+
 
 #### Basic Configuration
 
@@ -919,8 +1145,6 @@ polls:
 | `process_existing`       | bool     | `false`                   | Process existing members on startup                  |
 | `record_remove_on_stop`  | bool     | `false`                   | Remove DNS records when member goes offline          |
 | `use_address_fallback`   | bool     | `false`                   | Use ZeroTier address as hostname when name is empty  |
-| `filter_type`            | string   | `online`                  | Filter type (see filtering options below)            |
-| `filter_value`           | string   | `true`                    | Value for filter type                                |
 | `log_level`              | string   | global                    | Provider-specific log level override                 |
 
 #### API Types
@@ -938,23 +1162,6 @@ polls:
 - Authentication: `x-ztnet-auth` header
 - Network ID format: `org:domain.com:networkid` or `domain.com:networkid`
 
-#### Filtering Options
-
-Control which members create DNS records using `filter_type` and `filter_value`:
-
-| Filter Type       | Description                  | Example Values      |
-| ----------------- | ---------------------------- | ------------------- |
-| `online`          | Member online status         | `true`, `false`     |
-| `authorized`      | Member authorization status  | `true`, `false`     |
-| `name`            | Member name contains value   | `server`, `prod-`   |
-| `tag`             | Member has specific tag      | `dns`, `production` |
-| `id`              | Exact member ID match        | `a1b2c3d4e5`        |
-| `address`         | Exact ZeroTier address match | `a1b2c3d4e5`        |
-| `nodeid`          | Node ID (ZT-Net only)        | `123`               |
-| `ipAssignments`   | Has specific IP assignment   | `10.0.0.100`        |
-| `physicalAddress` | Physical address match       | `1.2.3.4/9993`      |
-
-
 #### Examples
 
 **ZeroTier Central - Production Setup**
@@ -966,8 +1173,10 @@ zerotier_prod:
   network_id: "a1b2c3d4e5f6g7h8"
   domain: "vpn.company.com"
   online_timeout_seconds: 600  # 10 minutes - very stable
-  filter_type: "authorized"
-  filter_value: "true"
+  filter:
+    - type: authorized
+      conditions:
+        - value: true
   record_remove_on_stop: true
   log_level: "info"
 ```
@@ -982,8 +1191,10 @@ zerotier_dev:
   network_id: "dev:dev.company.com:networkid123"
   domain: "dev.company.com"
   online_timeout_seconds: 300
-  filter_type: "tag"
-  filter_value: "development"
+  filter:
+    - type: tag
+      conditions:
+        - value: development
   use_address_fallback: true
   log_level: "debug"
 ```
