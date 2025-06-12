@@ -316,10 +316,17 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		log.Debug("%s Using default tailnet", logPrefix)
 	}
 
-	// Parse filter configuration using standard syntax
-	filterConfig, err := pollCommon.NewFilterFromOptions(options)
+	// Convert string options to structured options for filtering
+	structuredOptions := make(map[string]interface{})
+	for key, value := range options {
+		structuredOptions[key] = value
+	}
+
+	// Parse filter configuration using structured format
+	filterConfig, err := pollCommon.NewFilterFromStructuredOptions(structuredOptions)
 	if err != nil {
-		return nil, fmt.Errorf("%s failed to parse filter configuration: %v", logPrefix, err)
+		log.Debug("%s Error creating filter configuration: %v, using default", logPrefix, err)
+		filterConfig = pollCommon.DefaultFilterConfig()
 	}
 
 	// Add default online=true filter if no filters are configured
@@ -328,9 +335,12 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		filterConfig.Filters = []pollCommon.Filter{
 			{
 				Type:      pollCommon.FilterTypeOnline,
-				Value:     "true",
-				Operation: "equals",
+				Operation: pollCommon.FilterOperationAND,
 				Negate:    false,
+				Conditions: []pollCommon.FilterCondition{{
+					Value: "true",
+					Logic: "and",
+				}},
 			},
 		}
 	}
@@ -651,91 +661,97 @@ func sanitizeHostname(hostname string) string {
 	return result
 }
 
-// EvaluateTailscaleFilters evaluates standard filters against a Tailscale device
+// EvaluateTailscaleFilters evaluates structured filters against a Tailscale device
 func EvaluateTailscaleFilters(filterConfig pollCommon.FilterConfig, device TailscaleDevice) bool {
-	// If no filters or only FilterTypeNone, pass everything
-	if len(filterConfig.Filters) == 0 || (len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == pollCommon.FilterTypeNone) {
-		return true
-	}
-
-	for _, filter := range filterConfig.Filters {
-		result := evaluateTailscaleFilter(filter, device)
-		if filter.Negate {
-			result = !result
-		}
-
-		if !result {
-			return false // All filters must pass
-		}
-	}
-
-	return true
+	return filterConfig.Evaluate(device, func(filter pollCommon.Filter, entry any) bool {
+		dev := entry.(TailscaleDevice)
+		return evaluateTailscaleFilter(filter, dev)
+	})
 }
 
 func evaluateTailscaleFilter(filter pollCommon.Filter, device TailscaleDevice) bool {
 	switch filter.Type {
 	case pollCommon.FilterTypeOnline:
-		expected := filter.Value == "true"
-		return device.Online == expected
+		for _, condition := range filter.Conditions {
+			expected := strings.ToLower(condition.Value) == "true"
+			if device.Online != expected {
+				return false
+			}
+		}
+		return true
 
 	case pollCommon.FilterTypeName:
-		return evaluateStringMatch(device.Name, filter.Value, filter.Operation)
+		for _, condition := range filter.Conditions {
+			if !pollCommon.RegexMatch(condition.Value, device.Name) {
+				return false
+			}
+		}
+		return true
 
 	case "hostname":
-		return evaluateStringMatch(device.Hostname, filter.Value, filter.Operation)
+		for _, condition := range filter.Conditions {
+			if !pollCommon.RegexMatch(condition.Value, device.Hostname) {
+				return false
+			}
+		}
+		return true
 
 	case pollCommon.FilterTypeTag:
-		// Check if any of the device's tags match the filter
-		for _, tag := range device.Tags {
-			if evaluateStringMatch(tag, filter.Value, filter.Operation) {
-				return true
+		for _, condition := range filter.Conditions {
+			found := false
+			for _, tag := range device.Tags {
+				if pollCommon.RegexMatch(condition.Value, tag) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
 			}
 		}
-		return false
+		return true
 
 	case "id":
-		return evaluateStringMatch(device.ID, filter.Value, filter.Operation)
-
-	case "address":
-		// Check if any of the device's addresses match the filter
-		for _, addr := range device.Addresses {
-			if evaluateStringMatch(addr, filter.Value, filter.Operation) {
-				return true
+		for _, condition := range filter.Conditions {
+			if !pollCommon.RegexMatch(condition.Value, device.ID) {
+				return false
 			}
 		}
-		return false
-
-	case "user":
-		return evaluateStringMatch(device.User, filter.Value, filter.Operation)
-
-	case "os":
-		return evaluateStringMatch(device.OS, filter.Value, filter.Operation)
-
-	case pollCommon.FilterTypeNone:
-		return true // No filter always passes
-
-	default:
-		// Unknown filter type - log warning and pass
 		return true
-	}
-}
 
-// evaluateStringMatch handles string matching with different operations
-func evaluateStringMatch(value, filterValue, operation string) bool {
-	switch operation {
-	case "equals":
-		return strings.EqualFold(value, filterValue)
-	case "contains":
-		return strings.Contains(strings.ToLower(value), strings.ToLower(filterValue))
-	case "starts_with":
-		return strings.HasPrefix(strings.ToLower(value), strings.ToLower(filterValue))
-	case "ends_with":
-		return strings.HasSuffix(strings.ToLower(value), strings.ToLower(filterValue))
-	case "regex":
-		// For now, treat regex as contains for simplicity
-		return strings.Contains(strings.ToLower(value), strings.ToLower(filterValue))
+	case "address":
+		for _, condition := range filter.Conditions {
+			found := false
+			for _, addr := range device.Addresses {
+				if pollCommon.RegexMatch(condition.Value, addr) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+
+	case pollCommon.FilterTypeUser:
+		for _, condition := range filter.Conditions {
+			if !pollCommon.RegexMatch(condition.Value, device.User) {
+				return false
+			}
+		}
+		return true
+
+	case pollCommon.FilterTypeOS:
+		for _, condition := range filter.Conditions {
+			if !pollCommon.RegexMatch(condition.Value, device.OS) {
+				return false
+			}
+		}
+		return true
+
 	default:
-		return strings.Contains(strings.ToLower(value), strings.ToLower(filterValue))
+		return true
 	}
 }
 
