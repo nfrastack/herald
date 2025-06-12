@@ -51,13 +51,17 @@ func IsRunningUnderSystemd() (system, user bool) {
 }
 
 var (
-	configFilePath = flag.String("config", "", "Path to configuration file")
-	showVersion    = flag.Bool("version", false, "Show version and exit")
-	logLevelFlag   = flag.String("log-level", "", "Set log level (overrides config/env)")
-	dryRunFlag     = flag.Bool("dry-run", false, "Simulate DNS record changes without applying them")
+	configFilePath  = flag.String("config", "", "Path to configuration file")
+	configFilePathC = flag.String("c", "", "") // Hidden shorthand for config
+	showVersion     = flag.Bool("version", false, "Show version and exit")
+	logLevelFlag    = flag.String("log-level", "", "Set log level (overrides config/env)")
+	dryRunFlag      = flag.Bool("dry-run", false, "Simulate DNS record changes without applying them")
 )
 
 func main() {
+	// Hide the -c flag from help output
+	flag.Lookup("c").Usage = ""
+
 	flag.Parse()
 
 	// Detect if running under systemd as early as possible
@@ -99,6 +103,8 @@ func main() {
 	configFile := "dns-companion.yml"
 	if *configFilePath != "" {
 		configFile = *configFilePath
+	} else if *configFilePathC != "" {
+		configFile = *configFilePathC
 	}
 
 	// Find the config file using pkg/config logic
