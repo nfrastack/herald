@@ -8,7 +8,6 @@ import (
 	"dns-companion/pkg/log"
 	pollCommon "dns-companion/pkg/poll/providers/pollCommon"
 
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -16,70 +15,6 @@ import (
 type TraefikRouter map[string]interface{}
 
 const defaultLogPrefix = "[poll/traefik/filter]"
-
-// NewFilterFromOptions creates a filter config from options (simple or advanced)
-func NewFilterFromOptions(options map[string]string) (pollCommon.FilterConfig, error) {
-	filterType, hasFilterType := options["filter_type"]
-	filterValue, hasFilterValue := options["filter_value"]
-	config := pollCommon.DefaultFilterConfig()
-	// Simple filter
-	if hasFilterType && filterType != "" {
-		if filterType != string(pollCommon.FilterTypeNone) && (!hasFilterValue || filterValue == "") {
-			log.Error("%s Missing filter_value for filter_type='%s'. Options: %+v", defaultLogPrefix, filterType, options)
-			return config, fmt.Errorf("%s filter_value is required when filter_type is not 'none'", defaultLogPrefix)
-		}
-		config.Filters = []pollCommon.Filter{{
-			Type:      pollCommon.FilterType(filterType),
-			Value:     filterValue,
-			Operation: pollCommon.FilterOperationAND,
-			Negate:    false,
-		}}
-
-		log.Debug("%s Created simple filter: type=%s value=%s", defaultLogPrefix, filterType, filterValue)
-	}
-
-	// Advanced filters: filter.N.type, filter.N.value, filter.N.operation, filter.N.negate
-	const filterPrefix = "filter."
-	for key, value := range options {
-		if !strings.HasPrefix(key, filterPrefix) {
-			continue
-		}
-		parts := strings.SplitN(key[len(filterPrefix):], ".", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		filterProp := parts[1]
-		// Find or create filter
-		var found bool
-		for i := range config.Filters {
-			if config.Filters[i].Type == pollCommon.FilterTypeNone {
-				config.Filters[i].Type = pollCommon.FilterType(value)
-				found = true
-				break
-			}
-		}
-		if !found {
-			newFilter := pollCommon.Filter{
-				Type:      pollCommon.FilterType(value),
-				Operation: pollCommon.FilterOperationAND,
-				Negate:    false,
-			}
-			config.Filters = append(config.Filters, newFilter)
-		}
-		// Set property
-		switch filterProp {
-		case "type":
-			config.Filters[len(config.Filters)-1].Type = pollCommon.FilterType(value)
-		case "value":
-			config.Filters[len(config.Filters)-1].Value = value
-		case "operation":
-			config.Filters[len(config.Filters)-1].Operation = strings.ToUpper(value)
-		case "negate":
-			config.Filters[len(config.Filters)-1].Negate = strings.ToLower(value) == "true"
-		}
-	}
-	return config, nil
-}
 
 // ShouldProcessRouter determines if a router should be processed based on the filters
 func ShouldProcessRouter(fc pollCommon.FilterConfig, router TraefikRouter) (bool, string) {
@@ -115,78 +50,53 @@ func matchTraefikFilter(filter pollCommon.Filter, entry any) bool {
 	log.Debug("[traefik/filter] Matching router '%s' against filter: Type=%s, Conditions=%d",
 		routerName, filter.Type, len(filter.Conditions))
 
-	// Handle modern conditions array format
-	if len(filter.Conditions) > 0 {
-		result := matchTraefikFilterWithConditions(filter.Conditions, filter.Type, router)
-		log.Debug("[traefik/filter] Conditions match result for router '%s': %v", routerName, result)
-		return result
-	}
-
-	// Handle legacy Value format (fallback)
-	var result bool
+	// Handle conditions array format only
 	switch filter.Type {
 	case pollCommon.FilterTypeName:
-		result = matchStringField(filter.Value, router["name"])
-	case pollCommon.FilterTypeService:
-		result = matchStringField(filter.Value, router["service"])
-	case pollCommon.FilterTypeProvider:
-		result = matchStringField(filter.Value, router["provider"])
-	case pollCommon.FilterTypeEntrypoint:
-		result = matchArrayField(filter.Value, router["entryPoints"])
-	case pollCommon.FilterTypeStatus:
-		result = matchStringField(filter.Value, router["status"])
-	case pollCommon.FilterTypeRule:
-		result = matchStringField(filter.Value, router["rule"])
-	default:
-		result = false
-	}
-
-	log.Debug("[traefik/filter] Legacy filter match result for router '%s': %v", routerName, result)
-	return result
-}
-
-// matchTraefikFilterWithConditions handles the modern conditions array format
-func matchTraefikFilterWithConditions(conditions []pollCommon.FilterCondition, filterType pollCommon.FilterType, router TraefikRouter) bool {
-	if len(conditions) == 0 {
-		return true
-	}
-
-	var result bool
-	for i, condition := range conditions {
-		var match bool
-
-		// Apply the condition based on filter type
-		switch filterType {
-		case pollCommon.FilterTypeName:
-			match = matchStringField(condition.Value, router["name"])
-		case pollCommon.FilterTypeService:
-			match = matchStringField(condition.Value, router["service"])
-		case pollCommon.FilterTypeProvider:
-			match = matchStringField(condition.Value, router["provider"])
-		case pollCommon.FilterTypeEntrypoint:
-			match = matchArrayField(condition.Value, router["entryPoints"])
-		case pollCommon.FilterTypeStatus:
-			match = matchStringField(condition.Value, router["status"])
-		case pollCommon.FilterTypeRule:
-			match = matchStringField(condition.Value, router["rule"])
-		default:
-			match = false
-		}
-
-		// Apply logic for combining results
-		if i == 0 {
-			result = match
-		} else {
-			logic := strings.ToLower(condition.Logic)
-			if logic == "or" {
-				result = result || match
-			} else { // default to "and"
-				result = result && match
+		for _, condition := range filter.Conditions {
+			if !matchStringField(condition.Value, router["name"]) {
+				return false
 			}
 		}
+		return true
+	case pollCommon.FilterTypeService:
+		for _, condition := range filter.Conditions {
+			if !matchStringField(condition.Value, router["service"]) {
+				return false
+			}
+		}
+		return true
+	case pollCommon.FilterTypeProvider:
+		for _, condition := range filter.Conditions {
+			if !matchStringField(condition.Value, router["provider"]) {
+				return false
+			}
+		}
+		return true
+	case pollCommon.FilterTypeEntrypoint:
+		for _, condition := range filter.Conditions {
+			if !matchArrayField(condition.Value, router["entryPoints"]) {
+				return false
+			}
+		}
+		return true
+	case pollCommon.FilterTypeStatus:
+		for _, condition := range filter.Conditions {
+			if !matchStringField(condition.Value, router["status"]) {
+				return false
+			}
+		}
+		return true
+	case pollCommon.FilterTypeRule:
+		for _, condition := range filter.Conditions {
+			if !matchStringField(condition.Value, router["rule"]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return true
 	}
-
-	return result
 }
 
 func matchStringField(pattern string, value interface{}) bool {
