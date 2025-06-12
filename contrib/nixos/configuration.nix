@@ -25,6 +25,17 @@
           expose_containers = true;
           swarm = false;
           record_remove_on_stop = false;
+          filter = [
+            {
+              type = "label";
+              conditions = [
+                {
+                  key = "environment";
+                  value = "production";
+                }
+              ];
+            }
+          ];
         };
         traefikpoller01 = {
           type = "traefik";
@@ -34,6 +45,16 @@
           interval = "60s";
           process_existing = true;
           record_remove_on_stop = true;
+          filter = [
+            {
+              type = "name";
+              conditions = [
+                {
+                  value = "^websecure-.*";
+                }
+              ];
+            }
+          ];
         };
         caddypoller01 = {
           type = "caddy";
@@ -43,6 +64,16 @@
           interval = "60s";
           process_existing = true;
           record_remove_on_stop = true;
+          filter = [
+            {
+              type = "host";
+              conditions = [
+                {
+                  value = "*.localhost";
+                }
+              ];
+            }
+          ];
         };
         filepoller01 = {
           type = "file";
@@ -51,6 +82,16 @@
           interval = "-1"; # watch mode (default)
           record_remove_on_stop = true;
           process_existing = true;
+          filter = [
+            {
+              type = "hostname";
+              conditions = [
+                {
+                  value = "*.example.com";
+                }
+              ];
+            }
+          ];
           # Supported formats: yaml, json, hosts, zone
           # Example for YAML format (default):
           #   format = "yaml";
@@ -68,6 +109,16 @@
           record_remove_on_stop = true;
           http_user = "myuser";
           http_pass = "mypassword";
+          filter = [
+            {
+              type = "hostname";
+              conditions = [
+                {
+                  value = "*.example.com";
+                }
+              ];
+            }
+          ];
         };
         zerotier_example = {
           type = "zerotier";
@@ -81,8 +132,25 @@
           process_existing = true;                    # Process records on startup (default: false)
           record_remove_on_stop = true;               # Remove DNS records when node goes offline
           use_address_fallback = true;                # Use ZeroTier address as hostname when name empty
-          filter_type = "online";                     # Filter: online, name, authorized, tag, etc.
-          filter_value = "true";                      # Value for filter_type (default: online=true)
+          filter = [
+            {
+              type = "online";
+              conditions = [
+                {
+                  value = "true";
+                }
+              ];
+            }
+            {
+              type = "authorized";
+              operation = "AND";
+              conditions = [
+                {
+                  value = "true";
+                }
+              ];
+            }
+          ];
           log_level = "debug";                        # Provider-specific log level override (optional)
         };
         tailscale_example = {
@@ -97,8 +165,16 @@
           hostname_format = "simple";                 # Hostname format: "simple", "tailscale", "full"
           process_existing = true;                    # Process records on startup (default: false)
           record_remove_on_stop = true;               # Remove DNS records when device goes offline
-          filter_type = "online";                     # Filter by: online, name, hostname, tag, id, address, user, os
-          filter_value = "true";                      # Value for filter_type
+          filter = [
+            {
+              type = "online";
+              conditions = [
+                {
+                  value = "true";
+                }
+              ];
+            }
+          ];
           log_level = "debug";                        # Provider-specific log level override (optional)
         };
       };

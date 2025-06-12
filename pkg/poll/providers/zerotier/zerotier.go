@@ -30,8 +30,7 @@ type ZerotierProvider struct {
 	recordRemoveOnStop     bool
 	useAddressAsFallback   bool // Use address as hostname when name is empty
 	onlineTimeoutSeconds   int  // Seconds to consider a member offline for ZeroTier Central
-	filterType             string
-	filterValue            string
+	filterConfig           pollCommon.FilterConfig // Filter configuration
 	ctx                    context.Context
 	cancel                 context.CancelFunc
 	running                bool
@@ -65,14 +64,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 			onlineTimeoutSeconds = parsed
 		}
 	}
-	filterType := options["filter_type"]
-	filterValue := options["filter_value"]
-	if filterType == "" {
-		filterType = "online"
-	}
-	if filterValue == "" && filterType == "online" {
-		filterValue = "true"
-	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	profileName := options["name"]
 	if profileName == "" {
@@ -80,6 +72,39 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 	if profileName == "" {
 		profileName = "zerotier"
+	}
+
+	// Convert string options to structured options for filtering
+	structuredOptions := make(map[string]interface{})
+	for key, value := range options {
+		structuredOptions[key] = value
+	}
+
+	// Parse filter configuration using structured format
+	filterConfig, err := pollCommon.NewFilterFromStructuredOptions(structuredOptions)
+	if err != nil {
+		// Build logPrefix for this debug message - we need it before the full logPrefix is created
+		tempLogPrefix := fmt.Sprintf("[poll/zerotier/%s]", profileName)
+		log.Debug("%s Error creating filter configuration: %v, using default", tempLogPrefix, err)
+		filterConfig = pollCommon.DefaultFilterConfig()
+	}
+
+	// Add default online=true filter if no filters are configured
+	if len(filterConfig.Filters) == 0 || (len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == pollCommon.FilterTypeNone) {
+		// Build logPrefix for this debug message - we need it before the full logPrefix is created
+		tempLogPrefix := fmt.Sprintf("[poll/zerotier/%s]", profileName)
+		log.Debug("%s Adding default online=true filter", tempLogPrefix)
+		filterConfig.Filters = []pollCommon.Filter{
+			{
+				Type:      pollCommon.FilterTypeOnline,
+				Operation: pollCommon.FilterOperationAND,
+				Negate:    false,
+				Conditions: []pollCommon.FilterCondition{{
+					Value: "true",
+					Logic: "and",
+				}},
+			},
+		}
 	}
 	logLevel := options["log_level"] // Get provider-specific log level
 	logPrefix := pollCommon.BuildLogPrefix("zerotier", profileName)
@@ -131,7 +156,17 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	}
 	// Log online timeout configuration if non-default
 	if onlineTimeoutSeconds != 60 {
-		log.Verbose("%s ZeroTier Central Online timeout set to %d seconds", logPrefix, onlineTimeoutSeconds)
+		// Determine API type name for logging
+		apiTypeName := "ZeroTier Central"
+		if apiType == "ztnet" {
+			apiTypeName = "ZT-Net"
+		} else if strings.Contains(apiURL, "my.zerotier.com") || strings.Contains(apiURL, "zerotier.com") {
+			apiTypeName = "ZeroTier Central"
+		} else {
+			// For custom URLs where we haven't detected the type yet
+			apiTypeName = "ZeroTier API"
+		}
+		log.Verbose("%s %s Online timeout set to %d seconds", logPrefix, apiTypeName, onlineTimeoutSeconds)
 	}
 
 	// Warn if timeout is too low - can cause erratic behavior
@@ -150,8 +185,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		recordRemoveOnStop:     recordRemoveOnStop,
 		useAddressAsFallback:   useAddressAsFallback,
 		onlineTimeoutSeconds:   onlineTimeoutSeconds,
-		filterType:             filterType,
-		filterValue:            filterValue,
+		filterConfig:           filterConfig,
 		ctx:                    ctx,
 		cancel:                 cancel,
 		logPrefix:              logPrefix,
@@ -243,62 +277,12 @@ func (p *ZerotierProvider) pollLoop() {
 
 // logMemberAdded logs when a member is added with appropriate message based on filter type
 func (p *ZerotierProvider) logMemberAdded(name string) {
-	switch p.filterType {
-	case "online":
-		p.logger.Verbose("%s Member '%s' came online and is being added", p.logPrefix, name)
-	case "authorized":
-		if p.filterValue == "true" {
-			p.logger.Verbose("%s Member '%s' was authorized and is being added", p.logPrefix, name)
-		} else {
-			p.logger.Verbose("%s Member '%s' was deauthorized and is being added", p.logPrefix, name)
-		}
-	case "name":
-		p.logger.Verbose("%s Member '%s' name now matches filter '%s' and is being added", p.logPrefix, name, p.filterValue)
-	case "tag":
-		p.logger.Verbose("%s Member '%s' was tagged with '%s' and is being added", p.logPrefix, name, p.filterValue)
-	case "id":
-		p.logger.Verbose("%s Member '%s' ID matches filter '%s' and is being added", p.logPrefix, name, p.filterValue)
-	case "address":
-		p.logger.Verbose("%s Member '%s' address matches filter '%s' and is being added", p.logPrefix, name, p.filterValue)
-	case "nodeid":
-		p.logger.Verbose("%s Member '%s' node ID matches filter '%s' and is being added", p.logPrefix, name, p.filterValue)
-	case "ipAssignments":
-		p.logger.Verbose("%s Member '%s' was assigned IP '%s' and is being added", p.logPrefix, name, p.filterValue)
-	case "physicalAddress":
-		p.logger.Verbose("%s Member '%s' physical address matches filter '%s' and is being added", p.logPrefix, name, p.filterValue)
-	default:
-		p.logger.Verbose("%s Member '%s' now matches filter and is being added", p.logPrefix, name)
-	}
+	p.logger.Info("%s Member added: %s", p.logPrefix, name)
 }
 
 // logMemberRemoved logs when a member is removed with appropriate message based on filter type
 func (p *ZerotierProvider) logMemberRemoved(name string) {
-	switch p.filterType {
-	case "online":
-		p.logger.Verbose("%s Member '%s' went offline and is being removed", p.logPrefix, name)
-	case "authorized":
-		if p.filterValue == "true" {
-			p.logger.Verbose("%s Member '%s' was deauthorized and is being removed", p.logPrefix, name)
-		} else {
-			p.logger.Verbose("%s Member '%s' was authorized and is being removed", p.logPrefix, name)
-		}
-	case "name":
-		p.logger.Verbose("%s Member '%s' name no longer matches filter '%s' and is being removed", p.logPrefix, name, p.filterValue)
-	case "tag":
-		p.logger.Verbose("%s Member '%s' tag '%s' was removed and is being removed", p.logPrefix, name, p.filterValue)
-	case "id":
-		p.logger.Verbose("%s Member '%s' ID no longer matches filter '%s' and is being removed", p.logPrefix, name, p.filterValue)
-	case "address":
-		p.logger.Verbose("%s Member '%s' address no longer matches filter '%s' and is being removed", p.logPrefix, name, p.filterValue)
-	case "nodeid":
-		p.logger.Verbose("%s Member '%s' node ID no longer matches filter '%s' and is being removed", p.logPrefix, name, p.filterValue)
-	case "ipAssignments":
-		p.logger.Verbose("%s Member '%s' IP assignment '%s' was removed and is being removed", p.logPrefix, name, p.filterValue)
-	case "physicalAddress":
-		p.logger.Verbose("%s Member '%s' physical address no longer matches filter '%s' and is being removed", p.logPrefix, name, p.filterValue)
-	default:
-		p.logger.Verbose("%s Member '%s' no longer matches filter and is being removed", p.logPrefix, name)
-	}
+	p.logger.Info("%s Member removed: %s", p.logPrefix, name)
 }
 
 // updateDNSEntries compares current and previous entries and updates DNS accordingly
@@ -495,7 +479,7 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]poll.DNSEntry, error) {
 		}
 	}
 
-	p.logger.Debug("%s Filtering members with filter_type='%s', filter_value='%s'", p.logPrefix, p.filterType, p.filterValue)
+	p.logger.Debug("%s Filtering members using filter system", p.logPrefix)
 	var entries []poll.DNSEntry
 	for _, m := range members {
 		// Determine if member is "online" based on recent activity
@@ -510,9 +494,19 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]poll.DNSEntry, error) {
 
 		p.logger.Trace("%s Evaluating member: id=%s, name=%s, online=%v (lastSeen %dms ago, timeout %dms), authorized=%v, ips=%v, address=%s", p.logPrefix, m.ID, m.Name, isOnline, timeSinceLastSeen, timeoutMs, m.Config.Authorized, m.Config.IPAssignments, m.Config.Address)
 
-		// Apply filtering like ZTNet
-		if !matchZerotierCentralFilterWithLog(p.logger, p.filterType, p.filterValue, m, isOnline) {
-			p.logger.Trace("%s Member '%s' did not match filter %s=%s, skipping", p.logPrefix, m.Name, p.filterType, p.filterValue)
+		// Apply filtering
+		memberData := ZerotierCentralMember{
+			ID:            m.ID,
+			Name:          m.Name,
+			LastSeen:      m.LastSeen,
+			Online:        isOnline,
+			IPAssignments: m.Config.IPAssignments,
+			Authorized:    m.Config.Authorized,
+			Address:       m.Config.Address,
+		}
+
+		if !EvaluateZerotierFilters(p.filterConfig, memberData) {
+			p.logger.Trace("%s Member '%s' did not match filters, skipping", p.logPrefix, m.Name)
 			continue
 		}
 
@@ -620,7 +614,7 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]poll.DNSEntry, error) {
 		return nil, nil
 	}
 
-	p.logger.Debug("%s Filtering members with filter_type='%s', filter_value='%s'", p.logPrefix, p.filterType, p.filterValue)
+	p.logger.Debug("%s Filtering members using filter system", p.logPrefix)
 	var entries []poll.DNSEntry
 	for _, m := range members {
 		// Determine if member is "online" based on lastSeen timestamp
@@ -645,8 +639,22 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]poll.DNSEntry, error) {
 
 		p.logger.Trace("%s Evaluating member: id=%s, name=%s, online=%v, authorized=%v, tags=%v, address=%s, nodeid=%d, physicalAddress=%s", p.logPrefix, m.ID, m.Name, isOnline, m.Authorized, m.Tags, m.Address, m.NodeID, m.PhysicalAddress)
 
-		if !matchZTNetFilterWithLog(p.logger, p.filterType, p.filterValue, m, isOnline) {
-			p.logger.Trace("%s Member '%s' did not match filter %s=%s, skipping", p.logPrefix, m.Name, p.filterType, p.filterValue)
+		// Apply filtering
+		memberData := ZTNetMember{
+			ID:              m.ID,
+			Name:            m.Name,
+			LastSeen:        m.LastSeen,
+			Online:          isOnline,
+			IPAssignments:   m.IPs,
+			Authorized:      m.Authorized,
+			Tags:            m.Tags,
+			Address:         m.Address,
+			NodeID:          m.NodeID,
+			PhysicalAddress: m.PhysicalAddress,
+		}
+
+		if !EvaluateZerotierFilters(p.filterConfig, memberData) {
+			p.logger.Trace("%s Member '%s' did not match filters, skipping", p.logPrefix, m.Name)
 			continue
 		}
 
@@ -695,117 +703,185 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]poll.DNSEntry, error) {
 	return entries, nil
 }
 
-func matchZTNetFilterWithLog(logger *log.ScopedLogger, filterType, filterValue string, m struct {
+// ZerotierCentralMember represents a member from ZeroTier Central API
+type ZerotierCentralMember struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	LastSeen      int64    `json:"lastSeen"`
+	Online        bool     `json:"online"`
+	IPAssignments []string `json:"ipAssignments"`
+	Authorized    bool     `json:"authorized"`
+	Address       string   `json:"address"`
+}
+
+// ZTNetMember represents a member from ZT-Net API
+type ZTNetMember struct {
+	ID              string   `json:"id"`
 	Name            string   `json:"name"`
 	LastSeen        string   `json:"lastSeen"`
 	Online          bool     `json:"online"`
-	IPs             []string `json:"ipAssignments"`
+	IPAssignments   []string `json:"ipAssignments"`
 	Authorized      bool     `json:"authorized"`
 	Tags            []string `json:"tags"`
-	ID              string   `json:"id"`
 	Address         string   `json:"address"`
 	NodeID          int      `json:"nodeid"`
 	PhysicalAddress string   `json:"physicalAddress"`
-}, isOnline bool) bool {
-	switch filterType {
-	case "name":
-		matched := strings.Contains(m.Name, filterValue)
-		logger.Trace("Filter by name: member='%s', filter_value='%s', matched=%v", m.Name, filterValue, matched)
-		return matched
-	case "online":
-		matched := (filterValue == "true" && isOnline) || (filterValue == "false" && !isOnline)
-		logger.Trace("Filter by online: member='%s', online=%v, filter_value='%s', matched=%v", m.Name, isOnline, filterValue, matched)
-		return matched
-	case "authorized":
-		matched := (filterValue == "true" && m.Authorized) || (filterValue == "false" && !m.Authorized)
-		logger.Trace("Filter by authorized: member='%s', authorized=%v, filter_value='%s', matched=%v", m.Name, m.Authorized, filterValue, matched)
-		return matched
-	case "tag":
-		matched := false
-		for _, tag := range m.Tags {
-			if tag == filterValue {
-				matched = true
-				break
-			}
-		}
-		logger.Trace("Filter by tag: member='%s', tags=%v, filter_value='%s', matched=%v", m.Name, m.Tags, filterValue, matched)
-		return matched
-	case "id":
-		matched := m.ID == filterValue
-		logger.Trace("Filter by id: member='%s', id=%s, filter_value='%s', matched=%v", m.Name, m.ID, filterValue, matched)
-		return matched
-	case "address":
-		matched := m.Address == filterValue
-		logger.Trace("Filter by address: member='%s', address=%s, filter_value='%s', matched=%v", m.Name, m.Address, filterValue, matched)
-		return matched
-	case "nodeid":
-		matched := fmt.Sprintf("%d", m.NodeID) == filterValue
-		logger.Trace("Filter by nodeid: member='%s', nodeid=%d, filter_value='%s', matched=%v", m.Name, m.NodeID, filterValue, matched)
-		return matched
-	case "ipAssignments":
-		matched := false
-		for _, ip := range m.IPs {
-			if ip == filterValue {
-				matched = true
-				break
-			}
-		}
-		logger.Trace("Filter by ipAssignments: member='%s', ips=%v, filter_value='%s', matched=%v", m.Name, m.IPs, filterValue, matched)
-		return matched
-	case "physicalAddress":
-		matched := m.PhysicalAddress == filterValue
-		logger.Trace("Filter by physicalAddress: member='%s', physicalAddress=%s, filter_value='%s', matched=%v", m.Name, m.PhysicalAddress, filterValue, matched)
-		return matched
-	default:
-		logger.Trace("No filter applied for member '%s'", m.Name)
-		return true // No filter
-	}
 }
 
-func matchZerotierCentralFilterWithLog(logger *log.ScopedLogger, filterType, filterValue string, m struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	LastSeen int64  `json:"lastSeen"`
-	Config   struct {
-		IPAssignments []string `json:"ipAssignments"`
-		Authorized    bool     `json:"authorized"`
-		Address       string   `json:"address"`
-	} `json:"config"`
-}, isOnline bool) bool {
-	switch filterType {
-	case "name":
-		matched := strings.Contains(m.Name, filterValue)
-		logger.Trace("Filter by name: member='%s', filter_value='%s', matched=%v", m.Name, filterValue, matched)
-		return matched
-	case "online":
-		matched := (filterValue == "true" && isOnline) || (filterValue == "false" && !isOnline)
-		logger.Trace("Filter by online: member='%s', online=%v, filter_value='%s', matched=%v", m.Name, isOnline, filterValue, matched)
-		return matched
-	case "authorized":
-		matched := (filterValue == "true" && m.Config.Authorized) || (filterValue == "false" && !m.Config.Authorized)
-		logger.Trace("Filter by authorized: member='%s', authorized=%v, filter_value='%s', matched=%v", m.Name, m.Config.Authorized, filterValue, matched)
-		return matched
-	case "id":
-		matched := m.ID == filterValue
-		logger.Trace("Filter by id: member='%s', id=%s, filter_value='%s', matched=%v", m.Name, m.ID, filterValue, matched)
-		return matched
-	case "address":
-		matched := m.Config.Address == filterValue
-		logger.Trace("Filter by address: member='%s', address=%s, filter_value='%s', matched=%v", m.Name, m.Config.Address, filterValue, matched)
-		return matched
-	case "ipAssignments":
-		matched := false
-		for _, ip := range m.Config.IPAssignments {
-			if ip == filterValue {
-				matched = true
-				break
+// EvaluateZerotierFilters evaluates structured filters against ZeroTier members
+func EvaluateZerotierFilters(filterConfig pollCommon.FilterConfig, member interface{}) bool {
+	return filterConfig.Evaluate(member, func(filter pollCommon.Filter, entry any) bool {
+		return evaluateZerotierFilter(filter, entry)
+	})
+}
+
+func evaluateZerotierFilter(filter pollCommon.Filter, member interface{}) bool {
+	switch filter.Type {
+	case pollCommon.FilterTypeOnline:
+		for _, condition := range filter.Conditions {
+			expected := strings.ToLower(condition.Value) == "true"
+			switch m := member.(type) {
+			case ZerotierCentralMember:
+				if m.Online != expected {
+					return false
+				}
+			case ZTNetMember:
+				if m.Online != expected {
+					return false
+				}
 			}
 		}
-		logger.Trace("Filter by ipAssignments: member='%s', ips=%v, filter_value='%s', matched=%v", m.Name, m.Config.IPAssignments, filterValue, matched)
-		return matched
+		return true
+
+	case pollCommon.FilterTypeName:
+		for _, condition := range filter.Conditions {
+			switch m := member.(type) {
+			case ZerotierCentralMember:
+				if !pollCommon.RegexMatch(condition.Value, m.Name) {
+					return false
+				}
+			case ZTNetMember:
+				if !pollCommon.RegexMatch(condition.Value, m.Name) {
+					return false
+				}
+			}
+		}
+		return true
+
+	case "authorized":
+		for _, condition := range filter.Conditions {
+			expected := strings.ToLower(condition.Value) == "true"
+			switch m := member.(type) {
+			case ZerotierCentralMember:
+				if m.Authorized != expected {
+					return false
+				}
+			case ZTNetMember:
+				if m.Authorized != expected {
+					return false
+				}
+			}
+		}
+		return true
+
+	case pollCommon.FilterTypeTag:
+		// Only supported by ZT-Net
+		if ztnetMember, ok := member.(ZTNetMember); ok {
+			for _, condition := range filter.Conditions {
+				found := false
+				for _, tag := range ztnetMember.Tags {
+					if pollCommon.RegexMatch(condition.Value, tag) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return false
+				}
+			}
+		}
+		return true
+
+	case "id":
+		for _, condition := range filter.Conditions {
+			switch m := member.(type) {
+			case ZerotierCentralMember:
+				if !pollCommon.RegexMatch(condition.Value, m.ID) {
+					return false
+				}
+			case ZTNetMember:
+				if !pollCommon.RegexMatch(condition.Value, m.ID) {
+					return false
+				}
+			}
+		}
+		return true
+
+	case "address":
+		for _, condition := range filter.Conditions {
+			switch m := member.(type) {
+			case ZerotierCentralMember:
+				if !pollCommon.RegexMatch(condition.Value, m.Address) {
+					return false
+				}
+			case ZTNetMember:
+				if !pollCommon.RegexMatch(condition.Value, m.Address) {
+					return false
+				}
+			}
+		}
+		return true
+
+	case "nodeid":
+		// Only supported by ZT-Net
+		if ztnetMember, ok := member.(ZTNetMember); ok {
+			for _, condition := range filter.Conditions {
+				nodeIDStr := fmt.Sprintf("%d", ztnetMember.NodeID)
+				if !pollCommon.RegexMatch(condition.Value, nodeIDStr) {
+					return false
+				}
+			}
+		}
+		return true
+
+	case "ipAssignments":
+		for _, condition := range filter.Conditions {
+			found := false
+			switch m := member.(type) {
+			case ZerotierCentralMember:
+				for _, ip := range m.IPAssignments {
+					if pollCommon.RegexMatch(condition.Value, ip) {
+						found = true
+						break
+					}
+				}
+			case ZTNetMember:
+				for _, ip := range m.IPAssignments {
+					if pollCommon.RegexMatch(condition.Value, ip) {
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+
+	case "physicalAddress":
+		// Only supported by ZT-Net
+		if ztnetMember, ok := member.(ZTNetMember); ok {
+			for _, condition := range filter.Conditions {
+				if !pollCommon.RegexMatch(condition.Value, ztnetMember.PhysicalAddress) {
+					return false
+				}
+			}
+		}
+		return true
+
 	default:
-		logger.Trace("No filter applied for member '%s'", m.Name)
-		return true // No filter
+		return true
 	}
 }
 

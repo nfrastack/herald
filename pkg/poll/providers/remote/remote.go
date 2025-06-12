@@ -21,6 +21,7 @@ type RemoteProvider struct {
 	lastRecords map[string]poll.DNSEntry
 	logPrefix   string
 	options     map[string]string
+	filterConfig pollCommon.FilterConfig // Add filter configuration
 	logger      *log.ScopedLogger // provider-specific logger
 }
 
@@ -46,6 +47,19 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 	logPrefix := pollCommon.BuildLogPrefix("remote", parsed.Name)
 	logLevel := options["log_level"] // Get provider-specific log level
 
+	// Convert string options to structured options for filtering
+	structuredOptions := make(map[string]interface{})
+	for key, value := range options {
+		structuredOptions[key] = value
+	}
+
+	// Parse filter configuration using structured format
+	filterConfig, err := pollCommon.NewFilterFromStructuredOptions(structuredOptions)
+	if err != nil {
+		log.Debug("%s Error creating filter configuration: %v, using default", logPrefix, err)
+		filterConfig = pollCommon.DefaultFilterConfig()
+	}
+
 	// Create scoped logger
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
@@ -61,6 +75,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		opts:      parsed,
 		logPrefix: logPrefix,
 		options:   options,
+		filterConfig: filterConfig,
 		logger:    scopedLogger,
 	}, nil
 }
