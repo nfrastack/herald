@@ -174,6 +174,7 @@ Global settings for the application. These can be set in the `general` section o
 - `log_timestamps` (bool): Whether to include timestamps in log output.
 - `dry_run` (bool): If true, perform a test run without making DNS changes.
 - `poll_profiles` (list of strings): List of poller profiles to use (e.g., `docker`, `traefik`).
+- `output_profiles` (list of strings): List of output profiles to use. If not specified, all defined output profiles will be used.
 
 **YAML Example:**
 
@@ -184,6 +185,9 @@ general:
   dry_run: false
   poll_profiles:
     - docker
+  output_profiles:
+    - hosts_export
+    - json_export
 ```
 
 #### Scoped Logging
@@ -196,11 +200,12 @@ Provider, poll, and domain-specific environment variables are also supported. Se
 
 The following environment variables can be used to configure DNS Companion:
 
-| Variable         | Description                                        | Default   |
-| ---------------- | -------------------------------------------------- | --------- |
-| `DRY_RUN`        | If true, do not perform actual DNS updates         | `false`   |
-| `LOG_LEVEL`      | Set log level (`trace` `debug`, `verbose`, `info`) | `verbose` |
-| `LOG_TIMESTAMPS` | Include timestamps in log output (`true`/`false`)  | `true`    |
+| Variable           | Description                                        | Default   |
+| ------------------ | -------------------------------------------------- | --------- |
+| `DRY_RUN`          | If true, do not perform actual DNS updates         | `false`   |
+| `LOG_LEVEL`        | Set log level (`trace` `debug`, `verbose`, `info`) | `verbose` |
+| `LOG_TIMESTAMPS`   | Include timestamps in log output (`true`/`false`)  | `true`    |
+| `OUTPUT_PROFILES`  | Comma-separated list of output profiles to use     | (all)     |
 
 ### Default Options
 

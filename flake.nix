@@ -130,6 +130,7 @@
                 log_timestamps = true;
                 dry_run = false;
                 poll_profiles = [ "docker" ];
+                output_profiles = [ "hosts_export" "json_export" ];
               };
               description = "General application settings.";
             };

@@ -78,6 +78,9 @@ func LoadFromEnvironment(cfg *ConfigFile) {
 	// Process provider environment variables
 	processProvidersFromEnv(cfg)
 
+	// Process output profiles from environment
+	processOutputProfilesFromEnv(cfg)
+
 	// Domain configurations
 	setDomainSettingsFromEnv(cfg)
 
@@ -287,6 +290,19 @@ func processProvidersFromEnv(cfg *ConfigFile) {
 	}
 
 	// Don't set default DNS provider unless explicitly configured
+}
+
+// processOutputProfilesFromEnv handles OUTPUT_PROFILES environment variable
+func processOutputProfilesFromEnv(cfg *ConfigFile) {
+	if outputProfiles := GetEnvVar("OUTPUT_PROFILES", ""); outputProfiles != "" {
+		profiles := strings.Split(outputProfiles, ",")
+		// Trim whitespace from each profile
+		for i := range profiles {
+			profiles[i] = strings.TrimSpace(profiles[i])
+		}
+		cfg.General.OutputProfiles = profiles
+		log.Debug("[config/env] Set output_profiles from environment: %v", cfg.General.OutputProfiles)
+	}
 }
 
 // getAllEnvVars returns all environment variables as a slice of strings

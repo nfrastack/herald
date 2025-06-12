@@ -275,7 +275,20 @@ func main() {
 	config.SetDomainConfigs(domainConfigs)
 
 	// Initialize output manager with profiles from config
-	if err := output.InitializeOutputManager(cfg.Outputs); err != nil {
+	outputProfiles := cfg.General.OutputProfiles
+	if len(outputProfiles) == 0 {
+		// If no output profiles specified, use all available
+		for profileName := range cfg.Outputs {
+			outputProfiles = append(outputProfiles, profileName)
+		}
+		if len(outputProfiles) > 0 {
+			log.Debug("[output] No output_profiles specified in general config, using all available: %v", outputProfiles)
+		}
+	} else {
+		log.Debug("[output] Using specified output profiles: %v", outputProfiles)
+	}
+
+	if err := output.InitializeOutputManagerWithProfiles(cfg.Outputs, outputProfiles); err != nil {
 		log.Fatal("[output] Failed to initialize output manager: %v", err)
 	}
 
