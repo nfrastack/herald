@@ -6,6 +6,11 @@ general:
   dry_run: false
   poll_profiles:
     - docker
+  output_profiles:                              # List of output profiles to use (optional, defaults to all)
+    - hosts
+    - json
+    # - yaml                                    # Commented out profiles are ignored
+    # - zone                                    # Use this to selectively enable only certain outputs
 
 defaults:
   record:
