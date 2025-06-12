@@ -308,6 +308,18 @@ filter:
   - type: server
     conditions:
       - value: "srv0"
+
+# Complex filtering with multiple conditions
+filter:
+  - type: host
+    conditions:
+      - value: "*.localhost"
+      - value: "*.internal"
+        logic: or
+  - type: handler
+    operation: AND
+    conditions:
+      - value: "reverse_proxy"
 ```
 
 #### Docker Poller
@@ -582,14 +594,19 @@ The file provider allows you to manage DNS records by reading from a YAML or JSO
 **Example configuration:**
 
 ```yaml
-poll:
-  - type: file
+polls:
+  file_example:
+    type: file
     name: file_example
     source: ./result/records.yaml
     format: yaml # or json - autodetects based on extension
     interval: -1 # (default: watch mode)
     record_remove_on_stop: true
     process_existing: true
+    filter:
+      - type: hostname
+        conditions:
+          - value: "*.example.com"
 ```
 
 **File format (YAML):**
@@ -603,6 +620,42 @@ records:
   - host: api.example.com
     type: CNAME
     target: www.example.com
+```
+
+**Filter Options:**
+
+The File provider supports filtering to control which records from the file are processed:
+
+- **hostname**: Filter by hostname patterns
+- **type**: Filter by DNS record type (A, AAAA, CNAME)
+- **target**: Filter by target values
+
+**Example Filters:**
+
+```yaml
+# Only process A records
+filter:
+  - type: type
+    conditions:
+      - value: "A"
+
+# Only process records for specific domain
+filter:
+  - type: hostname
+    conditions:
+      - value: "*.example.com"
+
+# Complex filtering
+filter:
+  - type: hostname
+    conditions:
+      - value: "*.example.com"
+      - value: "*.test.com"
+        logic: or
+  - type: type
+    operation: AND
+    conditions:
+      - value: "A"
 ```
 
 **Options:**
@@ -631,6 +684,46 @@ polls:
     record_remove_on_stop: true
     remote_auth_user: myuser # Optional HTTP Basic Auth
     remote_auth_pass: mypassword # Optional HTTP Basic Auth
+    filter:
+      - type: hostname
+        conditions:
+          - value: "*.example.com"
+```
+
+**Filter Options:**
+
+The Remote provider supports filtering to control which records from the remote file are processed:
+
+- **hostname**: Filter by hostname patterns
+- **type**: Filter by DNS record type (A, AAAA, CNAME)
+- **target**: Filter by target values
+
+**Example Filters:**
+
+```yaml
+# Only process CNAME records
+filter:
+  - type: type
+    conditions:
+      - value: "CNAME"
+
+# Only process records matching domain patterns
+filter:
+  - type: hostname
+    conditions:
+      - value: "api.*"
+      - value: "web.*"
+        logic: or
+
+# Complex filtering with multiple conditions
+filter:
+  - type: target
+    conditions:
+      - value: "192.168.*"
+  - type: type
+    operation: AND
+    conditions:
+      - value: "A"
 ```
 
 ##### Options
@@ -660,9 +753,11 @@ polls:
     hostname_format: "simple"  # "simple", "tailscale", or "full"
     process_existing: true
     record_remove_on_stop: true
-    # Optional filters (defaults to online=true if no filters specified)
-    filter_type: online
-    filter_value: "true"
+    #Filtering (defaults to online=true if no filters specified)
+    filter:
+      - type: online
+        conditions:
+          - value: "true"
 ```
 
 **Authentication Methods:**
@@ -724,24 +819,40 @@ polls:
 - `hostname_format`: How to format hostnames (default: "simple")
 - `process_existing`: Process existing devices on startup (default: false)
 - `record_remove_on_stop`: Remove DNS records when devices go offline (default: false)
-- `filter_type`: Filter devices by criteria (default: "online")
-- `filter_value`: Value for filter type (default: "true")
 - `log_level`: Provider-specific log level override
 
 **Advanced Filtering:**
 
 ```yaml
 # Only process devices with specific tags
-filter_type: tag
-filter_value: "production"
+filter:
+  - type: tag
+    conditions:
+      - value: production
 
 # Only process devices from specific user
-filter_type: user
-filter_value: "admin@company.com"
+filter:
+  - type: user
+    conditions:
+      - value: admin@company.com
 
 # Only process devices with specific IP
-filter_type: address
-filter_value: "100.64.0.10"
+filter:
+  - type: address
+    conditions:
+      - value: 100.64.0.10
+
+# Multiple conditions with logic operators
+filter:
+  - type: name
+    conditions:
+      - value: prod-*
+      - value: staging-*
+        logic: or
+  - type: online
+    operation: AND
+    conditions:
+      - value: true
 ```
 
 **Environment Variables:**
@@ -946,11 +1057,65 @@ The ZeroTier provider monitors ZeroTier network members and automatically create
 - `process_existing` (bool): Process records on startup (default: false)
 - `record_remove_on_stop` (bool): Remove DNS records when node goes offline (default: false)
 - `use_address_fallback` (bool): Use ZeroTier address as hostname when name is empty (default: false)
-- `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`, `ipAssignments`, `physicalAddress`
-- `filter_value` (string): Value for filter_type (default: `online=true`)
 - `log_level` (string): Provider-specific log level override (optional)
 
 **⚠️ Important**: For ZeroTier Central, set `online_timeout_seconds` to 300+ seconds (5+ minutes) to prevent erratic add/remove behavior due to inconsistent heartbeat timing. The default 120 seconds may cause members to flap online/offline frequently.
+
+##### Filtering
+
+The ZeroTier provider supports advanced filtering with conditions arrays:
+
+```yaml
+# Only online and authorized members
+polls:
+  zerotier_example:
+    type: zerotier
+    api_token: "your_token"
+    network_id: "your_network"
+    domain: "zt.example.com"
+    filter:
+      - type: online
+        conditions:
+          - value: true
+      - type: authorized
+        operation: AND
+        conditions:
+          - value: true
+
+# Only members with specific tags (ZT-Net only)
+filter:
+  - type: tag
+    conditions:
+      - value: production
+
+# Complex filtering with multiple conditions
+filter:
+  - type: name
+    conditions:
+      - value: server-*
+      - value: prod-*
+        logic: or
+  - type: authorized
+    operation: AND
+    conditions:
+      - value: true
+```
+
+**Available filter types:**
+
+| Filter Type       | Description                  | Example Values      | Supported APIs |
+| ----------------- | ---------------------------- | ------------------- | -------------- |
+| `online`          | Member online status         | `true`, `false`     | Both           |
+| `authorized`      | Member authorization status  | `true`, `false`     | Both           |
+| `name`            | Member name pattern match    | `server-*`, `^prod` | Both           |
+| `tag`             | Member has specific tag      | `dns`, `production` | ZT-Net only    |
+| `id`              | Exact member ID match        | `a1b2c3d4e5`        | Both           |
+| `address`         | Exact ZeroTier address match | `a1b2c3d4e5`        | Both           |
+| `nodeid`          | Node ID (ZT-Net only)        | `123`               | ZT-Net only    |
+| `ipAssignments`   | Has specific IP assignment   | `10.0.0.100`        | Both           |
+| `physicalAddress` | Physical address match       | `1.2.3.4/9993`      | ZT-Net only    |
+
+
 
 #### Basic Configuration
 
@@ -980,8 +1145,6 @@ polls:
 | `process_existing`       | bool     | `false`                   | Process existing members on startup                  |
 | `record_remove_on_stop`  | bool     | `false`                   | Remove DNS records when member goes offline          |
 | `use_address_fallback`   | bool     | `false`                   | Use ZeroTier address as hostname when name is empty  |
-| `filter_type`            | string   | `online`                  | Filter type (see filtering options below)            |
-| `filter_value`           | string   | `true`                    | Value for filter type                                |
 | `log_level`              | string   | global                    | Provider-specific log level override                 |
 
 #### API Types
@@ -999,23 +1162,6 @@ polls:
 - Authentication: `x-ztnet-auth` header
 - Network ID format: `org:domain.com:networkid` or `domain.com:networkid`
 
-#### Filtering Options
-
-Control which members create DNS records using `filter_type` and `filter_value`:
-
-| Filter Type       | Description                  | Example Values      |
-| ----------------- | ---------------------------- | ------------------- |
-| `online`          | Member online status         | `true`, `false`     |
-| `authorized`      | Member authorization status  | `true`, `false`     |
-| `name`            | Member name contains value   | `server`, `prod-`   |
-| `tag`             | Member has specific tag      | `dns`, `production` |
-| `id`              | Exact member ID match        | `a1b2c3d4e5`        |
-| `address`         | Exact ZeroTier address match | `a1b2c3d4e5`        |
-| `nodeid`          | Node ID (ZT-Net only)        | `123`               |
-| `ipAssignments`   | Has specific IP assignment   | `10.0.0.100`        |
-| `physicalAddress` | Physical address match       | `1.2.3.4/9993`      |
-
-
 #### Examples
 
 **ZeroTier Central - Production Setup**
@@ -1027,8 +1173,10 @@ zerotier_prod:
   network_id: "a1b2c3d4e5f6g7h8"
   domain: "vpn.company.com"
   online_timeout_seconds: 600  # 10 minutes - very stable
-  filter_type: "authorized"
-  filter_value: "true"
+  filter:
+    - type: authorized
+      conditions:
+        - value: true
   record_remove_on_stop: true
   log_level: "info"
 ```
@@ -1043,8 +1191,10 @@ zerotier_dev:
   network_id: "dev:dev.company.com:networkid123"
   domain: "dev.company.com"
   online_timeout_seconds: 300
-  filter_type: "tag"
-  filter_value: "development"
+  filter:
+    - type: tag
+      conditions:
+        - value: development
   use_address_fallback: true
   log_level: "debug"
 ```
