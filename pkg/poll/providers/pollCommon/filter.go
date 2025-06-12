@@ -51,7 +51,7 @@ type Filter struct {
 	Value      string          // Filter value (for legacy simple filters only)
 	Operation  string          // AND, OR, NOT (defaults to AND)
 	Negate     bool            // Invert the filter result
-	Conditions []FilterCondition // Modern filter conditions (replaces Data)
+	Conditions []FilterCondition // Filter conditions
 }
 
 // FilterCondition represents individual filter criteria in the modern format
@@ -148,7 +148,7 @@ func NewFilterFromStructuredOptions(options map[string]interface{}) (FilterConfi
 	return DefaultFilterConfig(), nil
 }
 
-// ParseFilterFromYAML parses the modern filter configuration format
+// ParseFilterFromYAML parses the filter configuration format
 // This supports the new YAML structure:
 // filter:
 //   - type: label
