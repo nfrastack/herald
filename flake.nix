@@ -5,7 +5,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "1.1.1";
+      version = "feat-filter_reorganization";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -159,6 +159,17 @@
                   expose_containers = false;
                   swarm_mode = false;
                   record_remove_on_stop = false;
+                  filter = [
+                    {
+                      type = "label";
+                      conditions = [
+                        {
+                          key = "environment";
+                          value = "production";
+                        }
+                      ];
+                    }
+                  ];
                   tls = {
                     verify = true;
                     ca = "/etc/docker/certs/ca.pem";
@@ -174,6 +185,16 @@
                   interval = "60s";
                   record_remove_on_stop = true;
                   process_existing = true;
+                  filter = [
+                    {
+                      type = "name";
+                      conditions = [
+                        {
+                          value = "^websecure-.*";
+                        }
+                      ];
+                    }
+                  ];
                 };
                 caddy = {
                   type = "caddy";
@@ -183,6 +204,16 @@
                   interval = "60s";
                   record_remove_on_stop = true;
                   process_existing = true;
+                  filter = [
+                    {
+                      type = "host";
+                      conditions = [
+                        {
+                          value = "*.localhost";
+                        }
+                      ];
+                    }
+                  ];
                 };
                 file = {
                   type = "file";
@@ -191,6 +222,16 @@
                   interval = "-1";
                   record_remove_on_stop = true;
                   process_existing = true;
+                  filter = [
+                    {
+                      type = "hostname";
+                      conditions = [
+                        {
+                          value = "*.example.com";
+                        }
+                      ];
+                    }
+                  ];
                 };
                 remote = {
                   type = "remote";
@@ -201,6 +242,16 @@
                   record_remove_on_stop = true;
                   remote_auth_user = "myuser";
                   remote_auth_pass = "mypassword";
+                  filter = [
+                    {
+                      type = "hostname";
+                      conditions = [
+                        {
+                          value = "*.example.com";
+                        }
+                      ];
+                    }
+                  ];
                 };
                 tailscale = {
                   type = "tailscale";
@@ -211,8 +262,16 @@
                   hostname_format = "simple";
                   process_existing = true;
                   record_remove_on_stop = true;
-                  filter_type = "online";
-                  filter_value = "true";
+                  filter = [
+                    {
+                      type = "online";
+                      conditions = [
+                        {
+                          value = "true";
+                        }
+                      ];
+                    }
+                  ];
                 };
                 zerotier = {
                   enable = lib.mkEnableOption "Enable Zerotier poll provider";
@@ -220,37 +279,41 @@
                     type = lib.types.str;
                     description = "Zerotier Central or ZT-Net API base URL.";
                   };
+
                   api_type = lib.mkOption {
                     type = lib.types.nullOr lib.types.str;
                     default = null;
                     description = "API type: 'zerotier' or 'ztnet'. Optional, autodetects if omitted.";
                   };
+
                   api_token = lib.mkOption {
                     type = lib.types.str;
                     description = "API token for Zerotier or ZT-Net.";
-                  };            interval = lib.mkOption {
-              type = lib.types.nullOr lib.types.str;
-              default = null;
-              description = "Polling interval (e.g., '60s'). Optional.";
-            };
+                  };
 
-            online_timeout_seconds = lib.mkOption {
-              type = lib.types.nullOr lib.types.int;
-              default = null;
-              description = "Seconds to consider a member offline (default: 60, recommend: 300+).";
-            };
+                 interval = lib.mkOption {
+                    type = lib.types.nullOr lib.types.str;
+                    default = null;
+                    description = "Polling interval (e.g., '60s'). Optional.";
+                  };
 
-            use_address_fallback = lib.mkOption {
-              type = lib.types.nullOr lib.types.bool;
-              default = null;
-              description = "Use ZeroTier address as hostname when name is empty.";
-            };
+                  online_timeout_seconds = lib.mkOption {
+                    type = lib.types.nullOr lib.types.int;
+                    default = null;
+                    description = "Seconds to consider a member offline (default: 60, recommend: 300+).";
+                  };
 
-            log_level = lib.mkOption {
-              type = lib.types.nullOr lib.types.str;
-              default = null;
-              description = "Provider-specific log level override (optional).";
-            };
+                  use_address_fallback = lib.mkOption {
+                    type = lib.types.nullOr lib.types.bool;
+                    default = null;
+                    description = "Use ZeroTier address as hostname when name is empty.";
+                  };
+
+                  log_level = lib.mkOption {
+                    type = lib.types.nullOr lib.types.str;
+                    default = null;
+                    description = "Provider-specific log level override (optional).";
+                  };
                   network_id = lib.mkOption {
                     type = lib.types.str;
                     description = "Zerotier network ID.";
@@ -269,15 +332,19 @@
                     default = true;
                     description = "Remove DNS records when node is removed or offline.";
                   };
-                  filter_type = lib.mkOption {
-                    type = lib.types.str;
-                    default = "online";
-                    description = "Filter by: online, name, authorized, tag, id, address, nodeid.";
-                  };
-                  filter_value = lib.mkOption {
-                    type = lib.types.str;
-                    default = "true";
-                    description = "Value for filter_type (default: online=true).";
+                  filter = lib.mkOption {
+                    type = lib.types.listOf (lib.types.attrsOf lib.types.anything);
+                    default = [
+                      {
+                        type = "online";
+                        conditions = [
+                          {
+                            value = "true";
+                          }
+                        ];
+                      }
+                    ];
+                    description = "Modern filter configuration using conditions array format.";
                   };
                 };
               };
