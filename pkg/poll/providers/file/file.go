@@ -30,6 +30,7 @@ type FileProvider struct {
 	recordRemoveOnStop bool
 	processExisting    bool
 	options            map[string]string
+	filterConfig       pollCommon.FilterConfig // Add filter configuration
 	lastRecords        map[string]poll.DNSEntry
 	mutex              sync.Mutex
 	running            bool
@@ -53,6 +54,20 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		log.Error("%s source option (file path) is required", logPrefix)
 		return nil, fmt.Errorf("%s source option (file path) is required", logPrefix)
 	}
+
+	// Convert string options to structured options for filtering
+	structuredOptions := make(map[string]interface{})
+	for key, value := range options {
+		structuredOptions[key] = value
+	}
+
+	// Parse filter configuration using structured format
+	filterConfig, err := pollCommon.NewFilterFromStructuredOptions(structuredOptions)
+	if err != nil {
+		log.Debug("%s Error creating filter configuration: %v, using default", logPrefix, err)
+		filterConfig = pollCommon.DefaultFilterConfig()
+	}
+
 	format := pollCommon.GetOptionOrEnv(options, "format", "FILE_FORMAT", "")
 	if format == "" {
 		ext := strings.ToLower(filepath.Ext(source))
@@ -109,6 +124,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		recordRemoveOnStop: parsed.RecordRemoveOnStop,
 		processExisting:    parsed.ProcessExisting,
 		options:            options,
+		filterConfig:       filterConfig,
 		lastRecords:        make(map[string]poll.DNSEntry),
 		ctx:                ctx,
 		cancel:             cancel,
