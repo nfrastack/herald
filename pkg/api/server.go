@@ -452,6 +452,9 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 				outputManager := output.GetOutputManager()
 				if outputManager != nil {
 					// Write each aggregated record through the output manager
+					var writeErrors []error
+					recordCount := 0
+					
 					for domainName, records := range aggregatedRecords {
 						for _, record := range records {
 							hostname, _ := record["hostname"].(string)
@@ -463,17 +466,30 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 							err := outputManager.WriteRecordWithSource(domainName, hostname, target, recordType, int(ttl), source)
 							if err != nil {
 								s.logger.Error("[%s] Failed to write aggregated record %s.%s: %v", connID, hostname, domainName, err)
+								writeErrors = append(writeErrors, err)
+							} else {
+								recordCount++
 							}
 						}
 					}
 
 					// Sync all output formats to flush changes
-					err := outputManager.SyncAll()
-					if err != nil {
-						s.logger.Error("[%s] Failed to sync output formats: %v", connID, err)
+					syncErr := outputManager.SyncAll()
+					if syncErr != nil {
+						s.logger.Error("[%s] Failed to sync output formats: %v", connID, syncErr)
+						writeErrors = append(writeErrors, syncErr)
+					}
+
+					// Only log success if there were no errors
+					if len(writeErrors) == 0 && recordCount > 0 {
+						s.logger.Info("[%s] Successfully wrote %d records from %d domains (%d clients) to output profile '%s'",
+							connID, recordCount, len(aggregatedRecords), len(clientIDs), outputProfile)
+					} else if len(writeErrors) > 0 {
+						s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred", 
+							connID, outputProfile, len(writeErrors))
 					} else {
-						s.logger.Info("[%s] Wrote %d domains from %d clients to output profile '%s'",
-							connID, len(aggregatedRecords), len(clientIDs), outputProfile)
+						s.logger.Warn("[%s] No records were written to output profile '%s' (no data to process)", 
+							connID, outputProfile)
 					}
 				} else {
 					s.logger.Error("[%s] Output manager not available for profile '%s'", connID, outputProfile)

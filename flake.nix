@@ -5,7 +5,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "1.2.0";
+      version = "1.2.1";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
