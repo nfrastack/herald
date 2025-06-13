@@ -5,7 +5,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "1.2.1";
+      version = "1.2.1-pre";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -502,11 +502,11 @@
                 configData =
                   (if cfg.general != {} then { general = cfg.general; } else {})
                   // (if cfg.defaults != {} then { defaults = cfg.defaults; } else {})
-                  // (if cfg.polls != {} then { polls = reorderSection cfg.polls; } else {})
                   // (if cfg.providers != {} then { providers = reorderSection cfg.providers; } else {})
+                  // (if cfg.api != {} then { api = cfg.api; } else {})
+                  // (if cfg.polls != {} then { polls = reorderSection cfg.polls; } else {})
                   // (if cfg.domains != {} then { domains = cfg.domains; } else {})
                   // (if cfg.outputs != {} then { outputs = cfg.outputs; } else {})
-                  // (if cfg.api != {} then { api = cfg.api; } else {})
                   // (if cfg.include != null then { include = cfg.include; } else {});
               in yaml.generate "dns-companion.yml" configData;
 
