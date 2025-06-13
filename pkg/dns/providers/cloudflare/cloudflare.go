@@ -52,9 +52,6 @@ func NewProvider(config map[string]string) (dns.Provider, error) {
 
 	// Test the scoped logger immediately
 	log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
-	scopedLogger.Trace("%s SCOPED TEST: This should show if provider log_level='trace'", logPrefix)
-	scopedLogger.Debug("%s SCOPED TEST: This should show if provider log_level='debug' or higher", logPrefix)
-	scopedLogger.Info("%s SCOPED TEST: This should show if provider log_level='info' or higher", logPrefix)
 
 	p := &Provider{
 		config:      config,
@@ -94,7 +91,7 @@ func (p *Provider) lazyInitAPI() error {
 	var api *cloudflare.API
 	var err error
 
-	// Check if we have an API token
+	// Check if we have an API token (supports file:// references)
 	apiToken := config.GetConfig(p.config, "api_token")
 	if apiToken != "" {
 		// Use the token-based authentication method
@@ -103,7 +100,7 @@ func (p *Provider) lazyInitAPI() error {
 			return fmt.Errorf("%s failed to initialize API with token: %w", p.logPrefix, err)
 		}
 	} else {
-		// Check for email and API key (legacy auth)
+		// Check for email and API key (legacy auth) - supports file:// references
 		email := config.GetConfig(p.config, "api_email")
 		apiKey := config.GetConfig(p.config, "api_key")
 

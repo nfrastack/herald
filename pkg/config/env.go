@@ -81,6 +81,9 @@ func LoadFromEnvironment(cfg *ConfigFile) {
 	// Process output profiles from environment
 	processOutputProfilesFromEnv(cfg)
 
+	// Process API configuration from environment
+	processAPIConfigFromEnv(cfg)
+
 	// Domain configurations
 	setDomainSettingsFromEnv(cfg)
 
@@ -302,6 +305,62 @@ func processOutputProfilesFromEnv(cfg *ConfigFile) {
 		}
 		cfg.General.OutputProfiles = profiles
 		log.Debug("[config/env] Set output_profiles from environment: %v", cfg.General.OutputProfiles)
+	}
+}
+
+// processAPIConfigFromEnv handles API configuration from environment variables
+func processAPIConfigFromEnv(cfg *ConfigFile) {
+	if enabled := GetEnvVar("API_ENABLED", ""); enabled != "" {
+		if cfg.API == nil {
+			cfg.API = &APIConfig{}
+		}
+		cfg.API.Enabled = EnvToBool("API_ENABLED", false)
+		log.Debug("[config/env] Set API enabled to '%v' from environment", cfg.API.Enabled)
+	}
+
+	if port := GetEnvVar("API_PORT", ""); port != "" {
+		if cfg.API == nil {
+			cfg.API = &APIConfig{}
+		}
+		cfg.API.Port = port
+		log.Debug("[config/env] Set API port to '%s' from environment", port)
+	}
+
+	if listen := GetEnvVar("API_LISTEN", ""); listen != "" {
+		if cfg.API == nil {
+			cfg.API = &APIConfig{}
+		}
+		// Parse comma-separated listen patterns
+		patterns := strings.Split(listen, ",")
+		for i := range patterns {
+			patterns[i] = strings.TrimSpace(patterns[i])
+		}
+		cfg.API.Listen = patterns
+		log.Debug("[config/env] Set API listen patterns to '%v' from environment", patterns)
+	}
+
+	if endpoint := GetEnvVar("API_ENDPOINT", ""); endpoint != "" {
+		if cfg.API == nil {
+			cfg.API = &APIConfig{}
+		}
+		cfg.API.Endpoint = endpoint
+		log.Debug("[config/env] Set API endpoint to '%s' from environment", endpoint)
+	}
+
+	if expiry := GetEnvVar("API_CLIENT_EXPIRY", ""); expiry != "" {
+		if cfg.API == nil {
+			cfg.API = &APIConfig{}
+		}
+		cfg.API.ClientExpiry = expiry
+		log.Debug("[config/env] Set API client expiry to '%s' from environment", expiry)
+	}
+
+	if logLevel := GetEnvVar("API_LOG_LEVEL", ""); logLevel != "" {
+		if cfg.API == nil {
+			cfg.API = &APIConfig{}
+		}
+		cfg.API.LogLevel = logLevel
+		log.Debug("[config/env] Set API log level to '%s' from environment", logLevel)
 	}
 }
 

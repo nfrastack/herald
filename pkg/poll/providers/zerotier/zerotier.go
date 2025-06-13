@@ -44,11 +44,12 @@ type ZerotierProvider struct {
 }
 
 func NewProvider(options map[string]string) (poll.Provider, error) {
-	apiURL := options["api_url"]
-	apiToken := options["api_token"]
-	networkID := options["network_id"]
-	apiType := options["api_type"] // "zerotier" or "ztnet"
-	domain := options["domain"]
+	// Use file:// support for all configuration options
+	apiURL := pollCommon.GetOptionOrEnv(options, "api_url", "ZEROTIER_API_URL", "")
+	apiToken := pollCommon.GetOptionOrEnv(options, "api_token", "ZEROTIER_API_TOKEN", "")
+	networkID := pollCommon.GetOptionOrEnv(options, "network_id", "ZEROTIER_NETWORK_ID", "")
+	apiType := pollCommon.GetOptionOrEnv(options, "api_type", "ZEROTIER_API_TYPE", "") // "zerotier" or "ztnet"
+	domain := pollCommon.GetOptionOrEnv(options, "domain", "ZEROTIER_DOMAIN", "")
 	interval := 60 * time.Second
 	if v := options["interval"]; v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
@@ -225,7 +226,7 @@ func (p *ZerotierProvider) GetDNSEntries() ([]poll.DNSEntry, error) {
 }
 
 func (p *ZerotierProvider) pollLoop() {
-	p.logger.Verbose("%s Entering poll loop (interval: %v)", p.logPrefix, p.interval)
+	p.logger.Verbose("Entering poll loop (interval: %v)", p.interval)
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 	var lastEntries []poll.DNSEntry
@@ -277,12 +278,12 @@ func (p *ZerotierProvider) pollLoop() {
 
 // logMemberAdded logs when a member is added with appropriate message based on filter type
 func (p *ZerotierProvider) logMemberAdded(name string) {
-	p.logger.Info("%s Member added: %s", p.logPrefix, name)
+	p.logger.Info("Member added: %s", name)
 }
 
 // logMemberRemoved logs when a member is removed with appropriate message based on filter type
 func (p *ZerotierProvider) logMemberRemoved(name string) {
-	p.logger.Info("%s Member removed: %s", p.logPrefix, name)
+	p.logger.Info("Member removed: %s", name)
 }
 
 // updateDNSEntries compares current and previous entries and updates DNS accordingly

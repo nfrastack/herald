@@ -51,25 +51,25 @@ func ParseTLSConfigFromOptions(options map[string]string) TLSConfig {
 	if verify, ok := options["tls.verify"]; ok {
 		config.Verify = strings.ToLower(verify) != "false" && verify != "0"
 	}
-	if ca, ok := options["tls.ca"]; ok {
+	if ca := GetOptionOrEnv(options, "tls.ca", "", ""); ca != "" {
 		config.CA = ca
 	}
-	if cert, ok := options["tls.cert"]; ok {
+	if cert := GetOptionOrEnv(options, "tls.cert", "", ""); cert != "" {
 		config.Cert = cert
 	}
-	if key, ok := options["tls.key"]; ok {
+	if key := GetOptionOrEnv(options, "tls.key", "", ""); key != "" {
 		config.Key = key
 	}
 
-	// Also check for non-nested versions
+	// Also check for non-nested versions with file:// support
 	if config.CA == "" {
-		config.CA = options["tls_ca"]
+		config.CA = GetOptionOrEnv(options, "tls_ca", "", "")
 	}
 	if config.Cert == "" {
-		config.Cert = options["tls_cert"]
+		config.Cert = GetOptionOrEnv(options, "tls_cert", "", "")
 	}
 	if config.Key == "" {
-		config.Key = options["tls_key"]
+		config.Key = GetOptionOrEnv(options, "tls_key", "", "")
 	}
 
 	return config

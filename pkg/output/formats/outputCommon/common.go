@@ -84,7 +84,9 @@ func AddScopedLogging(provider interface{}, formatType, name string, options map
 		logLevel = val
 	}
 
-	logPrefix := fmt.Sprintf("[output/%s/%s]", formatType, name)
+	// Normalize domain name for consistent logging (replace dots with underscores)
+	normalizedName := strings.ReplaceAll(name, ".", "_")
+	logPrefix := fmt.Sprintf("[output/%s/%s]", formatType, normalizedName)
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
 	// Only log override message if there's actually a log level override

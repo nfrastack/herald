@@ -138,7 +138,7 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `exclude_subdomains` (list of str): Subdomains to exclude.
 * `outputs` (attrs): Output profile definitions. Example:
   * `hosts_export` (attrs):
-    * `format` (str): Output format. One of "hosts", "json", "yaml", "zone".
+    * `format` (str): Output format. One of "hosts", "json", "yaml", "zone", "remote".
     * `path` (str): Path to the output file.
     * `domains` (list of str or str): Domains this output applies to. Use "all", "ALL", "any", or "*" for all domains. If omitted, defaults to all domains. Lowercase "all" is preferred for style.
     * `user` (string, optional): File owner (username or UID).
@@ -154,6 +154,38 @@ Here are the available options for the NixOS module (services.dns-companion):
     * `default_ttl` (int, zone only): Default TTL for zone records.
     * `soa` (attr, zone only): SOA record configuration.
     * `ns_records` (list, zone only): List of authoritative nameservers.
+    * `url` (string, remote only): Remote aggregator URL.
+    * `client_id` (string, remote only): Unique client identifier.
+    * `token` (string, remote only): Bearer authentication token.
+    * `timeout` (string, remote only): HTTP request timeout (e.g., "30s").
+    * `data_format` (string, remote only): Data format ("json" or "yaml").
+    * `log_level` (string, remote only): Output-specific log level override.
+    * `tls` (attr, remote only): TLS configuration for HTTPS.
+      * `verify` (bool): Verify TLS certificates (default: true).
+      * `ca` (string): Custom CA certificate file path.
+      * `cert` (string): Client certificate for mutual TLS.
+      * `key` (string): Client private key for mutual TLS.
+* `api` (attrs): API server configuration for receiving DNS records from remote instances. Example:
+  * `enabled` (bool): Enable the API server.
+  * `port` (string): Server port (default: "8080").
+  * `listen` (list of strings): Interface patterns to listen on. Supports:
+    * `"all"` or `"*"` for all interfaces (default)
+    * Specific IP addresses like `"192.168.1.100"`
+    * Interface names like `"eth0"` or `"enp0s3"`
+    * Wildcard patterns like `"enp*"` for all Ethernet interfaces
+    * Exclusion patterns like `"!docker*"` to exclude Docker interfaces
+    * Example: `[ "all" "!docker*" "!lo" ]` listens on all interfaces except Docker and loopback
+  * `endpoint` (string): HTTP endpoint path (default: "/api/dns").
+  * `client_expiry` (string): How long to keep client data (default: "10m").
+  * `log_level` (string): API server log level override.
+  * `profiles` (attrs): Client authentication profiles.
+    * `server1` (attrs):
+      * `token` (string): Bearer authentication token for this client.
+      * `output_profile` (string): Output profile to route this client's data to.
+  * `tls` (attrs): TLS configuration for HTTPS.
+    * `cert` (string): Server certificate file path.
+    * `key` (string): Server private key file path.
+    * `ca` (string): Client CA certificate for mutual TLS authentication.
 * `include` (str or list of str): One or more YAML files to include into the main configuration.
 
 This setup allows you to fully configure and manage the DNS Companion service declaratively using NixOS.

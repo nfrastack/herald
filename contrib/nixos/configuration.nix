@@ -242,67 +242,97 @@
             ttl = 120;
             update_existing = true;
           };
-          outputs = {
-            zonefile = {
-              path = "/var/named/example.com.zone";
-              user = "named";
-              group = "named";
-              mode = 644;
-              default_ttl = 300;
-              soa = {
-                primary_ns = "ns1.example.com";
-                admin_email = "admin@example.com";
-                serial = "auto";
-                refresh = 3600;
-                retry = 900;
-                expire = 604800;
-                minimum = 300;
-              };
-              ns_records = [ "ns1.example.com" "ns2.example.com" ];
-            };
-            yaml = {
-              path = "/backup/dns/example.com.yaml";
-              user = "dns-backup";
-              group = "dns-backup";
-              mode = 644;
-              generator = "dns-companion-prod";
-              hostname = "server01.example.com";
-              comment = "Production DNS records for example.com";
-            };
-            json = {
-              path = "/var/www/api/dns/example.com.json";
-              user = "www-data";
-              group = "www-data";
-              mode = 644;
-              generator = "dns-companion";
-              hostname = "api-server.example.com";
-              comment = "API-accessible DNS records";
-              indent = true;
-            };
-            hosts_export = {
-              format = "hosts";
-              path = "/etc/hosts.dns-companion";
-              domains = [ "all" ];
-              user = "root";
-              group = "root";
-              mode = 420; # 0644
-              enable_ipv4 = true;
-              enable_ipv6 = false;
-              header_comment = "Managed by DNS Companion";
-            };
-            json_export = {
-              format = "json";
-              path = "/var/lib/dns-companion/records.json";
-              domains = [ "example.com" "test.com" ];
-              user = "dns-companion";
-              group = "dns-companion";
-              mode = 420;
-              generator = "dns-companion-nixos";
-              hostname = "nixos-server";
-              comment = "Exported DNS records";
-              indent = true;
-            };
+        };
+      };
+      outputs = {
+        hosts_export = {
+          format = "hosts";
+          path = "/etc/hosts.dns-companion";
+          domains = [ "all" ];
+          user = "root";
+          group = "root";
+          mode = 420; # 0644
+          enable_ipv4 = true;
+          enable_ipv6 = false;
+          header_comment = "Managed by DNS Companion";
+        };
+        json_export = {
+          format = "json";
+          path = "/var/lib/dns-companion/records.json";
+          domains = [ "example.com" "test.com" ];
+          user = "dns-companion";
+          group = "dns-companion";
+          mode = 420;
+          generator = "dns-companion-nixos";
+          hostname = "nixos-server";
+          comment = "Exported DNS records";
+          indent = true;
+        };
+        yaml_export = {
+          format = "yaml";
+          path = "/backup/dns/example.com.yaml";
+          user = "dns-backup";
+          group = "dns-backup";
+          mode = 644;
+          generator = "dns-companion-prod";
+          hostname = "server01.example.com";
+          comment = "Production DNS records for example.com";
+        };
+        zone_export = {
+          format = "zone";
+          path = "/var/named/example.com.zone";
+          user = "named";
+          group = "named";
+          mode = 644;
+          default_ttl = 300;
+          soa = {
+            primary_ns = "ns1.example.com";
+            admin_email = "admin@example.com";
+            serial = "auto";
+            refresh = 3600;
+            retry = 900;
+            expire = 604800;
+            minimum = 300;
           };
+          ns_records = [ "ns1.example.com" "ns2.example.com" ];
+        };
+        send_to_api = {
+          format = "remote";
+          url = "https://dns-master.company.com/api/dns";
+          client_id = "server1";
+          token = "your_bearer_token_here";
+          timeout = "30s";
+          format = "json";
+          log_level = "info";
+          tls = {
+            verify = true;
+            ca = "/etc/ssl/ca/server-ca.pem";
+            cert = "/etc/ssl/certs/client.pem";
+            key = "/etc/ssl/private/client.key";
+          };
+        };
+      };
+      api = {
+        enabled = true;
+        port = "8080";
+        listen = [ "all" "!docker*" "!lo" ];        # Listen on all interfaces except Docker and loopback
+        endpoint = "/api/dns";
+        client_expiry = "10m";
+        log_level = "info";
+        profiles = {
+          server1 = {
+            token = "your_bearer_token_here";
+            output_profile = "aggregated_zones";
+          };
+          server2 = {
+            token = "file:///var/run/secrets/server2_token";  # Load token from file
+            output_profile = "special_zones";
+          };
+        };
+        tls = {
+          cert = "/etc/ssl/certs/dns-companion.crt";
+          key = "/etc/ssl/private/dns-companion.key";
+          ca = "/etc/ssl/ca/client-ca.pem";
         };
       };
     };
