@@ -404,6 +404,21 @@
                   comment = "Exported DNS records";
                   indent = true;
                 };
+                send_to_api = {
+                  format = "remote";
+                  url = "https://dns-master.company.com/api/dns";
+                  client_id = "server1";
+                  token = "your_bearer_token_here";
+                  timeout = "30s";
+                  data_format = "json";
+                  log_level = "info";
+                  tls = {
+                    verify = true;
+                    ca = "/etc/ssl/ca/server-ca.pem";
+                    cert = "/etc/ssl/certs/client.pem";
+                    key = "/etc/ssl/private/client.key";
+                  };
+                };
               };
               description = ''
                 Output profile system. Configure multiple independent output profiles
@@ -411,6 +426,47 @@
 
                 Each profile supports format-specific options like SOA records for zone files,
                 metadata for YAML/JSON exports, and file ownership settings.
+
+                The remote_api format allows pushing DNS records to a central aggregation server.
+              '';
+            };
+
+            api = lib.mkOption {
+              type = lib.types.attrsOf lib.types.anything;
+              default = {};
+              example = {
+                enabled = true;
+                port = "8080";
+                listen = [ "all" "!docker*" "!lo" ];
+                endpoint = "/api/dns";
+                client_expiry = "10m";
+                log_level = "info";
+                profiles = {
+                  server1 = {
+                    token = "your_bearer_token_here";
+                    output_profile = "aggregated_zones";
+                  };
+                  server2 = {
+                    token = "file:///var/run/secrets/server2_token";
+                    output_profile = "special_zones";
+                  };
+                };
+                tls = {
+                  cert = "/etc/ssl/certs/dns-companion.crt";
+                  key = "/etc/ssl/private/dns-companion.key";
+                  ca = "/etc/ssl/ca/client-ca.pem";
+                };
+              };
+              description = ''
+                API server configuration for receiving DNS records from remote dns-companion instances.
+
+                Features:
+                - Bearer token authentication per client
+                - Failed attempt tracking and rate limiting
+                - TLS with optional mutual authentication
+                - Comprehensive security logging
+                - Automatic client expiry and cleanup
+                - Route client data to different output profiles
               '';
             };
 
@@ -450,6 +506,7 @@
                   // (if cfg.providers != {} then { providers = reorderSection cfg.providers; } else {})
                   // (if cfg.domains != {} then { domains = cfg.domains; } else {})
                   // (if cfg.outputs != {} then { outputs = cfg.outputs; } else {})
+                  // (if cfg.api != {} then { api = cfg.api; } else {})
                   // (if cfg.include != null then { include = cfg.include; } else {});
               in yaml.generate "dns-companion.yml" configData;
 

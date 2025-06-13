@@ -65,11 +65,9 @@ func RegisterAllFormats() {
 	// This centralizes format registration instead of requiring imports everywhere
 	_ = "dns-companion/pkg/output/formats/hosts"
 	_ = "dns-companion/pkg/output/formats/json"
+	_ = "dns-companion/pkg/output/formats/remote"
 	_ = "dns-companion/pkg/output/formats/yaml"
 	_ = "dns-companion/pkg/output/formats/zonefile"
-
-	// If we had dynamic loading, we could scan a directory here
-	// For now, the init() functions in each format package handle registration
 }
 
 // ValidateFormatExists checks if a format is registered before using it
@@ -158,7 +156,8 @@ func NewBaseFormat(domain, formatName string, config map[string]interface{}) (*B
 		baseConfig.Mode = mode
 	}
 
-	if baseConfig.Path == "" {
+	// Only require path for file-based formats, not remote
+	if formatName != "remote" && baseConfig.Path == "" {
 		return nil, baseConfig, fmt.Errorf("path is required for %s format", formatName)
 	}
 
@@ -736,4 +735,26 @@ func InitializeOutputManager(outputsConfig map[string]interface{}) error {
 
 	SetGlobalOutputManager(manager)
 	return nil
+}
+
+// CreateOutputFormat creates an output format instance from configuration
+func CreateOutputFormat(profileName string, profileConfig interface{}) (OutputFormat, error) {
+	config, ok := profileConfig.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid configuration format for profile %s", profileName)
+	}
+
+	// Determine the format type from the config
+	formatType := "json" // default
+	if format, exists := config["format"].(string); exists {
+		formatType = format
+	}
+
+	// Create the output format
+	format, exists := formatRegistry[formatType]
+	if !exists {
+		return nil, fmt.Errorf("unknown output format: %s", formatType)
+	}
+
+	return format("", config)
 }

@@ -5,6 +5,7 @@
 package main
 
 import (
+	"dns-companion/pkg/api"
 	"dns-companion/pkg/config"
 	"dns-companion/pkg/dns"
 	"dns-companion/pkg/dns/providers"
@@ -167,6 +168,43 @@ func main() {
 	// Register DNS providers after logging is initialized
 	providers.RegisterProviders()
 
+	// Start API server if enabled
+	if cfg.API != nil && cfg.API.Enabled {
+		apiLogger := log.NewScopedLogger("[api]", cfg.API.LogLevel)
+		apiLogger.Info("Starting API server")
+		if err := api.StartAPIServer(cfg.API); err != nil {
+			log.Fatal("[api] Failed to start API server: %v", err)
+		}
+		// If API is enabled, allow running with zero poll providers
+		if len(cfg.Polls) == 0 {
+			apiLogger.Warn("No poll providers defined, running in API-only mode.")
+		}
+	}
+
+	// Poll provider logic:
+	// Only enforce poll profile requirements if API is not enabled
+	if !(cfg.API != nil && cfg.API.Enabled) {
+		if len(cfg.Polls) == 0 {
+			log.Fatal("[poll] No poll providers specified in configuration and API is not enabled.")
+		}
+		if len(cfg.Polls) == 1 && len(cfg.General.PollProfiles) == 0 {
+			for name := range cfg.Polls {
+				cfg.General.PollProfiles = []string{name}
+				log.Info("[poll] Only one poll provider defined, auto-enabling: %s", name)
+			}
+		}
+		if len(cfg.Polls) > 1 && len(cfg.General.PollProfiles) == 0 {
+			log.Fatal("[poll] Multiple poll providers defined but poll_profiles not set in config. Please specify which to enable.")
+		}
+		if len(cfg.General.PollProfiles) == 0 {
+			log.Fatal("[poll] No poll profiles specified in configuration")
+		}
+	} else {
+		if len(cfg.Polls) == 0 || len(cfg.General.PollProfiles) == 0 {
+			log.Warn("[api] Running in API-only mode: no poll providers or poll profiles defined.")
+		}
+	}
+
 	// Determine DNS provider name (automatic selection if only one, else error if not specified per domain)
 	providerNames := make([]string, 0, len(cfg.Providers))
 	for name := range cfg.Providers {
@@ -292,85 +330,92 @@ func main() {
 		log.Fatal("[output] Failed to initialize output manager: %v", err)
 	}
 
-	// Get poll profiles from config
-	pollProfiles := cfg.General.PollProfiles
-	if len(pollProfiles) == 0 {
-		log.Fatal("[poll] No poll profiles specified in configuration")
-	}
-
-	log.Debug("[poll] Using poll profiles: %v", pollProfiles)
-
-	// Initialize poll providers
-	pollProviders := []poll.Provider{}
-	for _, pollProfileName := range pollProfiles {
-		pollProviderConfig, ok := cfg.Polls[pollProfileName]
-		if !ok {
-			log.Fatal("[poll] Poll profile not found in configuration: %s", pollProfileName)
+	// Only initialize poll providers if not in API-only mode
+	if !(cfg.API != nil && cfg.API.Enabled && (len(cfg.Polls) == 0 || len(cfg.General.PollProfiles) == 0)) {
+		// Get poll profiles from config
+		pollProfiles := cfg.General.PollProfiles
+		if len(pollProfiles) == 0 {
+			log.Fatal("[poll] No poll profiles specified in configuration")
 		}
 
-		pollProviderType := pollProviderConfig.Type
-		if pollProviderType == "" {
-			pollProviderType = pollProfileName
-		}
+		log.Debug("[poll] Using poll profiles: %v", pollProfiles)
 
-		log.Verbose("[poll] Initializing poll provider: '%s'", pollProfileName)
-		// Create options map for the provider, passing through ALL options from the config
-		providerOptions := pollProviderConfig.GetOptions(pollProfileName)
-
-		//log.Debug("[poll] Created provider options map with %d keys", len(providerOptions))
-
-		// For backward compatibility, add expose_containers directly
-		if pollProviderConfig.ExposeContainers {
-			providerOptions["expose_containers"] = "true"
-			log.Debug("[poll] Adding expose_containers=true to provider options")
-		}
-
-		// Add or override with any additional options from the options map
-		// (This is redundant now since GetOptions already does this, but kept for compatibility)
-		for k, v := range pollProviderConfig.Options {
-			if strVal, ok := v.(string); ok {
-				providerOptions[k] = strVal
+		// Initialize poll providers
+		pollProviders := []poll.Provider{}
+		for _, pollProfileName := range pollProfiles {
+			pollProviderConfig, ok := cfg.Polls[pollProfileName]
+			if !ok {
+				log.Fatal("[poll] Poll profile not found in configuration: %s", pollProfileName)
 			}
+
+			pollProviderType := pollProviderConfig.Type
+			if pollProviderType == "" {
+				pollProviderType = pollProfileName
+			}
+
+			log.Verbose("[poll] Initializing poll provider: '%s'", pollProfileName)
+			// Create options map for the provider, passing through ALL options from the config
+			providerOptions := pollProviderConfig.GetOptions(pollProfileName)
+
+			// For backward compatibility, add expose_containers directly
+			if pollProviderConfig.ExposeContainers {
+				providerOptions["expose_containers"] = "true"
+				log.Debug("[poll] Adding expose_containers=true to provider options")
+			}
+
+			// Add or override with any additional options from the options map
+			for k, v := range pollProviderConfig.Options {
+				if strVal, ok := v.(string); ok {
+					providerOptions[k] = strVal
+				}
+			}
+
+			log.Trace("[poll] Provider %s options: %v", pollProfileName, utils.MaskSensitiveOptions(providerOptions))
+
+			pollProvider, err := poll.NewPollProvider(pollProviderType, providerOptions)
+			if err != nil {
+				log.Fatal("[poll] Failed to initialize poll provider '%s': %v", pollProfileName, err)
+			}
+
+			// If the poll provider supports containers, set the DNS provider
+			if containerProvider, ok := pollProvider.(poll.ProviderWithContainer); ok {
+				containerProvider.SetDNSProvider(dnsProvider)
+			}
+
+			// If the poll provider supports domain configs, set them
+			if withDomainConfigs, ok := pollProvider.(poll.ProviderWithDomainConfigs); ok {
+				withDomainConfigs.SetDomainConfigs(cfg.Domains)
+			}
+
+			// Start polling
+			if err := pollProvider.StartPolling(); err != nil {
+				log.Fatal("[poll] Failed to start polling with provider '%s': %v", pollProfileName, err)
+			}
+
+			pollProviders = append(pollProviders, pollProvider)
 		}
 
-		log.Trace("[poll] Provider %s options: %v", pollProfileName, utils.MaskSensitiveOptions(providerOptions))
+		// Handle signals for graceful shutdown
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-		pollProvider, err := poll.NewPollProvider(pollProviderType, providerOptions)
-		if err != nil {
-			log.Fatal("[poll] Failed to initialize poll provider '%s': %v", pollProfileName, err)
+		// Wait for signal
+		<-sigChan
+		fmt.Printf("\nShutting down DNS Companion\n")
+
+		// Stop all poll providers
+		for _, provider := range pollProviders {
+			provider.StopPolling()
 		}
 
-		// If the poll provider supports containers, set the DNS provider
-		if containerProvider, ok := pollProvider.(poll.ProviderWithContainer); ok {
-			containerProvider.SetDNSProvider(dnsProvider)
-		}
-
-		// If the poll provider supports domain configs, set them
-		if withDomainConfigs, ok := pollProvider.(poll.ProviderWithDomainConfigs); ok {
-			withDomainConfigs.SetDomainConfigs(cfg.Domains)
-		}
-
-		// Start polling
-		if err := pollProvider.StartPolling(); err != nil {
-			log.Fatal("[poll] Failed to start polling with provider '%s': %v", pollProfileName, err)
-		}
-
-		pollProviders = append(pollProviders, pollProvider)
+		// Give time for cleanup
+		time.Sleep(300 * time.Millisecond)
+	} else {
+		// API-only mode: handle signals for graceful shutdown
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+		fmt.Printf("\nShutting down DNS Companion (API-only mode)\n")
+		// No poll providers to stop
 	}
-
-	// Handle signals for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Wait for signal
-	<-sigChan
-	fmt.Printf("\nShutting down DNS Companion\n")
-
-	// Stop all poll providers
-	for _, provider := range pollProviders {
-		provider.StopPolling()
-	}
-
-	// Give time for cleanup
-	time.Sleep(300 * time.Millisecond)
 }

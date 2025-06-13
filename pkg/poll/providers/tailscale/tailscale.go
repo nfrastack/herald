@@ -164,7 +164,7 @@ func (t *TailscaleProvider) refreshAccessToken() error {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	t.logger.Debug("%s Requesting OAuth access token", t.logPrefix)
+	t.logger.Debug("Requesting OAuth access token")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("OAuth token request failed: %w", err)
@@ -244,15 +244,15 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		return nil, fmt.Errorf("%s invalid TLS configuration: %w", logPrefix, err)
 	}
 
-	// Handle different authentication methods
+	// Handle different authentication methods with file:// support
 	var apiKey string
 	var clientID string
 	var clientSecret string
 
-	// Method 1: Direct API key (traditional method)
+	// Method 1: Direct API key (traditional method) - supports file://
 	apiKey = pollCommon.GetOptionOrEnv(options, "api_key", "TAILSCALE_API_KEY", "")
 
-	// Method 2: OAuth client credentials (new method)
+	// Method 2: OAuth client credentials (new method) - supports file://
 	if apiKey == "" {
 		clientID = pollCommon.GetOptionOrEnv(options, "api_auth_id", "TAILSCALE_API_AUTH_ID", "")
 		clientSecret = pollCommon.GetOptionOrEnv(options, "api_auth_token", "TAILSCALE_API_AUTH_TOKEN", "")
@@ -286,7 +286,7 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 		return nil, fmt.Errorf("%s authentication required: provide either api_key OR (client_id + client_secret)", logPrefix)
 	}
 
-	// Support both network and tailnet for flexibility
+	// Support both network and tailnet for flexibility - supports file://
 	tailnet := pollCommon.GetOptionOrEnv(options, "tailnet", "TAILSCALE_TAILNET", "")
 	if tailnet == "" {
 		tailnet = pollCommon.GetOptionOrEnv(options, "network", "TAILSCALE_NETWORK", "")
@@ -427,17 +427,17 @@ func (p *TailscaleProvider) IsRunning() bool {
 
 // logMemberAdded logs when a member is added with appropriate message based on filter type
 func (p *TailscaleProvider) logMemberAdded(fqdn string) {
-	p.logger.Info("%s Device added: %s", p.logPrefix, fqdn)
+	p.logger.Info("Device added: %s", fqdn)
 }
 
 // logMemberRemoved logs when a member is removed with appropriate message based on filter type
 func (p *TailscaleProvider) logMemberRemoved(fqdn string) {
-	p.logger.Info("%s Device removed: %s", p.logPrefix, fqdn)
+	p.logger.Info("Device removed: %s", fqdn)
 }
 
 // logMemberChanged logs when a member's IP changes
 func (p *TailscaleProvider) logMemberChanged(fqdn, oldIP, newIP string) {
-	p.logger.Info("%s Device changed: %s (%s -> %s)", p.logPrefix, fqdn, oldIP, newIP)
+	p.logger.Info("Device changed: %s (%s -> %s)", fqdn, oldIP, newIP)
 }
 
 func (p *TailscaleProvider) GetDNSEntries() ([]poll.DNSEntry, error) {

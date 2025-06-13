@@ -90,7 +90,7 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 			// IMPORTANT: Apply VPN provider logic for output-only mode too!
 			if state.ForceServiceAsTarget && state.Service != "" {
 				if ip := net.ParseIP(state.Service); ip != nil {
-					domainLogger.Info("Poll provider forcing IP '%s' for hostname '%s' (overriding domain target '%s')", state.Service, hostname, target)
+					domainLogger.Verbose("Poll provider forcing IP '%s' for hostname '%s' (overriding domain target '%s')", state.Service, hostname, target)
 					target = state.Service
 				} else {
 					domainLogger.Error("ForceServiceAsTarget=true but Service field '%s' is not a valid IP address (SourceType=%s)", state.Service, state.SourceType)
@@ -172,7 +172,7 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 			// IMPORTANT: Apply VPN provider logic for output-only mode too!
 			if state.ForceServiceAsTarget && state.Service != "" {
 				if ip := net.ParseIP(state.Service); ip != nil {
-					domainLogger.Info("Poll provider forcing IP '%s' for hostname '%s' (overriding domain target '%s')", state.Service, hostname, target)
+					domainLogger.Verbose("Poll provider forcing IP '%s' for hostname '%s' (overriding domain target '%s')", state.Service, hostname, target)
 					target = state.Service
 				} else {
 					domainLogger.Error("ForceServiceAsTarget=true but Service field '%s' is not a valid IP address for output-only no provider (SourceType=%s)", state.Service, state.SourceType)
@@ -271,7 +271,7 @@ func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
 		domainLogger.Debug("ForceServiceAsTarget=true - checking Service field for mandatory IP override")
 		if state.Service != "" {
 			if ip := net.ParseIP(state.Service); ip != nil {
-				domainLogger.Info("Poll provider forcing IP '%s' for hostname '%s' (overriding domain target '%s')", state.Service, hostname, target)
+				domainLogger.Verbose("Poll provider forcing IP '%s' for hostname '%s' (overriding domain target '%s')", state.Service, hostname, target)
 				target = state.Service
 			} else {
 				domainLogger.Error("ForceServiceAsTarget=true but Service field '%s' is not a valid IP address (SourceType=%s)", state.Service, state.SourceType)

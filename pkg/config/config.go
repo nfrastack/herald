@@ -22,6 +22,35 @@ type ConfigFile struct {
 	Polls     map[string]PollProviderConfig `yaml:"polls"`
 	Domains   map[string]DomainConfig       `yaml:"domains"`
 	Outputs   map[string]interface{}        `yaml:"outputs" json:"outputs"`
+	API       *APIConfig                    `yaml:"api" json:"api"` // New aggregator API config
+}
+
+// APIConfig defines configuration for the aggregator HTTP API server
+type APIConfig struct {
+	Enabled       bool                           `yaml:"enabled" json:"enabled"`
+	Port          string                         `yaml:"port" json:"port"`
+	Listen        []string                       `yaml:"listen" json:"listen"`         // Interface patterns to listen on
+	TokenFile     string                         `yaml:"token_file" json:"token_file"`
+	OutputProfile string                         `yaml:"output_profile" json:"output_profile"`
+	ClientExpiry  string                         `yaml:"client_expiry" json:"client_expiry"`
+	Endpoint      string                         `yaml:"endpoint" json:"endpoint"`
+	Profiles      map[string]APIClientProfile    `yaml:"profiles" json:"profiles"`
+	TLS           *APITLSConfig                  `yaml:"tls" json:"tls"`
+	LogLevel      string                         `yaml:"log_level" json:"log_level"` // Provider-specific log level override
+}
+
+// APITLSConfig defines TLS configuration for the API server
+type APITLSConfig struct {
+	Verify bool   `yaml:"verify" json:"verify"`     // TLS certificate verification (default: true)
+	CA     string `yaml:"ca" json:"ca"`             // Custom CA certificate file
+	Cert   string `yaml:"cert" json:"cert"`         // Server certificate file
+	Key    string `yaml:"key" json:"key"`           // Server private key file
+}
+
+// APIClientProfile defines configuration for individual API clients
+type APIClientProfile struct {
+	Token         string `yaml:"token" json:"token"`
+	OutputProfile string `yaml:"output_profile" json:"output_profile"`
 }
 
 type GeneralConfig struct {
@@ -141,6 +170,29 @@ func GetConfig(config map[string]string, key string) string {
 	return value
 }
 
+// LoadFileConfig loads a configuration value from a file if it starts with "file://"
+func LoadFileConfig(value, fieldName string) (string, error) {
+	if !strings.HasPrefix(value, "file://") {
+		return value, nil
+	}
+
+	filePath := value[7:] // Remove "file://" prefix
+	log.Debug("[config] Loading %s from file: %s", fieldName, filePath)
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s from file %s: %w", fieldName, filePath, err)
+	}
+
+	result := strings.TrimSpace(string(content))
+	if result == "" {
+		return "", fmt.Errorf("%s file %s is empty", fieldName, filePath)
+	}
+
+	log.Verbose("[config] Successfully loaded %s from file", fieldName)
+	return result, nil
+}
+
 // GetGlobalProviders returns the list of global providers from environment
 func GetGlobalProviders() []string {
 	providersStr := GetEnvVar("GLOBAL_PROVIDER", "")
@@ -209,6 +261,19 @@ func (dpc *DNSProviderConfig) GetOptions() map[string]string {
 		options["type"] = dpc.Type
 	}
 
+	// Process file-based configuration values for DNS providers
+	fileConfigFields := []string{"api_token", "api_key", "api_email", "zone_id"}
+
+	for _, field := range fileConfigFields {
+		if value, exists := options[field]; exists {
+			if resolvedValue, err := LoadFileConfig(value, field); err != nil {
+				log.Error("[config] Failed to load %s for DNS provider: %v", field, err)
+			} else {
+				options[field] = resolvedValue
+			}
+		}
+	}
+
 	return options
 }
 
@@ -250,6 +315,23 @@ func (ppc *PollProviderConfig) GetOptions(profileName string) map[string]string 
 	for k, v := range ppc.Options {
 		options[k] = fmt.Sprintf("%v", v)
 	}
+
+	// Process file-based configuration values
+	fileConfigFields := []string{
+		"api_url", "api_auth_user", "api_auth_pass", "tailnet", "domain",
+		"network_id", "api_token", "remote_url", "remote_auth_user", "remote_auth_pass",
+	}
+
+	for _, field := range fileConfigFields {
+		if value, exists := options[field]; exists {
+			if resolvedValue, err := LoadFileConfig(value, field); err != nil {
+				log.Error("[config] Failed to load %s for poll provider %s: %v", field, profileName, err)
+			} else {
+				options[field] = resolvedValue
+			}
+		}
+	}
+
 	// Always add profile_name and name
 	options["profile_name"] = profileName
 	options["name"] = profileName
@@ -334,4 +416,9 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 
 	output.SetGlobalOutputManager(outputManager)
 	return nil
+}
+
+// GetGlobalConfig returns the current global configuration
+func GetGlobalConfig() *ConfigFile {
+	return &GlobalConfig
 }

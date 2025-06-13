@@ -136,10 +136,10 @@ func NewProvider(options map[string]string) (poll.Provider, error) {
 
 func (p *FileProvider) StartPolling() error {
 	if p.running {
-		p.logger.Warn("%s StartPolling called but already running", p.logPrefix)
+		p.logger.Warn("StartPolling called but already running")
 		return nil
 	}
-	p.logger.Debug("%s Starting polling loop", p.logPrefix)
+	p.logger.Debug("Starting polling loop")
 	p.running = true
 	if p.watchMode {
 		go p.watchLoop()
