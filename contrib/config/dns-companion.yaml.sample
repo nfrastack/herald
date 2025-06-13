@@ -1,10 +1,22 @@
 include: dns-extra.yaml                         # Example: Including another YAML file
 
+
+
 general:
   log_level: "info"
   log_timestamps: true
-  dry_run: false
-  poll_profiles:
+  dry_run:  zerotier_example:
+    type: zerotier
+    api_url: "https://my.zerotier.com"           # ZeroTier Central API URL
+    # api_url: "file:///var/run/secrets/zerotier_api_url"  # File-based API URL
+    api_token: "your_zerotier_api_token_here"   # <-- Replace with your real ZeroTier or ZT-Net API token
+    # api_token: "file:///var/run/secrets/zerotier_token"  # File-based API token
+    # api_type: "zerotier"                      # "zerotier" or "ztnet" (optional, autodetects if omitted)
+    interval: 60s                               # Polling interval (optional, default: 60s)
+    network_id: "YOUR_NETWORK_ID"               # For ZT-Net: "org:domain.com:networkid" or "domain.com:networkid"
+    # network_id: "file:///var/run/secrets/zerotier_network_id"  # File-based network ID
+    domain: "zt.example.com"                    # Domain suffix for DNS records (optional)
+    # domain: "file:///var/run/secrets/zerotier_domain"  # File-based domainll_profiles:
     - docker
   output_profiles:                              # List of output profiles to use (optional, defaults to all)
     - hosts
@@ -24,15 +36,23 @@ providers:
   cf_example:
     type: "cloudflare"
     api_token: "your_cloudflare_api_token_here" # <-- Replace with your real Cloudflare API token
+    # Alternatively, use file:// to read from a secure file:
+    # api_token: "file:///var/run/secrets/cloudflare_token"
     #api_email: "youremail@if.using.global.api"
     #api_key: "global_api_key_here"
+    # File-based credentials for legacy auth:
+    # api_email: "file:///var/run/secrets/cloudflare_email"
+    # api_key: "file:///var/run/secrets/cloudflare_key"
 
 polls:
   caddy_example:
     type: "caddy"
     api_url: "https://caddy.api.local/config/"
+    # api_url: "file:///var/run/secrets/caddy_api_url"  # File-based API URL
     #api_auth_user: ""
+    # api_auth_user: "file:///var/run/secrets/caddy_user"  # File-based auth user
     #api_auth_pass: ""
+    # api_auth_pass: "file:///var/run/secrets/caddy_pass"  # File-based auth password
     filter:
       - type: host
         conditions:
@@ -48,8 +68,11 @@ polls:
   docker_example:
     type: "docker"
     api_url: "unix:///var/run/docker.sock"   #Unix socket
+    # api_url: "file:///var/run/secrets/docker_api_url"  # File-based API URL
     #api_auth_user: ""
+    # api_auth_user: "file:///var/run/secrets/docker_user"  # File-based auth user
     #api_auth_pass: ""
+    # api_auth_pass: "file:///var/run/secrets/docker_pass"  # File-based auth password
     #api_url: "tcp://docker.example.com:2376" #TLS
     expose_containers: true
     filter:
@@ -80,12 +103,15 @@ polls:
   remote_example:
     type: remote
     remote_url: https://example.com/records.yaml
+    # remote_url: "file:///var/run/secrets/remote_url"  # File-based remote URL
     format: yaml # or json (optional, autodetects by extension)
     interval: 30s # Poll every 30 seconds
     process_existing: true
     record_remove_on_stop: true
     remote_auth_user: myuser # Optional HTTP Basic Auth
+    # remote_auth_user: "file:///var/run/secrets/remote_user"  # File-based auth user
     remote_auth_pass: mypassword # Optional HTTP Basic Auth
+    # remote_auth_pass: "file:///var/run/secrets/remote_pass"  # File-based auth password
     filter:
       - type: hostname
         conditions:
@@ -99,11 +125,17 @@ polls:
   tailscale_example:
     type: tailscale
     api_key: "your_tailscale_api_key_here"      # Personal access token (tskey-api-*) or API key
+    # api_key: "file:///var/run/secrets/tailscale_token"  # File-based token
     # api_auth_token: "your_oauth_client_secret" # OAuth client secret (alternative to api_key)
+    # api_auth_token: "file:///var/run/secrets/tailscale_oauth_secret"  # File-based OAuth secret
     # api_auth_id: "your_oauth_client_id"       # OAuth client ID (required with api_auth_token)
+    # api_auth_id: "file:///var/run/secrets/tailscale_oauth_id"  # File-based OAuth client ID
     api_url: "https://api.tailscale.com/api/v2" # API URL (optional, defaults to Tailscale Central)
+    # api_url: "file:///var/run/secrets/tailscale_api_url"  # File-based API URL
     tailnet: "-"                                # Tailnet ID or namespace (optional, defaults to "-" for default tailnet)
+    # tailnet: "file:///var/run/secrets/tailscale_tailnet"  # File-based tailnet ID
     domain: "ts.example.com"                    # Domain suffix for DNS records
+    # domain: "file:///var/run/secrets/tailscale_domain"  # File-based domain
     interval: 120s                              # Polling interval (optional, default: 120s)
     hostname_format: "simple"                   # Hostname format: "simple", "tailscale", "full" (default: "simple")
     process_existing: true                      # Process records on startup (default: false)
@@ -141,10 +173,13 @@ polls:
     type: zerotier
     api_url: "https://my.zerotier.com"          # ZeroTier Central or ZT-Net API URL (optional, defaults to ZeroTier Central)
     api_token: "your_zerotier_api_token_here"   # <-- Replace with your real ZeroTier or ZT-Net API token
+    # api_token: "file:///var/run/secrets/zerotier_token"  # File-based API token
     # api_type: "zerotier"                      # "zerotier" or "ztnet" (optional, autodetects if omitted)
     interval: 60s                               # Polling interval (optional, default: 60s)
     network_id: "YOUR_NETWORK_ID"               # For ZT-Net: "org:domain.com:networkid" or "domain.com:networkid"
+    # network_id: "file:///var/run/secrets/zerotier_network_id"  # File-based network ID
     domain: "zt.example.com"                    # Domain suffix for DNS records (optional)
+    # domain: "file:///var/run/secrets/zerotier_domain"  # File-based domain
     online_timeout_seconds: 300                 # Time to consider member offline (default: 60s, recommend 300s+ for stability)
     process_existing: true                      # Process records on startup (default: false)
     record_remove_on_stop: true                 # Remove DNS records when node goes offline (default: false)
@@ -180,6 +215,36 @@ domains:
     exclude_subdomains:
       - dev
       - staging
+
+
+api:                                           # API configuration for receiving data from other dns-companion instances
+  enabled: false                               # Set to true to enable API server
+  port: "8080"                                 # Port to listen on (default: 8080)
+  listen:                                      # Interface patterns to listen on (optional)
+    - "all"                                    # Listen on all interfaces (default if not specified)
+    # - "192.168.1.100"                       # Listen on specific IP address
+    # - "eth0"                                # Listen on specific interface
+    # - "enp*"                                # Listen on all interfaces matching pattern (e.g., enp0s3, enp1s0)
+    # - "!lo"                                 # Exclude loopback interface
+    # - "!docker*"                            # Exclude all Docker interfaces
+    # - "*"                                   # Listen on all interfaces (same as "all")
+  endpoint: "/api/dns"                         # HTTP endpoint path (default: /api/dns)
+  client_expiry: "10m"                         # How long to keep client data (default: 10m)
+  log_level: "info"                           # API server log level override (optional)
+  profiles:                                    # Client profiles with tokens and output routing
+    server101:
+      token: "server101_secret_token_here"     # Direct token string
+      output_profile: "aggregated_zones"
+    server102:
+      token: "file:///var/run/secrets/server102_token"  # Load token from file
+      output_profile: "aggregated_zones"
+    server103:
+      token: "file:///etc/dns-companion/tokens/server103"  # Another file-based token
+      output_profile: "special_zones"
+  tls:                                        # TLS configuration for HTTPS (optional)
+    cert: "/etc/ssl/certs/dns-companion.crt"  # Path to TLS certificate
+    key: "/etc/ssl/private/dns-companion.key"  # Path to TLS private key
+    ca: "/etc/ssl/ca/client-ca.pem"      # Path to client CA for mutual TLS (optional)
 
 outputs:                                    # Output providers write DNS records to files
   hosts:                                    # Export DNS records as /etc/hosts format
@@ -224,3 +289,55 @@ outputs:                                    # Output providers write DNS records
     ns_records:
       - "ns1.example.com"
       - "ns2.example.com"
+  aggregated_zones:                         # Output profile for aggregated DNS records from multiple clients
+    path: "./aggregated-zones"              # Directory for aggregated zone files
+    #user: "named"                           # File ownership user (optional)
+    #group: "named"                          # File ownership group (optional)
+    #mode: 644                               # File permissions (optional, default: 644)
+    default_ttl: 300
+    soa:
+      primary_ns: "ns1.example.com"
+      admin_email: "admin@example.com"
+      serial: "auto"
+      refresh: 3600
+      retry: 900
+      expire: 604800
+      minimum: 300
+    ns_records:
+      - "ns1.example.com"
+      - "ns2.example.com"
+  special_zones:                            # Separate output for special clients
+    format: zone
+    path: "./special-zones/%domain%.zone"
+    domains: ["ALL"]                        # Process all domains, create separate files
+    #user: "named"
+    #group: "named"
+    #mode: 644
+    default_ttl: 300
+    soa:
+      primary_ns: "ns1.example.com"
+      admin_email: "admin@example.com"
+      serial: "auto"
+      refresh: 3600
+      retry: 900
+      expire: 604800
+      minimum: 300
+    ns_records:
+      - "ns1.example.com"
+      - "ns2.example.com"
+  send_to_api:                              # Push DNS records to remote API server
+    format: remote
+    url: "https://dns-master.company.com/api/dns"
+    # url: "file:///var/run/secrets/dns_api_url"  # File-based URL
+    client_id: "server1"                    # Unique client identifier
+    # client_id: "file:///var/run/secrets/dns_client_id"  # File-based client ID
+    token: "your_bearer_token_here"         # Bearer token for authentication
+    # token: "file:///var/run/secrets/dns_api_token"  # File-based token
+    timeout: "30s"                         # Request timeout (optional)
+    data_format: "json"                     # json or yaml format
+    log_level: "info"                      # Output format log level override (optional)
+    tls:                                   # TLS configuration (optional)
+      verify: true                         # Verify TLS certificates (default: true)
+      #ca: "/etc/ssl/ca/server-ca.pem"     # Custom CA certificate (optional)
+      #cert: "/etc/ssl/certs/client.pem"   # Client certificate for mutual TLS (optional)
+      #key: "/etc/ssl/private/client.key"  # Client private key for mutual TLS (optional)
