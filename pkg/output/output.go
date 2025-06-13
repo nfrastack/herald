@@ -538,7 +538,7 @@ func (om *OutputManager) getProviderForDomain(profile *OutputProfile, domain str
 	actualPath := om.templatePath(profile.Path, domain, profile.Name)
 	providerConfig := make(map[string]interface{})
 	for k, v := range profile.Config {
-		providerConfig[k] = v
+		providerConfig[k] = om.templateConfigValue(v, domain, profile.Name)
 	}
 	providerConfig["path"] = actualPath
 	providerConfig["profile_name"] = profile.Name // Add profile name for logging
@@ -551,11 +551,61 @@ func (om *OutputManager) getProviderForDomain(profile *OutputProfile, domain str
 	return provider, nil
 }
 
-// templatePath applies templates to the path
+// templateConfigValue recursively applies templates to configuration values
+func (om *OutputManager) templateConfigValue(value interface{}, domain, profileName string) interface{} {
+	switch v := value.(type) {
+	case string:
+		return om.templateConfigString(v, domain, profileName)
+	case []interface{}:
+		result := make([]interface{}, len(v))
+		for i, item := range v {
+			result[i] = om.templateConfigValue(item, domain, profileName)
+		}
+		return result
+	case []string:
+		result := make([]string, len(v))
+		for i, item := range v {
+			result[i] = om.templateConfigString(item, domain, profileName)
+		}
+		return result
+	case map[string]interface{}:
+		result := make(map[string]interface{})
+		for k, subValue := range v {
+			result[k] = om.templateConfigValue(subValue, domain, profileName)
+		}
+		return result
+	default:
+		return value
+	}
+}
+
+// templatePath applies templates to the path - uses safe domain for filenames
 func (om *OutputManager) templatePath(pathTemplate, domain, profileName string) string {
 	result := pathTemplate
+	// For file paths, use safe domain (replace dots with underscores)
 	safeDomain := strings.ReplaceAll(domain, ".", "_")
 	result = strings.ReplaceAll(result, "%domain%", safeDomain)
+	result = strings.ReplaceAll(result, "%profile%", profileName)
+	now := time.Now()
+	result = strings.ReplaceAll(result, "%date%", now.Format("2006-01-02"))
+	result = strings.ReplaceAll(result, "%datetime%", now.Format("2006-01-02_15-04-05"))
+	result = strings.ReplaceAll(result, "%timestamp%", fmt.Sprintf("%d", now.Unix()))
+	envRegex := regexp.MustCompile(`%env:([A-Z_][A-Z0-9_]*)%`)
+	result = envRegex.ReplaceAllStringFunc(result, func(match string) string {
+		envVar := envRegex.FindStringSubmatch(match)[1]
+		if value := os.Getenv(envVar); value != "" {
+			return value
+		}
+		return match
+	})
+	return result
+}
+
+// templateConfigString applies templates to configuration strings - uses actual domain
+func (om *OutputManager) templateConfigString(template, domain, profileName string) string {
+	result := template
+	// For config content, use actual domain (keep dots)
+	result = strings.ReplaceAll(result, "%domain%", domain)
 	result = strings.ReplaceAll(result, "%profile%", profileName)
 	now := time.Now()
 	result = strings.ReplaceAll(result, "%date%", now.Format("2006-01-02"))
