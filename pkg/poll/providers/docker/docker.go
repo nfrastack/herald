@@ -166,7 +166,7 @@ func NewProviderFromStructured(options map[string]interface{}) (poll.Provider, e
 	// Only use api_url and API_URL env var for Docker API endpoint
 	apiURL := pollCommon.GetOptionOrEnv(stringOptions, "api_url", "API_URL", "unix:///var/run/docker.sock")
 	if apiURL != "" {
-		scopedLogger.Verbose("%s Using Docker API URL: %s", logPrefix, apiURL)
+		scopedLogger.Verbose("Using Docker API URL: %s", apiURL)
 		clientOpts = append(clientOpts, client.WithHost(apiURL))
 	}
 
