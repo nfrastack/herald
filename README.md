@@ -194,6 +194,103 @@ general:
 
 Each provider supports individual log level configuration via the `log_level` option, allowing fine-grained control over logging verbosity per provider without affecting global log levels.
 
+### Output Providers
+
+DNS Companion can export DNS records to various local file formats and remote aggregation servers. Output providers are configured in the `outputs` section and can be selectively enabled via `output_profiles`.
+
+#### Available Output Formats
+
+- **hosts**: Standard `/etc/hosts` file format (IPv4/IPv6 A records only, CNAMEs flattened)
+- **json**: Structured JSON export with metadata and timestamps
+- **yaml**: YAML export format with full record details
+- **zone**: RFC1035 compliant DNS zone files with SOA and NS records
+- **remote**: HTTP POST to remote aggregation server (NEW)
+
+#### Remote Aggregation
+
+The `remote` output provider enables distributed DNS management by pushing records to a central aggregation server. This is ideal for multi-server environments where you want to collect DNS records from multiple instances and generate master zone files.
+
+**Use Case**: Multiple servers running DNS Companion → Central aggregator → Master DNS zone files
+
+**Security Features:**
+- Bearer token authentication per client
+- Failed attempt tracking and rate limiting (20 attempts/hour)
+- TLS with optional mutual authentication
+- Comprehensive security logging
+- Automatic client expiry and cleanup
+
+**Interface Binding:**
+The `listen` option provides flexible control over which network interfaces the API server binds to:
+
+- **All interfaces**: `"all"` or `"*"` (default if not specified)
+- **Specific IP addresses**: `"192.168.1.100"`, `"10.0.0.50"`
+- **Interface names**: `"eth0"`, `"enp0s3"`, `"wlan0"`
+- **Wildcard patterns**: `"enp*"` (matches `enp0s3`, `enp1s0`, etc.)
+- **Exclusion patterns**: `"!docker*"` (exclude all Docker interfaces)
+- **Combined patterns**: Mix inclusion and exclusion for precise control
+
+```yaml
+api:
+  listen:
+    - "all"           # Start with all interfaces
+    - "!docker*"      # Exclude Docker interfaces
+    - "!lo"           # Exclude loopback
+    - "192.168.1.100" # Always include this specific IP
+```
+
+The aggregator automatically:
+- Receives DNS records from authenticated clients
+- Aggregates records by domain across all clients
+- Routes client data to different output profiles
+- Generates zone files, JSON, YAML exports
+
+**Client Configuration:**
+```yaml
+outputs:
+  send_to_api:
+    format: remote
+    url: "https://dns-master.company.com/api/dns"
+    client_id: "server1"
+    token: "your_bearer_token_here"
+    timeout: "30s"
+    data_format: "json"  # or "yaml"
+    log_level: "info"
+    tls:
+      verify: true
+      ca: "/etc/ssl/ca/server-ca.pem"    # Optional custom CA
+      cert: "/etc/ssl/certs/client.pem"  # Optional client cert for mutual TLS
+      key: "/etc/ssl/private/client.key" # Optional client key for mutual TLS
+```
+
+**Server Configuration:**
+```yaml
+api:
+  enabled: true
+  port: "8080"
+  listen:                                     # Interface patterns to listen on (optional)
+    - "all"                                   # Listen on all interfaces (default)
+    - "192.168.1.100"                        # Listen on specific IP address
+    - "eth0"                                 # Listen on specific interface
+    - "enp*"                                 # Listen on all interfaces matching pattern
+    - "!lo"                                  # Exclude loopback interface
+    - "!docker*"                             # Exclude all Docker interfaces
+  endpoint: "/api/dns"
+  client_expiry: "10m"
+  log_level: "info"
+  profiles:
+    server1:
+      token: "your_bearer_token_here"
+      output_profile: "aggregated_zones"
+    server2:
+      token: "file:///var/run/secrets/server2_token"  # Load token from file
+      output_profile: "special_zones"
+  tls:
+    cert: "/etc/ssl/certs/dns-companion.crt"
+    key: "/etc/ssl/private/dns-companion.key"
+    ca: "/etc/ssl/ca/client-ca.pem"  # Optional for mutual TLS
+```
+
+
 ## Environment Variables
 
 Provider, poll, and domain-specific environment variables are also supported. See the sample [.env](contrib/config/env.sample) file and documentation for more details.
@@ -206,6 +303,12 @@ The following environment variables can be used to configure DNS Companion:
 | `LOG_LEVEL`        | Set log level (`trace` `debug`, `verbose`, `info`) | `verbose` |
 | `LOG_TIMESTAMPS`   | Include timestamps in log output (`true`/`false`)  | `true`    |
 | `OUTPUT_PROFILES`  | Comma-separated list of output profiles to use     | (all)     |
+| `API_ENABLED`      | Enable the API server (`true`/`false`)             | `false`   |
+| `API_PORT`         | API server port                                     | `8080`    |
+| `API_LISTEN`       | Comma-separated listen patterns (e.g., `all,!docker*`) | `all` |
+| `API_ENDPOINT`     | API endpoint path                                   | `/api/dns` |
+| `API_CLIENT_EXPIRY` | How long to keep client data                       | `10m`     |
+| `API_LOG_LEVEL`    | API server log level override                       | (global)  |
 
 ### Default Options
 
