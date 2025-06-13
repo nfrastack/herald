@@ -5,7 +5,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "feat-filter_reorganization";
+      version = "1.2.0";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"

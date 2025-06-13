@@ -1,3 +1,16 @@
+## 1.2.0 2025-06-12 <code at nfrastack dot com>
+
+Exciting news! New API available for receiving entries from 'remote' output provider. Use for sending records from different hosts to a centralized host, for whatever purpose you wish.
+
+   ### Added
+     - API Server mode - HTTP API Endpoint with TLS supported, Tokens and connection throttling support
+     - Remote Output Provider - Output records to remote API Server
+     - Refined all filter operations to use consistent naming and AND/OR operators including negation
+     - Add -c shortcut for calling config file
+     - Add output_profiles config option in 'general' to choose which output profiles to use if more than one.
+     - Code cleanup and optimization
+
+
 ## 1.1.1 2025-05-30 <code at nfrastack dot com>
 
    ### Changed
