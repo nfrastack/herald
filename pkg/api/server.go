@@ -29,11 +29,11 @@ import (
 
 // ClientData represents data from a single client
 type ClientData struct {
-	ClientID    string                 `json:"client_id" yaml:"client_id"`
-	Received    time.Time              `json:"received" yaml:"received"`
-	LastUpdate  time.Time              `json:"last_update" yaml:"last_update"`
-	Metadata    *Metadata              `json:"metadata" yaml:"metadata"`
-	Domains     map[string]*Domain     `json:"domains" yaml:"domains"`
+	ClientID   string             `json:"client_id" yaml:"client_id"`
+	Received   time.Time          `json:"received" yaml:"received"`
+	LastUpdate time.Time          `json:"last_update" yaml:"last_update"`
+	Metadata   *Metadata          `json:"metadata" yaml:"metadata"`
+	Domains    map[string]*Domain `json:"domains" yaml:"domains"`
 }
 
 type Metadata struct {
@@ -67,10 +67,10 @@ type APIServer struct {
 	mutex          sync.RWMutex
 	profiles       map[string]config.APIClientProfile // client_id -> profile config
 	clientExpiry   time.Duration
-	outputProfiles map[string]interface{}             // Available output profiles from config
-	logger         *log.ScopedLogger                  // Scoped logger for API server
-	failedAttempts map[string]*FailedAttemptTracker   // Track failed authentication attempts by IP
-	attemptsMutex  sync.RWMutex                       // Separate mutex for failed attempts
+	outputProfiles map[string]interface{}           // Available output profiles from config
+	logger         *log.ScopedLogger                // Scoped logger for API server
+	failedAttempts map[string]*FailedAttemptTracker // Track failed authentication attempts by IP
+	attemptsMutex  sync.RWMutex                     // Separate mutex for failed attempts
 }
 
 // FailedAttemptTracker tracks failed authentication attempts from an IP
@@ -89,6 +89,7 @@ func generateConnectionID() string {
 
 // Connection ID context key
 type contextKey string
+
 const connectionIDKey contextKey = "connectionID"
 
 // connectionIDMiddleware adds a unique connection ID to each request
@@ -349,8 +350,20 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Info("[%s] Received data from client %s with %d domains", connID, clientID, len(clientData.Domains))
 	s.logger.Debug("[%s] Client %s metadata: generator=%s, hostname=%s", connID, clientID,
-		func() string { if clientData.Metadata != nil { return clientData.Metadata.Generator } else { return "unknown" } }(),
-		func() string { if clientData.Metadata != nil { return clientData.Metadata.Hostname } else { return "unknown" } }())
+		func() string {
+			if clientData.Metadata != nil {
+				return clientData.Metadata.Generator
+			} else {
+				return "unknown"
+			}
+		}(),
+		func() string {
+			if clientData.Metadata != nil {
+				return clientData.Metadata.Hostname
+			} else {
+				return "unknown"
+			}
+		}())
 
 	// Log domain details at trace level
 	for domainName, domain := range clientData.Domains {
@@ -454,7 +467,7 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 					// Write each aggregated record through the output manager
 					var writeErrors []error
 					recordCount := 0
-					
+
 					for domainName, records := range aggregatedRecords {
 						for _, record := range records {
 							hostname, _ := record["hostname"].(string)
@@ -485,10 +498,10 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 						s.logger.Info("[%s] Successfully wrote %d records from %d domains (%d clients) to output profile '%s'",
 							connID, recordCount, len(aggregatedRecords), len(clientIDs), outputProfile)
 					} else if len(writeErrors) > 0 {
-						s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred", 
+						s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred",
 							connID, outputProfile, len(writeErrors))
 					} else {
-						s.logger.Warn("[%s] No records were written to output profile '%s' (no data to process)", 
+						s.logger.Warn("[%s] No records were written to output profile '%s' (no data to process)",
 							connID, outputProfile)
 					}
 				} else {
