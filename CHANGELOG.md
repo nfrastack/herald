@@ -1,3 +1,15 @@
+## 1.2.1 2025-06-13 <code at nfrastack dot com>
+
+   ### Changed
+     - (api) Removed log entry relating to upstream DNS provider
+     - (api) Removed duplicate log_level override statement
+     - (log) Properly create logPrefixes as [function/type/profile_name]
+     - (domain) Fix blank log_level output overrides
+     - (output) Allow %placeholders% to work within the files, not just filenames
+     - (output/zone) Properly provide ERROR statement if outputs options aren't populated
+     - Fixed nix flake config generation order
+     - Fix build scripts to properly build multi arch outside of GHA
+
 ## 1.2.0 2025-06-12 <code at nfrastack dot com>
 
 Exciting news! New API available for receiving entries from 'remote' output provider. Use for sending records from different hosts to a centralized host, for whatever purpose you wish.
