@@ -367,7 +367,7 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Log domain details at trace level
 	for domainName, domain := range clientData.Domains {
-		s.logger.Trace("[%s] Client %s domain '%s': %d records, provider=%s", connID, clientID, domainName, len(domain.Records), domain.Provider)
+		s.logger.Trace("[%s] Client %s domain '%s': %d records", connID, clientID, domainName, len(domain.Records))
 	}
 
 	// Trigger aggregation
