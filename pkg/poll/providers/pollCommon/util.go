@@ -14,7 +14,7 @@ import (
 
 // BuildLogPrefix returns a standardized log prefix for poll providers
 func BuildLogPrefix(providerType, profileName string) string {
-	if profileName == "" || profileName == providerType {
+	if profileName == "" {
 		return fmt.Sprintf("[poll/%s]", providerType)
 	}
 	return fmt.Sprintf("[poll/%s/%s]", providerType, profileName)
