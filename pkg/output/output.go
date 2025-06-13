@@ -438,11 +438,11 @@ func (om *OutputManager) WriteRecordWithSource(domain, hostname, target, recordT
 			provider, err := om.getProviderForDomain(profile, domain)
 			if err != nil {
 				log.Error("[output/%s] Failed to get provider for domain '%s': %v", profile.Name, domain, err)
-				continue
+				return err // Return error instead of continuing
 			}
 			if err := provider.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source); err != nil {
 				log.Error("[output/%s] Failed to write record: %v", profile.Name, err)
-				continue
+				return err // Return error instead of continuing
 			}
 		}
 	}
