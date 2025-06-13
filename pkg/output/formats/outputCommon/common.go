@@ -126,7 +126,7 @@ func NewCommonFormat(domain, formatName string, config map[string]interface{}) (
 
 	// Only log override message if there's actually a log level override
 	if logLevel != "" {
-		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+		scopedLogger.Info("Output format log_level set to: '%s'", logLevel)
 	}
 
 	format := &CommonFormat{

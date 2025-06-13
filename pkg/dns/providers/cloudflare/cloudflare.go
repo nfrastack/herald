@@ -47,11 +47,13 @@ func NewProvider(config map[string]string) (dns.Provider, error) {
 	// Get provider-specific log level
 	logLevel := config["log_level"]
 
-	// Create scoped logger and test it immediately
+	// Create scoped logger
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
-	// Test the scoped logger immediately
-	log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	// Only log override message if there's actually a log level override
+	if logLevel != "" {
+		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+	}
 
 	p := &Provider{
 		config:      config,
