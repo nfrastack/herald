@@ -1,170 +1,98 @@
 { config, inputs, lib, pkgs, ... }: {
   imports = [
-    inputs.dns-companion.nixosModules.default
+    inputs.herald.nixosModules.default
   ];
 
   services = {
-    dns-companion = {
+    herald = {
       enable = true;
+
       general = {
         log_level = "verbose";
+        log_timestamps = true;
+        dry_run = false;
       };
+
       defaults = {
         record = {
+          type = "A";
           ttl = 300;
           update_existing = true;
-          allow_multiple = true;
+          allow_multiple = false;
         };
       };
-      polls = {
-        pollprovider01 = {
+
+      input = {
+        # Docker containers with labels
+        docker_public = {
           type = "docker";
-          host = "unix:///var/run/docker.sock";
-          api_auth_user = "";
-          api_auth_pass = "";
+          api_url = "unix:///var/run/docker.sock";
           expose_containers = true;
-          swarm = false;
-          record_remove_on_stop = false;
+          process_existing = true;
+          record_remove_on_stop = true;
+          log_level = "debug";
+          tls = {
+            verify = false;
+            ca = "";
+            cert = "";
+            key = "";
+          };
           filter = [
             {
               type = "label";
               conditions = [
                 {
-                  key = "environment";
-                  value = "production";
+                  key = "traefik.proxy.visibility";
+                  value = "public";
                 }
               ];
             }
           ];
         };
-        traefikpoller01 = {
-          type = "traefik";
-          api_url = "http://traefik:8080/api/http/routers";
+
+        # Caddy reverse proxy routes
+        caddy_routes = {
+          type = "caddy";
+          api_url = "https://caddy.example.com/config/";
           api_auth_user = "admin";
           api_auth_pass = "password";
-          interval = "60s";
-          process_existing = true;
-          record_remove_on_stop = true;
-          filter = [
-            {
-              type = "name";
-              conditions = [
-                {
-                  value = "^websecure-.*";
-                }
-              ];
-            }
-          ];
-        };
-        caddypoller01 = {
-          type = "caddy";
-          api_url = "http://caddy:2019/config/";
-          api_auth_user = "";
-          api_auth_pass = "";
-          interval = "60s";
-          process_existing = true;
-          record_remove_on_stop = true;
-          filter = [
-            {
-              type = "host";
-              conditions = [
-                {
-                  value = "*.localhost";
-                }
-              ];
-            }
-          ];
-        };
-        filepoller01 = {
-          type = "file";
-          source = "/var/lib/dns-companion/records.yaml";
-          format = "yaml";
-          interval = "-1"; # watch mode (default)
-          record_remove_on_stop = true;
-          process_existing = true;
-          filter = [
-            {
-              type = "hostname";
-              conditions = [
-                {
-                  value = "*.example.com";
-                }
-              ];
-            }
-          ];
-          # Supported formats: yaml, json, hosts, zone
-          # Example for YAML format (default):
-          #   format = "yaml";
-          # Example for hosts file:
-          #   format = "hosts";
-          # Example for zone file:
-          #   format = "zone";
-        };
-        remotepoller01 = {
-          type = "remote";
-          source = "https://example.com/records.json";
-          format = "json";
           interval = "30s";
           process_existing = true;
           record_remove_on_stop = true;
-          http_user = "myuser";
-          http_pass = "mypassword";
-          filter = [
-            {
-              type = "hostname";
-              conditions = [
-                {
-                  value = "*.example.com";
-                }
-              ];
-            }
-          ];
+          tls = {
+            verify = false;
+            ca = "";
+            cert = "";
+            key = "";
+          };
         };
-        zerotier_example = {
-          type = "zerotier";
-          api_url = "https://my.zerotier.com";        # ZeroTier Central or ZT-Net API URL (optional)
-          api_token = "your_zerotier_api_token_here"; # Replace with your actual token
-          # api_type = "zerotier";                    # "zerotier" or "ztnet" (optional, autodetects)
-          interval = "60s";                           # Polling interval (optional, default: 60s)
-          network_id = "YOUR_NETWORK_ID";             # For ZT-Net: "org:domain.com:networkid" format
-          domain = "zt.example.com";                  # Domain suffix for DNS records
-          online_timeout_seconds = 300;               # Time to consider member offline (recommend 300+)
-          process_existing = true;                    # Process records on startup (default: false)
-          record_remove_on_stop = true;               # Remove DNS records when node goes offline
-          use_address_fallback = true;                # Use ZeroTier address as hostname when name empty
-          filter = [
-            {
-              type = "online";
-              conditions = [
-                {
-                  value = "true";
-                }
-              ];
-            }
-            {
-              type = "authorized";
-              operation = "AND";
-              conditions = [
-                {
-                  value = "true";
-                }
-              ];
-            }
-          ];
-          log_level = "debug";                        # Provider-specific log level override (optional)
+
+        # Traefik reverse proxy routes
+        traefik_routes = {
+          type = "traefik";
+          api_url = "https://traefik.example.com/api/http/routers";
+          api_auth_user = "admin";
+          api_auth_pass = "password";
+          interval = "30s";
+          process_existing = true;
+          record_remove_on_stop = true;
+          tls = {
+            verify = false;
+            ca = "";
+            cert = "";
+            key = "";
+          };
         };
-        tailscale_example = {
+
+        # Tailscale VPN devices
+        tailscale_vpn = {
           type = "tailscale";
-          api_key = "your_tailscale_api_key_here";    # Personal access token (tskey-api-*) or API key
-          # api_auth_token = "your_oauth_client_secret"; # OAuth client secret (alternative to api_key)
-          # api_auth_id = "your_oauth_client_id";       # OAuth client ID (required with api_auth_token)
-          api_url = "https://api.tailscale.com/api/v2"; # API URL (optional, defaults to Tailscale Central)
-          tailnet = "-";                              # Tailnet ID or namespace (optional, defaults to "-")
-          domain = "ts.example.com";                  # Domain suffix for DNS records
-          interval = "120s";                          # Polling interval (optional, default: 120s)
-          hostname_format = "simple";                 # Hostname format: "simple", "tailscale", "full"
-          process_existing = true;                    # Process records on startup (default: false)
-          record_remove_on_stop = true;               # Remove DNS records when device goes offline
+          api_auth_id = "random_auth_id";
+          api_auth_token = "tskey-client-xxxxx";
+          domain = "vpn.example.com";
+          interval = "60s";
+          hostname_format = "simple";
+          process_existing = true;
           filter = [
             {
               type = "online";
@@ -175,116 +103,79 @@
               ];
             }
           ];
-          log_level = "debug";                        # Provider-specific log level override (optional)
         };
-      };
-      providers = {
-        dnsprovider01 = {
-          type = "cloudflare";
-          api_token = "abcdef1234567890abcdef1234567890abcdef1234";
+
+        # ZeroTier network members
+        zerotier_network = {
+          type = "zerotier";
+          api_token = "your-zerotier-token";
+          network_id = "F2BD7A9E0CA0B96B";
+          domain = "zt.example.com";
+          interval = "60s";
+          online_timeout_seconds = 300;
+          process_existing = true;
+          filter = [
+            {
+              type = "online";
+              conditions = [
+                {
+                  value = "true";
+                }
+              ];
+            }
+          ];
         };
-        zerotier = {
-          enable = lib.mkEnableOption "Enable Zerotier poll provider";
-          api_url = lib.mkOption {
-            type = lib.types.str;
-            description = "Zerotier Central or ZT-Net API base URL.";
-          };
-          api_token = lib.mkOption {
-            type = lib.types.str;
-            description = "API token for Zerotier or ZT-Net.";
-          };
-          network_id = lib.mkOption {
-            type = lib.types.str;
-            description = "Zerotier network ID.";
-          };
-          domain = lib.mkOption {
-            type = lib.types.str;
-            description = "Domain to append to Zerotier hostnames.";
-          };
-          api_type = lib.mkOption {
-            type = lib.types.nullOr lib.types.str;
-            default = null;
-            description = "API type: 'zerotier' or 'ztnet'. Optional, autodetects if omitted.";
-          };
-          interval = lib.mkOption {
-            type = lib.types.nullOr lib.types.str;
-            default = null;
-            description = "Polling interval (e.g., '60s'). Optional.";
-          };
-          process_existing = lib.mkOption {
-            type = lib.types.bool;
-            default = true;
-            description = "Process records on startup.";
-          };
-          record_remove_on_stop = lib.mkOption {
-            type = lib.types.bool;
-            default = true;
-            description = "Remove DNS records when node is removed or offline.";
-          };
-          filter_type = lib.mkOption {
-            type = lib.types.str;
-            default = "online";
-            description = "Filter by: online, name, authorized, tag, id, address, nodeid.";
-          };
-          filter_value = lib.mkOption {
-            type = lib.types.str;
-            default = "true";
-            description = "Value for filter_type (default: online=true).";
-          };
-        };
-      };
-      domains = {
-        domain01 = {
-          name = "example.com";
-          provider = "dnsprovider01";
-          record = {
-            target = "hostname.example.com";
-            ttl = 120;
-            update_existing = true;
-          };
-        };
-      };
-      outputs = {
-        hosts_export = {
-          format = "hosts";
-          path = "/etc/hosts.dns-companion";
-          domains = [ "all" ];
-          user = "root";
-          group = "root";
-          mode = 420; # 0644
-          enable_ipv4 = true;
-          enable_ipv6 = false;
-          header_comment = "Managed by DNS Companion";
-        };
-        json_export = {
-          format = "json";
-          path = "/var/lib/dns-companion/records.json";
-          domains = [ "example.com" "test.com" ];
-          user = "dns-companion";
-          group = "dns-companion";
-          mode = 420;
-          generator = "dns-companion-nixos";
-          hostname = "nixos-server";
-          comment = "Exported DNS records";
-          indent = true;
-        };
-        yaml_export = {
+
+        # File-based DNS records
+        file_records = {
+          type = "file";
+          source = "./records/dns-records.yaml";
           format = "yaml";
-          path = "/backup/dns/example.com.yaml";
-          user = "dns-backup";
-          group = "dns-backup";
-          mode = 644;
-          generator = "dns-companion-prod";
-          hostname = "server01.example.com";
-          comment = "Production DNS records for example.com";
+          interval = "-1"; # Watch for file changes
+          process_existing = true;
         };
-        zone_export = {
+
+        # Remote DNS records
+        remote_records = {
+          type = "remote";
+          url = "https://api.example.com/dns/records.json";
+          format = "json";
+          interval = "300s";
+          auth_user = "api_user"; # optional
+          auth_pass = "api_password"; # optional
+          tls = {
+            verify = true;
+            ca = "/etc/ssl/certs/ca-bundle.crt";
+            cert = "";
+            key = "";
+          };
+        };
+      };
+
+      output = {
+        # Live Cloudflare DNS
+        cloudflare_dns = {
+          type = "dns";
+          provider = "cloudflare";
+          api_token = "your-cloudflare-token";
+          log_level = "info";
+        };
+
+        # JSON backup files
+        json_backup = {
+          type = "file";
+          format = "json";
+          path = "./backups/%domain%.json";
+          user = "herald";
+          group = "herald";
+          mode = 420; # 0644
+        };
+
+        # Zone files for BIND
+        zone_files = {
+          type = "file";
           format = "zone";
-          path = "/var/named/example.com.zone";
-          user = "named";
-          group = "named";
-          mode = 644;
-          default_ttl = 300;
+          path = "./zones/%domain%.zone";
           soa = {
             primary_ns = "ns1.example.com";
             admin_email = "admin@example.com";
@@ -296,45 +187,135 @@
           };
           ns_records = [ "ns1.example.com" "ns2.example.com" ];
         };
-        send_to_api = {
-          format = "remote";
-          url = "https://dns-master.company.com/api/dns";
-          client_id = "server1";
-          token = "your_bearer_token_here";
+
+        # Hosts file for local resolution
+        hosts_file = {
+          type = "file";
+          format = "hosts";
+          path = "/etc/hosts.d/herald.hosts";
+          enable_ipv4 = true;
+          enable_ipv6 = false;
+          skip_loopback = true;
+          flatten_cnames = true;
+        };
+
+        # YAML export
+        yaml_export = {
+          type = "file";
+          format = "yaml";
+          path = "./exports/%domain%.yml";
+        };
+
+        # Remote aggregation server
+        aggregation_server = {
+          type = "remote";
+          url = "https://dns-aggregator.example.com/api/dns";
+          client_id = "server-01";
+          token = "aggregation-token";
           timeout = "30s";
-          format = "json";
-          log_level = "info";
           tls = {
             verify = true;
-            ca = "/etc/ssl/ca/server-ca.pem";
-            cert = "/etc/ssl/certs/client.pem";
-            key = "/etc/ssl/private/client.key";
+            ca = "/etc/ssl/certs/ca-bundle.crt";
+            cert = "";
+            key = "";
           };
         };
       };
+
+      domains = {
+        # Production domain - live DNS and backups
+        example_com = {
+          name = "example.com";
+          profiles = {
+            inputs = [ "docker_public" "caddy_routes" "traefik_routes" ];
+            outputs = [ "cloudflare_dns" "json_backup" "zone_files" ];
+          };
+          record = {
+            type = "A";
+            target = "server.example.com";
+            ttl = 300;
+            update_existing = true;
+          };
+          exclude_subdomains = [ "dev" "staging" ];
+        };
+
+        # Test domain - files only, no live DNS
+        test_com = {
+          name = "test.com";
+          profiles = {
+            inputs = [ "docker_public" ];
+            outputs = [ "json_backup" "yaml_export" ];
+          };
+          record = {
+            type = "CNAME";
+            target = "test-server.example.com";
+            ttl = 120;
+          };
+        };
+
+        # VPN domain - internal resolution only
+        vpn_internal = {
+          name = "vpn.example.com";
+          profiles = {
+            inputs = [ "tailscale_vpn" ];
+            outputs = [ "hosts_file" "zone_files" ];
+          };
+          record = {
+            type = "A";
+            ttl = 60;
+          };
+        };
+
+        # ZeroTier domain - aggregation and local files
+        zerotier_internal = {
+          name = "zt.example.com";
+          profiles = {
+            inputs = [ "zerotier_network" ];
+            outputs = [ "hosts_file" "aggregation_server" ];
+          };
+          record = {
+            type = "A";
+            ttl = 120;
+          };
+        };
+
+        # File-based records - all outputs
+        file_based = {
+          name = "api.example.com";
+          profiles = {
+            inputs = [ "file_records" "remote_records" ];
+            outputs = [ "cloudflare_dns" "json_backup" ];
+          };
+        };
+      };
+
       api = {
         enabled = true;
         port = "8080";
-        listen = [ "all" "!docker*" "!lo" ];        # Listen on all interfaces except Docker and loopback
+        listen = [ "all" "!docker*" "!lo" ];
         endpoint = "/api/dns";
         client_expiry = "10m";
         log_level = "info";
         profiles = {
           server1 = {
-            token = "your_bearer_token_here";
-            output_profile = "aggregated_zones";
+            token = "server1-secret-token";
+            output_profile = "zone_files";
           };
           server2 = {
-            token = "file:///var/run/secrets/server2_token";  # Load token from file
-            output_profile = "special_zones";
+            token = "server2-secret-token";
+            output_profile = "json_backup";
           };
         };
         tls = {
-          cert = "/etc/ssl/certs/dns-companion.crt";
-          key = "/etc/ssl/private/dns-companion.key";
-          ca = "/etc/ssl/ca/client-ca.pem";
+          cert = "/etc/ssl/herald/server.crt";
+          key = "/etc/ssl/herald/server.key";
         };
       };
+
+      include = [
+        "/etc/herald/secrets.yml"
+        "./local-overrides.yml"
+      ];
     };
   };
 }

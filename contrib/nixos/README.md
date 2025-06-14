@@ -1,6 +1,6 @@
 # NixOS
 
-This project provides a Nix flake that allows you to build, run, and configure the DNS Companion. Below are instructions on how to use it within Nix and NixOS.
+This project provides a Nix flake that allows you to build, run, and configure the herald. Below are instructions on how to use it within Nix and NixOS.
 
 ## Adding as an Input
 
@@ -8,184 +8,195 @@ To use this flake as an input in your own flake, add the following to your `flak
 
 ```nix
 {
-  inputs.dns-companion.url = "github:nfrastack/dns-companion";
+  inputs.herald.url = "github:nfrastack/herald";
 
-  outputs = { self, nixpkgs, dns-companion }: {
-    packages.default = dns-companion.packages.${system}.default;
+  outputs = { self, nixpkgs, herald }: {
+    packages.default = herald.packages.${system}.default;
   };
 }
 ```
 
 ### NixOS Module
 
-This flake provides a NixOS module that allows you to configure and run the DNS Companion as a systemd service. To use it, add the following to your `configuration.nix`. See [example](./configuration.nix)
+This flake provides a NixOS module that allows you to configure and run the herald as a systemd service. To use it, add the following to your `configuration.nix`. See [example](./configuration.nix)
 
 #### Available Options
 
-Here are the available options for the NixOS module (services.dns-companion):
+Here are the available options for the NixOS module (services.herald):
 
 * `enable` (bool): Enable or disable the service.
-* `configFile` (str): Path to the YAML configuration file. Default: `dns-companion.yml`
+* `configFile` (str): Path to the YAML configuration file. Default: `herald.yml`
 * `package` (package): The package to use for the service. Default: the flake's Go build.
-* `general` (attrs): General application settings. Example:
+* `general` (attrs): General application settings.
   * `log_level` (str): Logging level ("info", "debug", "verbose", etc.).
   * `log_timestamps` (bool): Show timestamps in logs.
-  * `poll_profiles` (list of str): List of poll profiles to use.
-* `defaults` (attrs): Default DNS record settings. Example:
+  * `dry_run` (bool): Enable dry run mode (no actual DNS changes).
+* `defaults` (attrs): Default DNS record settings applied to all domains.
   * `record` (attrs):
-    * `type` (str): DNS record type ("A", "AAAA", etc.).
-    * `ttl` (int): Time to live.
+    * `type` (str): DNS record type ("A", "AAAA", "CNAME", etc.).
+    * `ttl` (int): Time to live in seconds.
     * `update_existing` (bool): Update existing records.
-    * `allow_multiple` (bool): Allow multiple records.
-* `polls` (attrs): Poll provider profiles. Example:
-  * `docker` (attrs):
+    * `allow_multiple` (bool): Allow multiple records for same name.
+* `input` (attrs): Input provider configurations for discovering DNS records.
+  * `docker_example` (attrs):
     * `type` (str): "docker"
-    * `api_url` (str): Docker socket path.
-    * `api_auth_user` (str): Username for basic auth to the Docker API.
-    * `api_auth_pass` (str): Password for basic auth to the Docker API.
-    * `expose_containers` (bool): Expose all containers.
+    * `api_url` (str): Docker socket path or API URL.
+    * `api_auth_user` (str): Username for Docker API authentication.
+    * `api_auth_pass` (str): Password for Docker API authentication.
+    * `interval` (str): Poll interval (e.g., "60s").
     * `process_existing` (bool): Process existing containers on startup.
-    * `filter_type` (str): Filter type.
-    * `record_remove_on_stop` (bool): Remove DNS records on stop.
-  * `traefik` (attrs):
+    * `expose_containers` (bool): Expose containers without labels.
+    * `swarm_mode` (bool): Enable Docker Swarm mode support.
+    * `record_remove_on_stop` (bool): Remove DNS records when containers stop.
+    * `filter` (list): Advanced filtering configuration using conditions array.
+    * `tls` (attrs): TLS configuration for Docker API.
+  * `traefik_example` (attrs):
     * `type` (str): "traefik"
     * `api_url` (str): Traefik API URL.
-    * `api_auth_user` (str): Username for basic auth to the Traefik API.
-    * `api_auth_pass` (str): Password for basic auth to the Traefik API.
-    * `interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
+    * `api_auth_user` (str): Username for Traefik API authentication.
+    * `api_auth_pass` (str): Password for Traefik API authentication.
+    * `interval` (str): Poll interval (e.g., "60s").
     * `process_existing` (bool): Process existing routers on startup.
-    * `record_remove_on_stop` (bool): Remove DNS records when router is removed.
-  * `caddy` (attrs):
+    * `record_remove_on_stop` (bool): Remove DNS records when routers are removed.
+    * `filter` (list): Advanced filtering configuration.
+  * `caddy_example` (attrs):
     * `type` (str): "caddy"
     * `api_url` (str): Caddy Admin API URL.
-    * `api_auth_user` (str): Username for basic auth to the Caddy API.
-    * `api_auth_pass` (str): Password for basic auth to the Caddy API.
-    * `interval` (str): Poll interval (supports units, e.g., "15s", "1m", "1h", or just "60" for 60 seconds).
+    * `api_auth_user` (str): Username for Caddy API authentication.
+    * `api_auth_pass` (str): Password for Caddy API authentication.
+    * `interval` (str): Poll interval (e.g., "60s").
     * `process_existing` (bool): Process existing routes on startup.
-    * `record_remove_on_stop` (bool): Remove DNS records when route is removed.
-  * `file` (attrs):
+    * `record_remove_on_stop` (bool): Remove DNS records when routes are removed.
+    * `filter` (list): Advanced filtering configuration.
+  * `file_example` (attrs):
     * `type` (str): "file"
-    * `source` (str): Path to the YAML or JSON file.
-    * `format` (string): File format. Supported: `yaml`, `json`, `hosts`, `zone`.
-    * `interval` (str): Poll interval (e.g., "-1" for watch mode, or "30s").
+    * `source` (str): Path to the file containing DNS records.
+    * `format` (str): File format ("yaml", "json", "hosts", "zone").
+    * `interval` (str): Poll interval ("-1" for watch mode, "30s" for polling).
     * `process_existing` (bool): Process all records on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when removed from file.
-  * `remote` (attrs):
+    * `filter` (list): Advanced filtering configuration.
+  * `remote_example` (attrs):
     * `type` (str): "remote"
-    * `remote_url` (str): URL to the remote YAML or JSON file.
-    * `format` (str): "yaml" (default) or "json".
+    * `remote_url` (str): URL to fetch remote DNS records.
+    * `format` (str): Remote file format ("yaml", "json", "hosts").
     * `interval` (str): Poll interval (e.g., "30s").
     * `process_existing` (bool): Process all records on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when removed from remote.
-    * `remote_auth_user` (str): Username for HTTP Basic Auth (optional).
-    * `remote_auth_pass` (str): Password for HTTP Basic Auth (optional).
-  * `zerotier` (attrs):
-    * `type` (str): "zerotier"
-    * `api_url` (str): ZeroTier Central or ZT-Net API base URL (optional, defaults to <https://my.zerotier.com>)
-    * `api_token` (str): API token for authentication
-    * `api_type` (str, optional): "zerotier" or "ztnet". If omitted, will attempt to autodetect
-    * `interval` (str, optional): Polling interval (e.g., "60s")
-    * `network_id` (str): ZeroTier network ID (for ZT-Net: "org:domain:networkid" or "domain:networkid")
-    * `domain` (str): Domain to append to hostnames (e.g., `zt.example.com`)
-    * `online_timeout_seconds` (int): Seconds to consider a member offline (default: 60, recommend: 300+)
-    * `process_existing` (bool): Process records on startup
-    * `record_remove_on_stop` (bool): Remove DNS records when node goes offline
-    * `use_address_fallback` (bool): Use ZeroTier address as hostname when name is empty
-    * `filter_type` (string): Filter by: `online`, `name`, `authorized`, `tag`, `id`, `address`, `nodeid`, `ipAssignments`, `physicalAddress`
-    * `filter_value` (string): Value for filter_type (default: `online=true`)
-    * `log_level` (string): Provider-specific log level override (optional)
-  * `tailscale` (attrs):
+    * `remote_auth_user` (str): Username for HTTP Basic Auth.
+    * `remote_auth_pass` (str): Password for HTTP Basic Auth.
+    * `filter` (list): Advanced filtering configuration.
+    * `tls` (attrs): TLS configuration for HTTPS requests.
+  * `tailscale_example` (attrs):
     * `type` (str): "tailscale"
-    * `api_key` (str): Tailscale API key or personal access token (required unless using OAuth)
-    * `api_auth_token` (str): OAuth client secret (alternative to api_key)
-    * `api_auth_id` (str): OAuth client ID (required with api_auth_token)
-    * `api_url` (str): API URL (optional, defaults to Tailscale Central API, specify for Headscale)
-    * `tailnet` (str): Tailnet ID or namespace (optional, defaults to "-" for default tailnet)
-    * `domain` (str): Domain suffix for DNS records (required)
-    * `interval` (str): Polling interval (default: "120s")
-    * `hostname_format` (str): Hostname format: "simple", "tailscale", "full" (default: "simple")
-    * `process_existing` (bool): Process existing devices on startup (default: false)
-    * `record_remove_on_stop` (bool): Remove DNS records when devices go offline (default: false)
-    * `filter_type` (str): Filter devices by criteria: "online", "name", "hostname", "tag", "id", "address", "user", "os" (defaults to "online")
-    * `filter_value` (str): Value for filter type (default: "true")
-    * `filter_operation` (str): Filter operation: "equals", "contains", "starts_with", "ends_with" (default: "equals")
-    * `filter_negate` (bool): Negate the filter result (default: false)
-    * `log_level` (str): Provider-specific log level override (optional)
-* `providers` (attrs): DNS provider profiles. Example:
-  * `cloudflare` (attrs):
-    * `type` (str): "cloudflare"
-    * `api_token` (str): Cloudflare API token.
-    * `api_email` (str): Cloudflare API email.
-    * `api_key` (str): Cloudflare API Global Key
-  * `hosts` (attrs):
-    * `enable` (bool): Enable or disable the hosts provider.
-    * `source` (string): Path to the hosts file to manage.
-    * `user` (string): Username or UID to own the file. Optional.
-    * `group` (string): Group name or GID to own the file. Optional.
-    * `mode` (int): File permissions (e.g., 420 for 0644). Optional, default: 420 (0644).
-* `domains` (attrs): Domain profiles. Example:
-  * `example_com` (attrs):
-    * `name` (str): Domain name.
-    * `provider` (str): Provider profile to use.
-    * `zone_id` (str): Zone ID for the domain.
-    * `record` (attrs):
-      * `type` (str): DNS record type.
-      * `ttl` (int): Time to live.
-      * `target` (str): DNS target.
-      * `update_existing` (bool): Update existing records.
-      * `allow_multiple` (bool): Allow multiple records.
-    * `include_subdomains` (list of str): Subdomains to include.
-    * `exclude_subdomains` (list of str): Subdomains to exclude.
-* `outputs` (attrs): Output profile definitions. Example:
+    * `api_key` (str): Tailscale API key or personal access token.
+    * `api_auth_token` (str): OAuth client secret (alternative to api_key).
+    * `api_auth_id` (str): OAuth client ID (required with api_auth_token).
+    * `api_url` (str): API URL (defaults to Tailscale Central, specify for Headscale).
+    * `tailnet` (str): Tailnet ID or namespace (defaults to "-").
+    * `domain` (str): Domain suffix for DNS records.
+    * `interval` (str): Polling interval (default: "120s").
+    * `hostname_format` (str): Hostname format ("simple", "tailscale", "full").
+    * `process_existing` (bool): Process existing devices on startup.
+    * `record_remove_on_stop` (bool): Remove DNS records when devices go offline.
+    * `filter` (list): Advanced filtering configuration.
+    * `log_level` (str): Provider-specific log level override.
+  * `zerotier_example` (attrs):
+    * `type` (str): "zerotier"
+    * `api_url` (str): ZeroTier Central or ZT-Net API base URL.
+    * `api_token` (str): API token for authentication.
+    * `api_type` (str): API type ("zerotier" or "ztnet", autodetects if omitted).
+    * `interval` (str): Polling interval (e.g., "60s").
+    * `network_id` (str): ZeroTier network ID.
+    * `domain` (str): Domain to append to hostnames.
+    * `online_timeout_seconds` (int): Seconds to consider a member offline.
+    * `process_existing` (bool): Process records on startup.
+    * `record_remove_on_stop` (bool): Remove DNS records when node goes offline.
+    * `use_address_fallback` (bool): Use ZeroTier address as hostname when name is empty.
+    * `filter` (list): Advanced filtering configuration.
+    * `log_level` (str): Provider-specific log level override.
+* `output` (attrs): Output configurations for exporting DNS records.
   * `hosts_export` (attrs):
-    * `format` (str): Output format. One of "hosts", "json", "yaml", "zone", "remote".
-    * `path` (str): Path to the output file.
-    * `domains` (list of str or str): Domains this output applies to. Use "all", "ALL", "any", or "*" for all domains. If omitted, defaults to all domains. Lowercase "all" is preferred for style.
-    * `user` (string, optional): File owner (username or UID).
-    * `group` (string, optional): File group (group name or GID).
-    * `mode` (int, optional): File permissions (e.g., 420 for 0644). Default: 420 (0644).
-    * `enable_ipv4` (bool, hosts only): Write IPv4 A records. Default: true.
-    * `enable_ipv6` (bool, hosts only): Write IPv6 AAAA records. Default: true.
-    * `header_comment` (string, hosts only): Custom header comment.
-    * `generator` (string, yaml/json): Custom generator identifier.
-    * `hostname` (string, yaml/json): Hostname identifier for this export.
-    * `comment` (string, yaml/json): Global comment for the export.
-    * `indent` (bool, json only): Pretty print JSON output. Default: true.
-    * `default_ttl` (int, zone only): Default TTL for zone records.
-    * `soa` (attr, zone only): SOA record configuration.
-    * `ns_records` (list, zone only): List of authoritative nameservers.
-    * `url` (string, remote only): Remote aggregator URL.
-    * `client_id` (string, remote only): Unique client identifier.
-    * `token` (string, remote only): Bearer authentication token.
-    * `timeout` (string, remote only): HTTP request timeout (e.g., "30s").
-    * `data_format` (string, remote only): Data format ("json" or "yaml").
-    * `log_level` (string, remote only): Output-specific log level override.
-    * `tls` (attr, remote only): TLS configuration for HTTPS.
-      * `verify` (bool): Verify TLS certificates (default: true).
-      * `ca` (string): Custom CA certificate file path.
-      * `cert` (string): Client certificate for mutual TLS.
-      * `key` (string): Client private key for mutual TLS.
-* `api` (attrs): API server configuration for receiving DNS records from remote instances. Example:
+    * `format` (str): "hosts"
+    * `path` (str): Path to the hosts file output.
+    * `domains` (list): List of domains to include (["all"] for all domains).
+    * `user` (str): File owner (username or UID).
+    * `group` (str): File group (group name or GID).
+    * `mode` (int): File permissions (e.g., 420 for 0644).
+    * `enable_ipv4` (bool): Write IPv4 A records.
+    * `enable_ipv6` (bool): Write IPv6 AAAA records.
+    * `header_comment` (str): Custom header comment.
+  * `json_export` (attrs):
+    * `format` (str): "json"
+    * `path` (str): Path to the JSON file output.
+    * `domains` (list): List of domains to include.
+    * `user` (str): File owner.
+    * `group` (str): File group.
+    * `mode` (int): File permissions.
+    * `generator` (str): Custom generator identifier.
+    * `hostname` (str): Hostname identifier for this export.
+    * `comment` (str): Global comment for the export.
+    * `indent` (bool): Pretty print JSON output.
+  * `yaml_export` (attrs):
+    * `format` (str): "yaml"
+    * `path` (str): Path to the YAML file output.
+    * `domains` (list): List of domains to include.
+    * `user` (str): File owner.
+    * `group` (str): File group.
+    * `mode` (int): File permissions.
+    * `generator` (str): Custom generator identifier.
+    * `hostname` (str): Hostname identifier for this export.
+    * `comment` (str): Global comment for the export.
+  * `zone_export` (attrs):
+    * `format` (str): "zone"
+    * `path` (str): Path to the zone file output.
+    * `domains` (list): List of domains to include.
+    * `user` (str): File owner.
+    * `group` (str): File group.
+    * `mode` (int): File permissions.
+    * `default_ttl` (int): Default TTL for zone records.
+    * `soa` (attrs): SOA record configuration.
+    * `ns_records` (list): List of authoritative nameservers.
+  * `remote_api` (attrs):
+    * `format` (str): "remote"
+    * `url` (str): Remote aggregator URL.
+    * `domains` (list): List of domains to include.
+    * `client_id` (str): Unique client identifier.
+    * `token` (str): Bearer authentication token.
+    * `timeout` (str): HTTP request timeout.
+    * `data_format` (str): Data format ("json" or "yaml").
+    * `log_level` (str): Output-specific log level override.
+    * `tls` (attrs): TLS configuration for HTTPS.
+  * `dns_provider` (attrs):
+    * `type` (str): "dns"
+    * `provider` (str): DNS provider type ("cloudflare").
+    * `api_token` (str): API token for Cloudflare/DigitalOcean/Linode.
+    * `api_email` (str): Cloudflare API email (for Global API Key method).
+    * `api_key` (str): Cloudflare Global API Key.
+    * `aws_access_key_id` (str): AWS Access Key ID for Route53.
+    * `aws_secret_access_key` (str): AWS Secret Access Key for Route53.
+    * `aws_region` (str): AWS region for Route53.
+    * `aws_profile` (str): AWS profile name (alternative to keys).
+* `domains` (attrs): Domain configurations mapping domain keys to DNS providers.
+  * `example_com` (attrs):
+    * `name` (str): Actual domain name.
+    * `provider` (str): DNS provider profile to use.
+    * `zone_id` (str): Zone ID for the domain (provider-specific).
+    * `record` (attrs): Default record settings for this domain.
+    * `include_subdomains` (list): Specific subdomains to include.
+    * `exclude_subdomains` (list): Specific subdomains to exclude.
+    * `profiles` (attrs): Input and output profile associations.
+      * `inputs` (list): List of input provider names that can create records for this domain.
+      * `outputs` (list): List of output profile names that should process records for this domain.
+* `api` (attrs): API server configuration for receiving DNS records from remote instances.
   * `enabled` (bool): Enable the API server.
-  * `port` (string): Server port (default: "8080").
-  * `listen` (list of strings): Interface patterns to listen on. Supports:
-    * `"all"` or `"*"` for all interfaces (default)
-    * Specific IP addresses like `"192.168.1.100"`
-    * Interface names like `"eth0"` or `"enp0s3"`
-    * Wildcard patterns like `"enp*"` for all Ethernet interfaces
-    * Exclusion patterns like `"!docker*"` to exclude Docker interfaces
-    * Example: `[ "all" "!docker*" "!lo" ]` listens on all interfaces except Docker and loopback
-  * `endpoint` (string): HTTP endpoint path (default: "/api/dns").
-  * `client_expiry` (string): How long to keep client data (default: "10m").
-  * `log_level` (string): API server log level override.
+  * `port` (str): Server port (default: "8080").
+  * `listen` (list): Interface patterns to listen on.
+  * `endpoint` (str): HTTP endpoint path (default: "/api/dns").
+  * `client_expiry` (str): How long to keep client data (default: "10m").
+  * `log_level` (str): API server log level override.
   * `profiles` (attrs): Client authentication profiles.
-    * `server1` (attrs):
-      * `token` (string): Bearer authentication token for this client.
-      * `output_profile` (string): Output profile to route this client's data to.
   * `tls` (attrs): TLS configuration for HTTPS.
-    * `cert` (string): Server certificate file path.
-    * `key` (string): Server private key file path.
-    * `ca` (string): Client CA certificate for mutual TLS authentication.
-* `include` (str or list of str): One or more YAML files to include into the main configuration.
+* `include` (str or list): Additional YAML configuration files to include.
 
-This setup allows you to fully configure and manage the DNS Companion service declaratively using NixOS.
+This setup allows you to fully configure and manage the herald service declaratively using NixOS.

@@ -7,7 +7,7 @@
 Containerfile
 Dockerfile
 bin/
-dns-companion.conf
-dns-companion.yaml
+herald.conf
+herald.yaml
 devenv*
 flake.*

@@ -1,0 +1,70 @@
+{
+  "metadata": {
+    "generator": "herald",
+    "generated_at": "2025-06-16T06:02:04Z",
+    "last_updated": "2025-06-16T06:02:04Z"
+  },
+  "domains": {
+    "example.com": {
+      "comment": "Domain: example.com",
+      "records": [
+        {
+          "hostname": "api",
+          "type": "A",
+          "target": "192.168.1.101",
+          "ttl": 300,
+          "created_at": "2025-06-16T06:02:04Z",
+          "source": "docker"
+        },
+        {
+          "hostname": "mail",
+          "type": "A",
+          "target": "192.168.1.102",
+          "ttl": 300,
+          "created_at": "2025-06-16T06:02:04Z",
+          "source": "traefik"
+        },
+        {
+          "hostname": "www",
+          "type": "A",
+          "target": "192.168.1.100",
+          "ttl": 300,
+          "created_at": "2025-06-16T06:02:04Z",
+          "source": "herald"
+        },
+        {
+          "hostname": "ftp",
+          "type": "CNAME",
+          "target": "example.com",
+          "ttl": 300,
+          "created_at": "2025-06-16T06:02:04Z",
+          "source": "herald"
+        },
+        {
+          "hostname": "blog",
+          "type": "CNAME",
+          "target": "www.example.com",
+          "ttl": 300,
+          "created_at": "2025-06-16T06:02:04Z",
+          "source": "docker"
+        },
+        {
+          "hostname": "@",
+          "type": "MX",
+          "target": "10 mail.example.com",
+          "ttl": 300,
+          "created_at": "2025-06-16T06:02:04Z",
+          "source": "herald"
+        },
+        {
+          "hostname": "@",
+          "type": "TXT",
+          "target": "v=spf1 include:_spf.google.com ~all",
+          "ttl": 300,
+          "created_at": "2025-06-16T06:02:04Z",
+          "source": "herald"
+        }
+      ]
+    }
+  }
+}

@@ -1,47 +1,69 @@
 services:
-  dns-companion:
-    image: nfrastack/dns-companion
-    container_name: dns-companion
+  herald:
+    image: nfrastack/herald
+    container_name: herald
     volumes:
       - ./logs:/logs
       #- ./config:/config
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock # This is a security risk, consider using a read-only socket or a more secure method if possible.
     environment:
       - TIMEZONE=America/Vancouver
+      - HERALD_SETUP_TYPE=auto   # Switch to manual if you want to configure your own file.
+      #- CONFIG_PATH=/config/
+      #- CONFIG_FILE=herald.yml
 
+      ## The rest of the options are used to create configuration in herald_setup_type=auto mode.
       - LOG_TYPE=BOTH
       - LOG_LEVEL=verbose
       - LOG_PATH=/logs
-      - LOG_FILE=dns-companion.log
+      - LOG_FILE=herald.log
       - LOG_TIMESTAMPS=TRUE
 
       # Provider example (Cloudflare)
       - PROVIDER_01_TYPE=cloudflare
       - PROVIDER_01_CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
 
-      # Poll provider example (Docker)
-      - POLL_01_TYPE=docker
-      - POLL_01_API_URL=unix:///var/run/docker.sock
-      - POLL_01_API_AUTH_USER=
-      - POLL_01_API_AUTH_PASS=
-      - POLL_01_DOCKER_EXPOSE_CONTAINERS=TRUE
-      - POLL_01_DOCKER_FILTER_TYPE=none
-      - POLL_01_DOCKER_PROCESS_EXISTING=TRUE
-      - POLL_01_DOCKER_RECORD_REMOVE_ON_STOP=FALSE
-      - POLL_01_DOCKER_SWARM_MODE=FALSE
+      # Docker Configuration
+      - DOCKER_API_URL=unix:///var/run/docker.sock
+      - HERALD_USER=root # This is needed to read the above docker socket. remove if using a socket-proxy or similar.
+      #- DOCKER_API_AUTH_USER=
+      #- DOCKER_API_AUTH_PASS=
+      - DOCKER_EXPOSE_CONTAINERS=TRUE
+      - DOCKER_PROCESS_EXISTING=TRUE
+      - DOCKER_RECORD_REMOVE_ON_STOP=FALSE
+      - DOCKER_SWARM_MODE=FALSE
+
+      # Caddy Configuration
+      #- CADDY_API_URL=https://caddy.example.com/config/
+      #- CADDY_API_AUTH_USER=
+      #- CADDY_API_AUTH_PASS=
+      - CADDY_INERVAL=60s
+      - CADDY_PROCESS_EXISTING=TRUE
+      - CADDY_RECORD_REMOVE_ON_STOP=FALSE
+
+      # Traefik Configuration
+      #- TRAEFIK_API_URL=https://traefik.example.com/api/http/routers
+      #- TRAEFIK_API_AUTH_USER=
+      #- TRAEFIK_API_AUTH_PASS=
+      - TRAEFIK_INERVAL=60s
+      - TRAEFIK_PROCESS_EXISTING=TRUE
+      - TRAEFIK_RECORD_REMOVE_ON_STOP=FALSE
+
+      - CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
+      #- CLOUDFLARE_API_EMAIL=your_cloudflare_account@example.com
+      #- CLOUDFLARE_API_KEY=your_global_api_key_here
 
       # Domain example
       - DOMAIN_01_NAME=example.com
-      - DOMAIN_01_PROVIDER=provider_01
-      - DOMAIN_01_ZONE_ID=your_zone_id_here
+      #- DOMAIN_01_PROVIDER=cloudflare         # Default - and only option
+      #- DOMAIN_01_ZONE_ID=your_zone_id_here   # Only needed for Cloudflare with Global API Key
       - DOMAIN_01_RECORD_TYPE=A
       - DOMAIN_01_TTL=300
       - DOMAIN_01_TARGET=192.0.2.1
       - DOMAIN_01_UPDATE_EXISTING_RECORD=TRUE
-      - DOMAIN_01_ALLOW_MULTIPLE=TRUE
-      #- DOMAIN_01_INCLUDE_SUBDOMAINS=api,internal
-      - DOMAIN_01_EXCLUDE_SUBDOMAINS=dev,staging
-
+      - DOMAIN_01_ALLOW_MULTIPLE=FALSE
+      - DOMAIN_01_INPUT=docker                 # Comma seperate list of inputs, docker, traefik, caddy
+      - DOMAIN_01_OUTPUT=cloudflare            # Comma separate list of outputs, cloudflare
     networks:
       - services
     restart: always

@@ -1,3 +1,0 @@
-# Example hosts file for file/remote provider
-172.64.80.1 api.example.com # A (file_profile)
-2001:db8::1 ipv6.example.com # AAAA (file_profile)

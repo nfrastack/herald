@@ -9,9 +9,9 @@ devenv.local.nix
 .pre-commit-config.yaml
 
 bin/
-dns-companion.conf
-dns-companion.yaml
-dns-companion.yml
+herald.conf
+herald.yaml
+herald.yml
 result/
 
 .vscode/settings.json

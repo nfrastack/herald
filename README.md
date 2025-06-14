@@ -1,14 +1,14 @@
-# DNS Companion
+# Herald
 
-Automate DNS record management for containers and services. DNS Companion monitors Containers from Docker, Reverse Proxies like Caddy and Traefik, VPNs like Tailscale and ZeroTier, and other sources to automatically create and manage DNS records to upstream providers or to local filesystems without manual intervention.
+Automate DNS record management for containers and services. Herald monitors Containers from Docker, Reverse Proxies like Caddy and Traefik, VPNs like Tailscale and ZeroTier, and other sources to automatically create and manage DNS records to upstream providers or to local filesystems without manual intervention.
 
 > **Commercial/Enterprise Users:**
 >
-> This tool is free to use for all users. However, if you are using DNS Companion in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project [please reach out](mailto:code+dc@nfrastack.com).
+> This tool is free to use for all users. However, if you are using Herald in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project [please reach out](mailto:code+dc@nfrastack.com).
 
 ## Disclaimer
 
-DNS Companion is an independent project and is not affiliated with, endorsed by, or sponsored by Docker Inc, Tailscale Inc., Traefik Labs, ZeroTier Inc. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of their applications. This tool is provided as-is and is not an official product of any of their respective plaforms. I'm also not a lawyer, so if you represent commercial interests of companies above and have concerns, let's talk.
+Herald is an independent project and is not affiliated with, endorsed by, or sponsored by Docker Inc, Tailscale Inc., Traefik Labs, ZeroTier Inc. Any references to these products are solely for the purpose of describing the functionality of this tool, which is designed to enhance the usage of their applications. This tool is provided as-is and is not an official product of any of their respective plaforms. I'm also not a lawyer, so if you represent commercial interests of companies above and have concerns, let's talk.
 
 ## Maintainer
 
@@ -29,9 +29,8 @@ nfrastack <code@nfrastack.com>
   - [Configuration Examples and Files](#configuration-examples-and-files)
   - [General Options](#general-options)
   - [Default Options](#default-options)
-  - [Pollers](#pollers)
-  - [Providers](#providers)
   - [Domain Configuration](#domain-configuration)
+  - [Input Providers](#input-providers)
   - [Output Providers](#output-providers)
 - [Support](#support)
   - [Implementation](#implementation)
@@ -44,7 +43,7 @@ nfrastack <code@nfrastack.com>
 ## Prerequisites and Assumptions
 
 - Access to a DNS provider to create/update DNS records
-- Access to one of the Polling providers
+- Access to one of the Input providers
 
 ## Installing
 
@@ -53,43 +52,19 @@ nfrastack <code@nfrastack.com>
 Clone this repository and compile with [GoLang 1.23 or later](https://golang.org):
 
 ```bash
-go build -o bin/dns-companion ./cmd/dns-companion
+go build -o bin/herald ./cmd/herald
 ```
 
 ### Precompiled Binaries
 
-Precompiled binaries are available for download from the [GitHub Releases](https://github.com/nfrastack/dns-companion/releases) page. These binaries are created only for tagged releases.
+Precompiled binaries are available for download from the [GitHub Releases](https://github.com/nfrastack/herald/releases) page. These binaries are created only for tagged releases.
+
+Visit the [Releases](https://github.com/nfrastack/herald/releases) page and download the binary for your architecture.
 
 #### Supported Architectures
 
 - `x86_64` (64-bit Linux)
 - `aarch64` (ARM 64-bit Linux)
-
-#### How to Download
-
-1. Visit the [Releases](https://github.com/nfrastack/dns-companion/releases) page.
-2. Locate the release you want to download.
-3. Download the binary for your architecture.
-
-#### How to Use
-
-1. Make the binary executable:
-
-   ```bash
-   chmod +x dns-companion
-   ```
-
-2. Move it to a directory in your `PATH` (e.g., `/usr/local/bin`):
-
-   ```bash
-   sudo mv dns-companion /usr/local/bin/
-   ```
-
-3. Run the binary:
-
-   ```bash
-   dns-companion --help
-   ```
 
 #### Running in Background
 
@@ -109,20 +84,41 @@ See [contrib/nixos](contrib/nixos) for installation instructions and a module th
 
 ### Overview
 
-DNS Companion supports flexible configuration via YAML files, environment variables, and container labels. You can load multiple configuration files, use includes, and override settings at various levels. The configuration is organized into general options, defaults, pollers, providers, and domains.
+Herald uses a domain-centric configuration model where domains control which input providers can create records and which output providers receive those records. The configuration is organized into five main sections:
 
-- **General options**: Global settings affecting the whole application.
-- **Defaults**: Default DNS record settings.
-- **Pollers**: Define how container/service information is discovered (e.g., Docker, Traefik).
-- **Providers**: Define how DNS records are managed (e.g., Cloudflare).
-- **Domains**: Per-domain configuration and overrides.
+- **General options**: Global settings affecting the whole application
+- **Inputs**: Define how services are discovered (Docker, Traefik, Tailscale, etc.)
+- **Outputs**: Define where DNS records are sent (Cloudflare, file exports, etc.)
+- **Domains**: Central routing that connects inputs to outputs via domain matching
+- **API**: Optional HTTP server for receiving records from remote Herald instances
+
+#### Architecture Overview
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Input Providers│───▶│    Domains      │───▶│ Output Providers│
+│                 │    │                 │    │                 │
+│ • Docker        │    │ • Input routing │    │ • DNS providers │
+│ • Traefik       │    │ • Output routing│    │ • File exports  │
+│ • Tailscale     │    │ • Record config │    │ • Remote APIs   │
+│ • ZeroTier      │    │ • Filters       │    │                 │
+│ • File/Remote   │    │                 │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+**Key Concepts:**
+
+- **Input Providers**: Discover services that need DNS records (containers, VPN devices, etc.)
+- **Domains**: Act as routing controllers, determining which inputs can create records and which outputs receive them
+- **Output Providers**: Handle DNS record creation (live DNS providers) or export (file formats)
+- **Targeting**: Domains can restrict both input sources and output destinations for precise control
 
 #### Precedence Order
 
 1. Container labels (for that container)
 2. Environment variables (including those loaded from `.env`)
 3. Config file values
-4. General/Poller/Provider/domain defaults
+4. Application defaults
 
 ### Configuration Examples and Files
 
@@ -132,16 +128,14 @@ The repository includes several configuration examples to help you get started:
 
 Located in [`contrib/config/`](contrib/config/):
 
-- **Complete example**: [`dns-companion.yaml.sample`](contrib/config/dns-companion.yaml.sample) - Shows all configuration options including providers, polls, and domains
-- **Environment variables**: [`env.sample`](contrib/config/env.sample) - Demonstrates environment-based configuration
+- **Complete example**: [`herald.yml.sample`](contrib/config/herald.yml.sample) - Shows all configuration options including inputs, outputs, api, and domains
 
 #### Container Configuration
 
 For container deployments, see [`container/README.md`](container/README.md) which includes:
 
-- Docker environment variable configuration
+- Environment variable configuration
 - Container-specific examples
-- Docker Compose setup examples
 
 #### Multiple File Loading & Includes
 
@@ -150,7 +144,7 @@ You can load and merge multiple configuration files by specifying the `-config` 
 #### Example: Multiple Config Files
 
 ```bash
-dns-companion \
+herald \
   -config /folder1/base.yml \
   -config /folder2/override.yml \
   -config ./extra.yml
@@ -173,8 +167,6 @@ Global settings for the application. These can be set in the `general` section o
 - `log_level` (string): Logging level for the application (e.g., `trace`, `debug`, `verbose`, `info`, `warn`, `error`).
 - `log_timestamps` (bool): Whether to include timestamps in log output.
 - `dry_run` (bool): If true, perform a test run without making DNS changes.
-- `poll_profiles` (list of strings): List of poller profiles to use (e.g., `docker`, `traefik`).
-- `output_profiles` (list of strings): List of output profiles to use. If not specified, all defined output profiles will be used.
 
 **YAML Example:**
 
@@ -183,195 +175,162 @@ general:
   log_level: verbose
   log_timestamps: true
   dry_run: false
-  poll_profiles:
-    - docker
-  output_profiles:
-    - hosts_export
-    - json_export
 ```
 
 #### Scoped Logging
 
-Each provider supports individual log level configuration via the `log_level` option, allowing fine-grained control over logging verbosity per provider without affecting global log levels.
+Each input/output/domain provider supports individual log level configuration via the `log_level` option, allowing fine-grained control over logging verbosity per provider without affecting global log levels.
 
-### Output Providers
+### Domain Configuration
 
-DNS Companion can export DNS records to various local file formats and remote aggregation servers. Output providers are configured in the `outputs` section and can be selectively enabled via `output_profiles`.
-
-#### Available Output Formats
-
-- **hosts**: Standard `/etc/hosts` file format (IPv4/IPv6 A records only, CNAMEs flattened)
-- **json**: Structured JSON export with metadata and timestamps
-- **yaml**: YAML export format with full record details
-- **zone**: RFC1035 compliant DNS zone files with SOA and NS records
-- **remote**: HTTP POST to remote aggregation server (NEW)
-
-#### Remote Aggregation
-
-The `remote` output provider enables distributed DNS management by pushing records to a central aggregation server. This is ideal for multi-server environments where you want to collect DNS records from multiple instances and generate master zone files.
-
-**Use Case**: Multiple servers running DNS Companion → Central aggregator → Master DNS zone files
-
-**Security Features:**
-- Bearer token authentication per client
-- Failed attempt tracking and rate limiting (20 attempts/hour)
-- TLS with optional mutual authentication
-- Comprehensive security logging
-- Automatic client expiry and cleanup
-
-**Interface Binding:**
-The `listen` option provides flexible control over which network interfaces the API server binds to:
-
-- **All interfaces**: `"all"` or `"*"` (default if not specified)
-- **Specific IP addresses**: `"192.168.1.100"`, `"10.0.0.50"`
-- **Interface names**: `"eth0"`, `"enp0s3"`, `"wlan0"`
-- **Wildcard patterns**: `"enp*"` (matches `enp0s3`, `enp1s0`, etc.)
-- **Exclusion patterns**: `"!docker*"` (exclude all Docker interfaces)
-- **Combined patterns**: Mix inclusion and exclusion for precise control
-
-```yaml
-api:
-  listen:
-    - "all"           # Start with all interfaces
-    - "!docker*"      # Exclude Docker interfaces
-    - "!lo"           # Exclude loopback
-    - "192.168.1.100" # Always include this specific IP
-```
-
-The aggregator automatically:
-- Receives DNS records from authenticated clients
-- Aggregates records by domain across all clients
-- Routes client data to different output profiles
-- Generates zone files, JSON, YAML exports
-
-**Client Configuration:**
-```yaml
-outputs:
-  send_to_api:
-    format: remote
-    url: "https://dns-master.company.com/api/dns"
-    client_id: "server1"
-    token: "your_bearer_token_here"
-    timeout: "30s"
-    data_format: "json"  # or "yaml"
-    log_level: "info"
-    tls:
-      verify: true
-      ca: "/etc/ssl/ca/server-ca.pem"    # Optional custom CA
-      cert: "/etc/ssl/certs/client.pem"  # Optional client cert for mutual TLS
-      key: "/etc/ssl/private/client.key" # Optional client key for mutual TLS
-```
-
-**Server Configuration:**
-```yaml
-api:
-  enabled: true
-  port: "8080"
-  listen:                                     # Interface patterns to listen on (optional)
-    - "all"                                   # Listen on all interfaces (default)
-    - "192.168.1.100"                        # Listen on specific IP address
-    - "eth0"                                 # Listen on specific interface
-    - "enp*"                                 # Listen on all interfaces matching pattern
-    - "!lo"                                  # Exclude loopback interface
-    - "!docker*"                             # Exclude all Docker interfaces
-  endpoint: "/api/dns"
-  client_expiry: "10m"
-  log_level: "info"
-  profiles:
-    server1:
-      token: "your_bearer_token_here"
-      output_profile: "aggregated_zones"
-    server2:
-      token: "file:///var/run/secrets/server2_token"  # Load token from file
-      output_profile: "special_zones"
-  tls:
-    cert: "/etc/ssl/certs/dns-companion.crt"
-    key: "/etc/ssl/private/dns-companion.key"
-    ca: "/etc/ssl/ca/client-ca.pem"  # Optional for mutual TLS
-```
-
-
-## Environment Variables
-
-Provider, poll, and domain-specific environment variables are also supported. See the sample [.env](contrib/config/env.sample) file and documentation for more details.
-
-The following environment variables can be used to configure DNS Companion:
-
-| Variable           | Description                                        | Default   |
-| ------------------ | -------------------------------------------------- | --------- |
-| `DRY_RUN`          | If true, do not perform actual DNS updates         | `false`   |
-| `LOG_LEVEL`        | Set log level (`trace` `debug`, `verbose`, `info`) | `verbose` |
-| `LOG_TIMESTAMPS`   | Include timestamps in log output (`true`/`false`)  | `true`    |
-| `OUTPUT_PROFILES`  | Comma-separated list of output profiles to use     | (all)     |
-| `API_ENABLED`      | Enable the API server (`true`/`false`)             | `false`   |
-| `API_PORT`         | API server port                                     | `8080`    |
-| `API_LISTEN`       | Comma-separated listen patterns (e.g., `all,!docker*`) | `all` |
-| `API_ENDPOINT`     | API endpoint path                                   | `/api/dns` |
-| `API_CLIENT_EXPIRY` | How long to keep client data                       | `10m`     |
-| `API_LOG_LEVEL`    | API server log level override                       | (global)  |
-
-### Default Options
-
-Default DNS record settings, used unless overridden at the domain or container level. These need to be specifically entered into your configuration to be active; they are not application-level defaults.
+Domains define per-domain configuration, including which input/output profiles to use, optional zone ID, and record options. Each domain can override defaults.
 
 **Options:**
 
-- `record` (object): Default DNS record options:
-  - `type` (string): Default DNS record type (e.g., `A`, `AAAA`, `CNAME`).
-  - `ttl` (integer): Default time-to-live for DNS records (in seconds).
-  - `update_existing` (bool): Whether to update existing records by default.
-  - `allow_multiple` (bool): Allow multiple A/AAAA records by default.
+- `name` (string): The DNS domain name (e.g., `example.com`).
+- `profiles` (object): Structured input and output configuration:
+  - `inputs` (list of strings): Which input providers are allowed to create records for this domain.
+  - `outputs` (list of strings): Which output profiles should process records for this domain.
+- `record` (object): DNS record options for this domain:
+  - `type` (string): DNS record type (e.g., `A`, `AAAA`, `CNAME`).
+  - `ttl` (integer): Time-to-live for DNS records (in seconds).
+  - `target` (string): The value for the DNS record (e.g., IP address or CNAME target).
+  - `update_existing` (bool): Whether to update existing records for this domain.
+  - `allow_multiple` (bool): Allow multiple A/AAAA records for this domain.
+- `include_subdomains` (list of strings): Subdomains to explicitly include for DNS management.
+- `exclude_subdomains` (list of strings): Subdomains to exclude from DNS management.
 
 **YAML Example:**
 
 ```yaml
-defaults:
-  record:
-    type: A
-    ttl: 300
-    update_existing: true
-    allow_multiple: false
+domains:
+  production_domain:
+    name: "example.com"
+    profiles:
+      inputs:
+        - docker_public
+        - traefik_routes
+      outputs:
+        - cloudflare_dns
+        - zone_backup
+    record:
+      target: "web.example.com"
+      ttl: 300
+      update_existing: true
+    include_subdomains:
+      - api
+      - www
+    exclude_subdomains:
+      - dev
+      - staging
+
+    name: example.com
+    provider: cloudflare
+    zone_id: your_zone_id_here
+    record:
+      type: A
+      ttl: 60
+      target: 192.0.2.1
+      update_existing: true
+      allow_multiple: true
+    include_subdomains:
+      - api
+      - internal
+    exclude_subdomains:
+      - dev
+      - staging
+    profiles:
+      inputs:
+        - docker_production
+        - traefik_prod
+      outputs:
+        - json_export
+        - zone_backup
 ```
 
-**Default Environment Variables:**
+#### Advanced Domain Targeting
 
-| Variable                         | Description                                                |
-| -------------------------------- | ---------------------------------------------------------- |
-| `DEFAULT_RECORD_TYPE`            | Default DNS record type (maps to defaults.record.type)     |
-| `DEFAULT_RECORD_TARGET`          | Default DNS record target (maps to defaults.record.target) |
-| `DEFAULT_RECORD_TTL`             | Default DNS record TTL (maps to defaults.record.ttl)       |
-| `DEFAULT_RECORD_UPDATE_EXISTING` | Update existing DNS records (`true`/`false`)               |
+The `profiles` field enables sophisticated routing scenarios by controlling which input providers can create DNS records and which output providers receive those records:
 
-### Pollers
-
-Pollers are components that discover containers or services to be managed. Each poller has its own configuration section and environment variables. Multiple pollers can be defined and used simultaneously.
-
-**What is a Poller?**
-
-A poller is a module that discovers resources (like containers or routers) to be managed for DNS. Each poller type (e.g., Docker, Traefik) has its own configuration and options.
-
-#### Supported Pollers
-
-- **Caddy**: Polls the Caddy Admin API to discover routes and generate DNS records for services managed by Caddy.
-- **Docker**: Monitors Docker containers and their labels to generate DNS records automatically.
-- **File**: Reads DNS records from local files in YAML, JSON, hosts, or zone file formats. Supports real-time file watching and interval polling.
-- **Remote**: Fetches DNS records from remote YAML, JSON, hosts, or zone files over HTTP(S), with optional authentication and polling interval.
-- **Traefik**: Polls the Traefik API to discover router rules and generate DNS records for services managed by Traefik.
-- **Tailscale**: Monitors Tailscale devices and creates DNS records for them. Supports both Tailscale Central and Headscale, with OAuth client credentials and personal access tokens.
-- **ZeroTier**: Monitors ZeroTier networks (both ZeroTier Central and ZT-Net) and creates DNS records for network members.
-
-#### Caddy Poller
-
-The Caddy poll provider discovers domain names from Caddy route configurations via the Caddy Admin API. It extracts hostnames from the route match rules in the configuration.
+**Input Provider Targeting**: Restrict which input providers can create DNS records for specific domains:
 
 ```yaml
-polls:
+domains:
+  production_com:
+    name: "production.com"
+    provider: "cloudflare_prod"
+    profiles:
+      inputs:
+        - "docker_production"     # Only production Docker containers
+        - "traefik_prod"          # Only production Traefik routes
+
+  staging_com:
+    name: "staging.com"
+    provider: "none"              # No DNS provider - output only
+    profiles:
+      inputs:
+        - "docker_staging"        # Only staging containers
+      outputs:
+        - "hosts_export"          # Export to /etc/hosts for local testing
+```
+
+**Output Profile Targeting**: Control which output formats receive records from specific domains:
+
+```yaml
+domains:
+  internal_vpn:
+    name: "vpn.internal"
+    provider: "none"            # VPN domains don't need public DNS
+    profiles:
+      inputs:
+        - "tailscale_devices"
+        - "zerotier_network"
+      outputs:
+        - "zone_internal"       # Generate internal zone files only
+        - "json_backup"         # Keep JSON backups
+
+  public_services:
+    name: "company.com"
+    provider: "cloudflare"
+    profiles:
+      inputs:
+        - "docker_web"
+        - "traefik_public"
+      outputs:
+        - "zone_backup"         # Backup zone files
+        - "api_aggregator"      # Send to central server
+```
+
+### Input Providers
+
+Input providers discover services that need DNS records. Each input provider is configured in the `inputs` section and can be selectively targeted via domain `profiles.inputs` configuration.
+
+#### Supported Input Types
+
+- **docker**: Monitors Docker containers and their labels to generate DNS records automatically
+- **traefik**: Polls the Traefik API to discover router rules and generate DNS records for services
+- **caddy**: Polls the Caddy Admin API to discover routes and generate DNS records
+- **tailscale**: Monitors Tailscale devices and creates DNS records for them
+- **zerotier**: Monitors ZeroTier networks and creates DNS records for network members
+- **file**: Reads DNS records from local files in YAML, JSON, hosts, or zone file formats
+- **remote**: Fetches DNS records from remote files over HTTP(S)
+
+#### Caddy Input Provider
+
+The Caddy input provider discovers domain names from Caddy route configurations via the Caddy Admin API. It extracts hostnames from the route match rules in the configuration.
+
+```yaml
+inputs:
   caddy_routes:
     type: caddy
     api_url: http://caddy:2019/config/
     api_auth_user: admin
     api_auth_pass: password
-    tls_verify: true  # Set to false to skip TLS certificate verification (like curl -k)
+    tls:
+      verify: true  # Set to false to skip TLS certificate verification
+      ca: "/etc/ssl/certs/ca-certificates.crt"  # Custom CA certificate file
+      cert: "/etc/ssl/client/client.crt"         # Client certificate for mutual TLS
+      key: "/etc/ssl/client/client.key"          # Client private key for mutual TLS
     interval: 60s
     record_remove_on_stop: true
     process_existing: true
@@ -430,11 +389,11 @@ filter:
       - value: "reverse_proxy"
 ```
 
-#### Docker Poller
+#### Docker Input Provider
 
-**Options for configuring a Docker poll provider:**
+**Options for configuring a Docker input provider:**
 
-- `type`: (string) Must be `docker` for Docker poller.
+- `type`: (string) Must be `docker` for Docker input provider.
 - `api_url`: (string) Docker API endpoint (default: `unix:///var/run/docker.sock`).
 - `api_auth_user`: (string) Username for basic auth to the Docker API (optional).
 - `api_auth_pass`: (string) Password for basic auth to the Docker API (optional).
@@ -443,14 +402,10 @@ filter:
 - `swarm_mode`: (bool) Enable Docker Swarm mode (default: false).
 - `record_remove_on_stop`: (bool) Remove DNS records when containers stop (default: false).
 
-Legacy options like `host` and `docker_host` are no longer supported.
-
-See `contrib/sample-config.yaml` for an example configuration.
-
 ##### Config File
 
 ```yaml
-polls:
+inputs:
   docker_example:
     type: docker
     api_url: unix:///var/run/docker.sock
@@ -462,34 +417,11 @@ polls:
     record_remove_on_stop: true
 ```
 
-##### Docker Poller Environment Variables
-
-| Variable                | Description                                             | Default                       |
-| ----------------------- | ------------------------------------------------------- | ----------------------------- |
-| `API_URL`               | Docker API endpoint (e.g., `tcp://111.222.111.32:2376`) | `unix:///var/run/docker.sock` |
-| `API_AUTH_USER`         | Username for basic auth to the Docker API               |                               |
-| `API_AUTH_PASS`         | Password for basic auth to the Docker API               |                               |
-| `PROCESS_EXISTING`      | Process existing containers on startup                  | `false`                       |
-| `EXPOSE_CONTAINERS`     | Expose all containers without requiring explicit labels | `false`                       |
-| `SWARM_MODE`            | Enable Docker Swarm Mode                                | `false`                       |
-| `RECORD_REMOVE_ON_STOP` | Remove DNS records when container stops                 | `false`                       |
-
-| Variable                                   | Description                               | Default |
-| ------------------------------------------ | ----------------------------------------- | ------- |
-| `POLL_<PROFILENAME>_TYPE`                  | Poller type (docker, traefik, etc.)       |         |
-| `POLL_<PROFILENAME>_API_URL`               | Docker API endpoint                       |         |
-| `POLL_<PROFILENAME>_API_AUTH_USER`         | Username for basic auth to the Docker API |         |
-| `POLL_<PROFILENAME>_API_AUTH_PASS`         | Password for basic auth to the Docker API |         |
-| `POLL_<PROFILENAME>_PROCESS_EXISTING`      | Process existing containers on startup    |         |
-| `POLL_<PROFILENAME>_EXPOSE_CONTAINERS`     | Expose containers (true/false)            |         |
-| `POLL_<PROFILENAME>_SWARM_MODE`            | Enable Docker Swarm mode                  |         |
-| `POLL_<PROFILENAME>_RECORD_REMOVE_ON_STOP` | Remove DNS on stop (true/false)           |         |
-
 ##### Usage of Docker Provider
 
 ##### Creating Records with Container Labels
 
-DNS Companion supports two methods for specifying DNS records:
+Herald supports two methods for specifying DNS records:
 
 1. **Direct DNS Labels**: Using `nfrastack.dns.*` labels
 2. **Traefik Host Rules**: Automatically detecting domains from Traefik HTTP router rules
@@ -616,25 +548,25 @@ labels:
 
 ##### Docker Container Filtering
 
-Use filtering to limit DNS management to only the containers you want, improving control and security.
-Docker container filtering allows you to control which containers are managed by the poller, so you can include or exclude containers based on labels, names, or other criteria. This is useful for limiting DNS management to only the containers you want, improving control and security.
+Docker container filtering allows you to control which containers are managed by the input provider. You can include or exclude containers based on labels, names, networks, or images. This is useful for limiting DNS management to only the containers you want, improving control and security.
 
 **Available filter types:**
 
-- `label`: Filter containers by labels and their values.
-- `name`: Filter containers by name patterns.
-- `network`: Filter containers by networks they're connected to.
-- `image`: Filter containers by the image they use.
+- `label`: Filter containers by labels and their values
+- `name`: Filter containers by name patterns
+- `network`: Filter containers by networks they're connected to
+- `image`: Filter containers by the image they use
 
 **How Filtering Works:**
 
-- Filtering is evaluated before any DNS records are created or updated.
-- Use the filter array format with conditions for precise control.
+- Filtering is evaluated before any DNS records are created or updated
+- Use the filter array format with conditions for precise control
+- Only containers that pass all filters are considered for DNS management
 
-**YAML Example:**
+**Basic Example:**
 
 ```yaml
-polls:
+inputs:
   docker_example:
     type: docker
     filter:
@@ -649,7 +581,7 @@ polls:
 The filter format supports complex filtering with conditions and boolean logic:
 
 ```yaml
-polls:
+inputs:
   docker_internal:
     type: docker
     expose_containers: true
@@ -686,27 +618,28 @@ polls:
 
 **Processing Order:**
 
-1. The poller discovers all containers.
+1. The input provider discovers all containers.
 2. Filtering is applied according to the configuration.
 3. Only containers passing the filter are considered for DNS management.
 
 **Best Practices:**
 
-- Use label filtering to target only containers that should be managed by DNS Companion.
+- Use label filtering to target only containers that should be managed by Herald.
 - Combine multiple filters for fine-grained control.
 
-#### File Poller
+#### File Input Provider
 
-The file provider allows you to manage DNS records by reading from a YAML or JSON file. It supports real-time file watching (default) or interval-based polling.
+The file provider allows you to manage DNS records by reading from YAML, JSON, hosts, or zone files. It supports real-time file watching (default) or interval-based polling.
+
+Look in [contrib/config/records](contrib/config/records) for examples of the recognized formats.
 
 **Example configuration:**
 
 ```yaml
-polls:
+inputs:
   file_example:
     type: file
-    name: file_example
-    source: ./result/records.yaml
+    source: ./records/dns-records.yaml
     format: yaml # or json - autodetects based on extension
     interval: -1 # (default: watch mode)
     record_remove_on_stop: true
@@ -717,18 +650,23 @@ polls:
           - value: "*.example.com"
 ```
 
-**File format (YAML):**
+**Supported File Formats:**
 
-```yaml
-records:
-  - host: www.example.com
-    type: A
-    ttl: 300
-    target: 192.0.2.10
-  - host: api.example.com
-    type: CNAME
-    target: www.example.com
-```
+The File Input Provider supports multiple file formats for maximum flexibility:
+
+- **YAML**: Structured YAML with metadata and domain organization
+- **JSON**: Structured JSON format matching the YAML schema
+- **Hosts**: Standard `/etc/hosts` format (hostname-to-IP mappings)
+- **Zone**: RFC1035 BIND zone file format
+
+**Sample Files:**
+
+See [`contrib/config/records/`](contrib/config/records/) for complete examples of all supported file formats:
+
+- [`dns-records.yaml`](contrib/config/records/dns-records.yaml) - YAML format example
+- [`dns-records.json`](contrib/config/records/dns-records.json) - JSON format example
+- [`hosts.example`](contrib/config/records/hosts.example) - Hosts file format example
+- [`example.com.zone`](contrib/config/records/example.com.zone) - Zone file format example
 
 **Filter Options:**
 
@@ -769,29 +707,34 @@ filter:
 **Options:**
 
 - `source` (required): Path to the file.
-- `format`: `yaml` (default) or `json`.
+- `format`: `yaml` (default), `json`, `hosts`, or `zone` - autodetects based on extension.
 - `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
 - `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
 - `process_existing`: Process all records on startup. Default: `false`.
 
-#### Remote Poller
+#### Remote Input Provider
 
 The remote provider works just like the File provider but allows you to poll a remote YAML or JSON file over HTTP/HTTPS. It supports HTTP Basic Auth and interval-based polling.
 
 ##### Example configuration
 
 ```yaml
-polls:
+inputs:
   remote_example:
     type: remote
     name: remote_example
     remote_url: https://example.com/records.yaml
-    format: yaml # or json (optional, autodetects by extension)
-    interval: 30s # Poll every 30 seconds
+    format: yaml                    # or json (optional, autodetects by extension)
+    interval: 30s                   # Poll every 30 seconds
     process_existing: true
     record_remove_on_stop: true
-    remote_auth_user: myuser # Optional HTTP Basic Auth
-    remote_auth_pass: mypassword # Optional HTTP Basic Auth
+    remote_auth_user: myuser        # Optional HTTP Basic Auth
+    remote_auth_pass: mypassword    # Optional HTTP Basic Auth
+    tls:
+      verify: true                              # Set to false to skip TLS certificate verification
+      ca: "/etc/ssl/certs/ca-certificates.crt"  # Custom CA certificate file
+      cert: "/etc/ssl/client/client.crt"        # Client certificate for mutual TLS
+      key: "/etc/ssl/client/client.key"         # Client private key for mutual TLS
     filter:
       - type: hostname
         conditions:
@@ -843,24 +786,34 @@ filter:
 - `record_remove_on_stop`: Remove DNS records when removed from remote. Default: `false`.
 - `remote_auth_user`: Username for HTTP Basic Auth (optional).
 - `remote_auth_pass`: Password for HTTP Basic Auth (optional).
+- `tls`: TLS configuration object (optional):
+  - `verify`: Whether to verify TLS certificates (default: true).
+  - `ca`: Path to custom CA certificate file (optional).
+  - `cert`: Path to client certificate file for mutual TLS (optional).
+  - `key`: Path to client private key file for mutual TLS (optional).
 
-#### Tailscale Poller
+#### Tailscale Input Provider
 
 The Tailscale provider monitors Tailscale devices and automatically creates DNS records based on their online status and other configurable filters. It supports both Tailscale Central and Headscale, with OAuth client credentials and personal access tokens.
 
 **Example configuration:**
 
 ```yaml
-polls:
+inputs:
   tailscale_example:
     type: tailscale
     api_key: "your_tailscale_api_key_here"
-    tailnet: "-"  # Default tailnet, or specify tailnet ID
+    tailnet: "-"                # Default tailnet, or specify tailnet ID
     domain: "ts.example.com"
     interval: 30s
-    hostname_format: "simple"  # "simple", "tailscale", or "full"
+    hostname_format: "simple"   # "simple", "tailscale", or "full"
     process_existing: true
     record_remove_on_stop: true
+    tls:
+      verify: true                               # Set to false to skip TLS certificate verification
+      ca: "/etc/ssl/certs/ca-certificates.crt"   # Custom CA certificate file
+      cert: "/etc/ssl/client/client.crt"         # Client certificate for mutual TLS
+      key: "/etc/ssl/client/client.key"          # Client private key for mutual TLS
     #Filtering (defaults to online=true if no filters specified)
     filter:
       - type: online
@@ -894,7 +847,7 @@ api_auth_id: "your_oauth_client_id"
 For self-hosted Headscale instances:
 
 ```yaml
-polls:
+inputs:
   headscale_example:
     type: tailscale
     api_url: "https://headscale.example.com/api/v1"
@@ -927,6 +880,11 @@ polls:
 - `hostname_format`: How to format hostnames (default: "simple")
 - `process_existing`: Process existing devices on startup (default: false)
 - `record_remove_on_stop`: Remove DNS records when devices go offline (default: false)
+- `tls`: TLS configuration object (optional):
+  - `verify`: Whether to verify TLS certificates (default: true)
+  - `ca`: Path to custom CA certificate file (optional)
+  - `cert`: Path to client certificate file for mutual TLS (optional)
+  - `key`: Path to client private key file for mutual TLS (optional)
 - `log_level`: Provider-specific log level override
 
 **Advanced Filtering:**
@@ -963,30 +921,22 @@ filter:
       - value: true
 ```
 
-**Environment Variables:**
+#### Traefik Input Provider
 
-| Variable                    | Description                    |
-| --------------------------- | ------------------------------ |
-| `TAILSCALE_API_KEY`         | Tailscale API key              |
-| `TAILSCALE_API_AUTH_TOKEN`  | OAuth client secret            |
-| `TAILSCALE_API_AUTH_ID`     | OAuth client ID                |
-| `TAILSCALE_API_URL`         | Custom API URL (for Headscale) |
-| `TAILSCALE_TAILNET`         | Tailnet ID or namespace        |
-| `TAILSCALE_DOMAIN`          | Domain suffix for DNS records  |
-| `TAILSCALE_HOSTNAME_FORMAT` | Hostname format style          |
-
-#### Traefik Poller
-
-The Traefik poll provider discovers domain names from Traefik router rules via the Traefik API. It extracts hostnames from the `Host` rules in router configurations.
+The Traefik input provider discovers domain names from Traefik router rules via the Traefik API. It extracts hostnames from the `Host` rules in router configurations.
 
 ```yaml
-polls:
+inputs:
   traefik_routers:
     type: traefik
     api_url: https://traefik.example.com/api/http/routers
     api_auth_user: admin
     api_auth_pass: password
-    tls_verify: true  # Set to false to skip TLS certificate verification
+    tls:
+      verify: true                               # Set to false to skip TLS certificate verification
+      ca: "/etc/ssl/certs/ca-certificates.crt"   # Custom CA certificate file
+      cert: "/etc/ssl/client/client.crt"         # Client certificate for mutual TLS
+      key: "/etc/ssl/client/client.key"          # Client private key for mutual TLS
     interval: 5m
     filter:
       - type: name
@@ -994,14 +944,18 @@ polls:
           - value: ^websecure-
 ```
 
-**Options for configuring a Traefik poll provider:**
+**Options for configuring a Traefik input provider:**
 
-- `type`: (string) Must be `traefik` for Traefik poller.
+- `type`: (string) Must be `traefik` for Traefik input provider.
 - `api_url`: The URL of the Traefik API to poll (e.g., `http://traefik:8080/api/http/routers`).
 - `api_auth_user`: Username for basic auth to the Traefik API (optional).
 - `api_auth_pass`: Password for basic auth to the Traefik API (optional).
 - `interval`: How often to poll the Traefik API for updates (e.g., `15s`, `1m`, `1h`).
-- `tls_verify`: Whether to verify TLS certificates (default: true).
+- `tls`: TLS configuration object (optional):
+  - `verify`: Whether to verify TLS certificates (default: true).
+  - `ca`: Path to custom CA certificate file (optional).
+  - `cert`: Path to client certificate file for mutual TLS (optional).
+  - `key`: Path to client private key file for mutual TLS (optional).
 - `record_remove_on_stop`: Remove DNS records when routers are removed (default: false).
 - `process_existing`: Process existing routers on startup (default: false).
 
@@ -1021,7 +975,7 @@ The Traefik provider supports advanced filtering to precisely control which rout
 **Basic filtering example:**
 
 ```yaml
-polls:
+inputs:
   traefik_example:
     type: traefik
     api_url: http://traefik:8080/api/http/routers
@@ -1034,7 +988,7 @@ polls:
 **Advanced filters (multiple conditions):**
 
 ```yaml
-polls:
+inputs:
   traefik_advanced:
     type: traefik
     api_url: http://traefik:8080/api/http/routers
@@ -1090,19 +1044,8 @@ filter:
       - value: "*-internal"
 ```
 
-**Environment variables:**
-
-Environment variables can also be used for authentication:
-
-- `TRAEFIK_API_AUTH_USER`: Basic auth username
-- `TRAEFIK_API_AUTH_PASS`: Basic auth password
-- `TRAEFIK_API_URL`: Traefik API URL
-
-
-##### Traefik Poller Configuration File
-
 ```yaml
-polls:
+inputs:
   traefik_example:
     type: traefik
     api_url: http://traefik:8080/api/http/routers
@@ -1113,122 +1056,14 @@ polls:
           - value: ^websecure-.*
 ```
 
-##### Traefik Poller Environment Variables
+#### ZeroTier Input Provider
 
-| Variable                         | Description                                                            |
-| -------------------------------- | ---------------------------------------------------------------------- |
-| `POLL_<PROFILENAME>_TYPE`        | Value should be `traefik`                                              |
-| `POLL_<PROFILENAME>_API_URL`     | Traefik API URL                                                        |
-| `POLL_<PROFILENAME>_INTERVAL`    | Poll interval (supports units, e.g., `15s`, `1m`, `60` for 60 seconds) |
+The ZeroTier provider monitors ZeroTier network members and automatically creates DNS records based on their online status and other configurable filters. It supports both ZeroTier Central and self-hosted ZT-Net controllers.
 
-#### ZeroTier Poller
-
-The ZeroTier provider monitors ZeroTier network members and automatically creates DNS records based on their online status and other configurable filters.
-
-##### ZeroTier vs ZT-Net
-
-- **ZeroTier Central**: Official ZeroTier cloud service (my.zerotier.com)
-  - Uses Bearer token authentication
-  - Member status determined by `lastSeen` timestamp and configurable timeout
-  - Supports: online, name, authorized, id, address, ipAssignments filters
-
-- **ZT-Net**: Self-hosted ZeroTier network controller
-  - Uses x-ztnet-auth header authentication
-  - Member status determined by boolean `online` field
-  - Supports all filters: online, name, authorized, tag, id, address, nodeid, ipAssignments, physicalAddress
-  - Network ID format: `org:domain:networkid` or `domain:networkid`
-
-##### Filtering Options
-
-- `online`: Filter by online status (`true`/`false`)
-- `name`: Filter by member name (substring match)
-- `authorized`: Filter by authorization status (`true`/`false`)
-- `tag`: Filter by member tags (ZT-Net only)
-- `id`: Filter by exact member ID
-- `address`: Filter by exact ZeroTier address
-- `nodeid`: Filter by node ID (ZT-Net only)
-- `ipAssignments`: Filter by assigned IP address
-- `physicalAddress`: Filter by physical network address (ZT-Net only)
-
-##### Configuration Options
-
-**Options for configuring a ZeroTier poll provider:**
-
-- `type` (str): "zerotier"
-- `api_url` (str): ZeroTier Central or ZT-Net API base URL (optional, defaults to <https://my.zerotier.com>)
-- `api_token` (str): API token for authentication
-- `api_type` (str, optional): "zerotier" or "ztnet". If omitted, will attempt to autodetect
-- `network_id` (str): ZeroTier network ID (for ZT-Net: `org:domain:networkid` or `domain:networkid`)
-- `domain` (str): Domain to append to hostnames (e.g., `zt.example.com`)
-- `interval` (str, optional): Polling interval (e.g., "60s", default: "60s")
-- `online_timeout_seconds` (int): Seconds to consider a member offline (default: 60, recommend: 300+)
-- `process_existing` (bool): Process records on startup (default: false)
-- `record_remove_on_stop` (bool): Remove DNS records when node goes offline (default: false)
-- `use_address_fallback` (bool): Use ZeroTier address as hostname when name is empty (default: false)
-- `log_level` (string): Provider-specific log level override (optional)
-
-**⚠️ Important**: For ZeroTier Central, set `online_timeout_seconds` to 300+ seconds (5+ minutes) to prevent erratic add/remove behavior due to inconsistent heartbeat timing. The default 120 seconds may cause members to flap online/offline frequently.
-
-##### Filtering
-
-The ZeroTier provider supports advanced filtering with conditions arrays:
+**Basic Configuration:**
 
 ```yaml
-# Only online and authorized members
-polls:
-  zerotier_example:
-    type: zerotier
-    api_token: "your_token"
-    network_id: "your_network"
-    domain: "zt.example.com"
-    filter:
-      - type: online
-        conditions:
-          - value: true
-      - type: authorized
-        operation: AND
-        conditions:
-          - value: true
-
-# Only members with specific tags (ZT-Net only)
-filter:
-  - type: tag
-    conditions:
-      - value: production
-
-# Complex filtering with multiple conditions
-filter:
-  - type: name
-    conditions:
-      - value: server-*
-      - value: prod-*
-        logic: or
-  - type: authorized
-    operation: AND
-    conditions:
-      - value: true
-```
-
-**Available filter types:**
-
-| Filter Type       | Description                  | Example Values      | Supported APIs |
-| ----------------- | ---------------------------- | ------------------- | -------------- |
-| `online`          | Member online status         | `true`, `false`     | Both           |
-| `authorized`      | Member authorization status  | `true`, `false`     | Both           |
-| `name`            | Member name pattern match    | `server-*`, `^prod` | Both           |
-| `tag`             | Member has specific tag      | `dns`, `production` | ZT-Net only    |
-| `id`              | Exact member ID match        | `a1b2c3d4e5`        | Both           |
-| `address`         | Exact ZeroTier address match | `a1b2c3d4e5`        | Both           |
-| `nodeid`          | Node ID (ZT-Net only)        | `123`               | ZT-Net only    |
-| `ipAssignments`   | Has specific IP assignment   | `10.0.0.100`        | Both           |
-| `physicalAddress` | Physical address match       | `1.2.3.4/9993`      | ZT-Net only    |
-
-
-
-#### Basic Configuration
-
-```yaml
-polls:
+inputs:
   zerotier_example:
     type: zerotier
     api_token: "your_zerotier_api_token_here"
@@ -1237,527 +1072,349 @@ polls:
     online_timeout_seconds: 300  # Recommended: 300+ seconds
     record_remove_on_stop: true
     use_address_fallback: true
+    filter:
+      - type: online
+        conditions:
+          - value: "true"
 ```
 
-#### Configuration Options
+**Configuration Options:**
 
-| Option                   | Type     | Default                   | Description                                          |
-| ------------------------ | -------- | ------------------------- | ---------------------------------------------------- |
-| `api_url`                | string   | `https://my.zerotier.com` | ZeroTier Central or ZT-Net API URL                   |
-| `api_token`              | string   | **required**              | ZeroTier API token or ZT-Net auth token              |
-| `api_type`               | string   | auto-detect               | `zerotier` or `ztnet` (auto-detected from URL)       |
-| `network_id`             | string   | **required**              | Network ID. For ZT-Net: `org:domain.com:networkid`   |
-| `domain`                 | string   | optional                  | Domain suffix for DNS records                        |
-| `interval`               | duration | `60s`                     | Polling interval                                     |
-| `online_timeout_seconds` | int      | `120`                     | **Recommend 300+** - Time to consider member offline |
-| `process_existing`       | bool     | `false`                   | Process existing members on startup                  |
-| `record_remove_on_stop`  | bool     | `false`                   | Remove DNS records when member goes offline          |
-| `use_address_fallback`   | bool     | `false`                   | Use ZeroTier address as hostname when name is empty  |
-| `log_level`              | string   | global                    | Provider-specific log level override                 |
+- `type`: Must be "zerotier"
+- `api_token`: ZeroTier API token or ZT-Net auth token (required)
+- `network_id`: ZeroTier network ID (required)
+- `domain`: Domain suffix for DNS records (e.g., `zt.example.com`)
+- `api_url`: API URL (default: `https://my.zerotier.com` for ZeroTier Central)
+- `interval`: Polling interval (default: 60s)
+- `online_timeout_seconds`: Time to consider member offline (default: 120, recommend: 300+)
+- `process_existing`: Process existing members on startup (default: false)
+- `record_remove_on_stop`: Remove DNS records when member goes offline (default: false)
+- `use_address_fallback`: Use ZeroTier address as hostname when name is empty (default: false)
 
-#### API Types
+**Filter Options:**
 
-**ZeroTier Central** (`api_type: zerotier`)
+- `online`: Filter by online status (`true`/`false`)
+- `name`: Filter by member name (substring match)
+- `authorized`: Filter by authorization status (`true`/`false`)
+- `id`: Filter by exact member ID
+- `ipAssignments`: Filter by assigned IP address
 
-- Official ZeroTier Central API
-- Uses `lastSeen` millisecond timestamps
-- Authentication: `Bearer` token
+**ZT-Net Support:**
 
-**ZT-Net** (`api_type: ztnet`)
-
-- Self-hosted ZeroTier network controller
-- Uses `lastSeen` ISO timestamp format
-- Authentication: `x-ztnet-auth` header
-- Network ID format: `org:domain.com:networkid` or `domain.com:networkid`
-
-#### Examples
-
-**ZeroTier Central - Production Setup**
+For self-hosted ZT-Net controllers, set the `api_url` and use the special network ID format:
 
 ```yaml
-zerotier_prod:
-  type: zerotier
-  api_token: "zt_token_here"
-  network_id: "a1b2c3d4e5f6g7h8"
-  domain: "vpn.company.com"
-  online_timeout_seconds: 600  # 10 minutes - very stable
-  filter:
-    - type: authorized
-      conditions:
-        - value: true
-  record_remove_on_stop: true
-  log_level: "info"
+inputs:
+  ztnet_example:
+    type: zerotier
+    api_url: "https://ztnet.company.com"
+    api_token: "ztnet_token_here"
+    network_id: "org:domain.com:networkid123"
+    domain: "dev.company.com"
 ```
 
-**ZT-Net - Development Setup**
-
-```yaml
-zerotier_dev:
-  type: zerotier
-  api_url: "https://ztnet.company.com"
-  api_token: "ztnet_token_here"
-  network_id: "dev:dev.company.com:networkid123"
-  domain: "dev.company.com"
-  online_timeout_seconds: 300
-  filter:
-    - type: tag
-      conditions:
-        - value: development
-  use_address_fallback: true
-  log_level: "debug"
-```
-
-### Providers
-
-Providers are components that manage DNS records. Each provider has its own configuration section and environment variables. Multiple providers can be defined and used for different domains.
-
-#### Supported Providers
-
-- **Cloudflare**: Manage DNS records via Cloudflare API.
-
-##### Provider Configuration (YAML)
-
-```yaml
-providers:
-  cloudflare_example:
-    type: cloudflare
-    api_token: your-api-token      # If using scoped access
-    #api_email: your@email.address # If using Global API Key
-    #api_key: your-global-api-key  # If using Global API Key
-    zone_id: your-zone-id          # (if required)
-```
-
-##### Provider Environment Variables
-
-| Variable                                          | Description                      |
-| ------------------------------------------------- | -------------------------------- |
-| `PROVIDER_<PROFILENAME>_TYPE`                     | Provider type (cloudflare, etc.) |
-| `PROVIDER_<PROFILENAME>_API_TOKEN`                | API token                        |
-| `PROVIDER_<PROFILENAME>_API_KEY`                  | API key                          |
-| `PROVIDER_<PROFILENAME>_API_EMAIL`                | API email                        |
-| `PROVIDER_<PROFILENAME>_<PROVIDER-TYPE>_<OPTION>` | Provider-specific options        |
-
-### Domain Configuration
-
-Domains define per-domain configuration, including which provider to use, zone ID, record options, and output providers. Each domain can override defaults and specify subdomain filters.
-
-**Options:**
-
-- `name` (string): The DNS domain name (e.g., `example.com`).
-- `provider` (string): The provider profile to use for this domain (must match a key in the `providers` section).
-- `zone_id` (string): The DNS provider's zone ID for this domain (if required by the provider).
-- `record` (object): DNS record options for this domain:
-  - `type` (string): DNS record type (e.g., `A`, `AAAA`, `CNAME`).
-  - `ttl` (integer): Time-to-live for DNS records (in seconds).
-  - `target` (string): The value for the DNS record (e.g., IP address or CNAME target).
-  - `update_existing` (bool): Whether to update existing records for this domain.
-  - `allow_multiple` (bool): Allow multiple A/AAAA records for this domain.
-- `include_subdomains` (list of strings): Subdomains to explicitly include for DNS management.
-- `exclude_subdomains` (list of strings): Subdomains to exclude from DNS management.
-
-**YAML Example:**
-
-```yaml
-domains:
-  dom_example:
-    name: example.com
-    provider: cloudflare
-    zone_id: your_zone_id_here
-    record:
-      type: A
-      ttl: 60
-      target: 192.0.2.1
-      update_existing: true
-      allow_multiple: true
-    include_subdomains:
-      - api
-      - internal
-    exclude_subdomains:
-      - dev
-      - staging
-```
+**⚠️ Important**: For ZeroTier Central, set `online_timeout_seconds` to 300+ seconds to prevent erratic add/remove behavior due to inconsistent heartbeat timing.
 
 ### Output Providers
 
-DNS Companion supports multiple output formats for exporting DNS records to files alongside live DNS management. This allows you to maintain local backups, serve data via APIs, or integrate with other DNS systems.
+Output providers handle where DNS records are sent. This includes live DNS providers (like Cloudflare) and file export formats. Output providers are configured in the `outputs` section and can be selectively targeted via domain `profiles.outputs` configuration.
 
-#### Output Types
+#### Live DNS Providers
 
-- **Hosts File**: Standard hosts file format with A/AAAA records (CNAMEs are flattened)
-- **JSON Export**: Structured JSON with metadata
-- **YAML Export**: Structured YAML with metadata
-- **Zone Files**: RFC1035-compliant BIND zone files
+Live DNS providers use `type: dns` and manage records directly with DNS services:
 
-#### Common Features
-
-- **File Ownership Control**: Set user, group, and permissions
-- **Live Updates**: Files are updated in real-time as DNS records change
-- **Multi-Domain Support**: Target specific domains, multiple domains, or all domains
-- **Profile-Based**: Configure multiple independent output profiles
-- **Domain Targeting**: Target specific domains, multiple domains, or ALL domains
-- **Templatable Paths**: Use templates like `%domain%`, `%date%`, `%profile%` in file paths
-- **Format Independence**: Any format can target any domain combination (with zone file constraints)
-
-#### Output Configuration System
-
-DNS Companion uses a profile-based output system that provides flexibility in targeting domains and generating output files.
+- **cloudflare**: Manage DNS records via Cloudflare API
 
 ```yaml
 outputs:
-  profile_name:
-    format: "yaml|json|zone|hosts"
-    path: "/path/with/%templates%"
-    domains: "example.com" | ["domain1", "domain2"] | "all"
-    # ... format-specific options
+  # Live Cloudflare DNS
+  cloudflare_dns:
+    type: dns
+    provider: cloudflare
+    token: "your-cloudflare-token"
+    log_level: info
 ```
 
-##### Template Variables
+#### File Export Formats
 
-- `%domain%` → Domain name (filesystem-safe: `example_com`)
-- `%profile%` → Profile name
-- `%date%` → Current date (`YYYY-MM-DD`)
-- `%datetime%` → Current datetime (`YYYY-MM-DD_HH-MM-SS`)
-- `%timestamp%` → Unix timestamp
-- `%env:VAR%` → Environment variables
+File export providers use `type: file` and export DNS records to various local file formats for backups, local resolution, or integration with other systems:
 
-##### Domain Targeting
+- **hosts**: Standard `/etc/hosts` file format (IPv4/IPv6 A records only, CNAMEs flattened)
+- **json**: Structured JSON export with metadata and timestamps
+- **yaml**: YAML export format with full record details
+- **zone**: RFC1035 compliant DNS zone files with SOA and NS records
 
-- **Default behavior**: If no `domains` are specified, the profile defaults to all domains
-- **Explicit targeting**: Specify exact domain names to limit the profile to those domains
-- **Universal aliases**: Use `"all"`, `"any"`, or `"*"` to target all domains
+##### DNS Resolution Control for File Outputs
 
-```yaml
-outputs:
-  # Defaults to ALL domains (no domains specified)
-  default_export:
-    format: "json"
-    path: "./exports/all-domains.json"
+File output providers support DNS resolution control to handle different network environments and prevent localhost/container IP resolution issues.
 
-  # Explicitly target all domains
-  universal_export:
-    format: "yaml"
-    path: "./exports/everything.yaml"
-    domains: "all"  # or "any", "*", "ALL"
+When Herald processes CNAME records (like those from Traefik routers), it can automatically resolve them to IP addresses (called "flattening"). However, this can cause issues when running in containers or local environments where hostnames resolve to localhost addresses.
 
-  # Target specific domains only
-  specific_export:
-    format: "hosts"
-    path: "./exports/specific.hosts"
-    domains: ["example.com", "test.com"]
-
-  # Mixed targeting (specific + all)
-  mixed_export:
-    format: "zone"
-    path: "./exports/%domain%.zone"
-    domains: ["example.com", "any"]  # example.com + all other domains
-```
-
----
-
-### Supported Output Types
-
-#### Hosts File Output
-
-The hosts file output format generates standard `/etc/hosts` format files for local DNS resolution. Only A and AAAA records are supported; CNAME records are automatically flattened to their target IPs.
-
-**Configuration Example:**
+**Available Options:**
 
 ```yaml
 outputs:
   hosts:
-    path: "/etc/hosts.dns-companion"
-    user: "root"
-    group: "root"
-    mode: 644
-    enable_ipv4: true
-    enable_ipv6: false
-    header_comment: "DNS Companion managed hosts"
+    type: file
+    format: hosts
+    path: "./domain/%domain%.hosts"
+    domains: ["example.com"]
+    # DNS Resolution Control Options:
+    flatten_cnames: true          # Enable CNAME to A record flattening (default: true)
+    dns_server: "1.1.1.1"        # Use external DNS server (Cloudflare)
+    resolve_external: true       # Force external DNS resolution
+    ip_override: "192.168.1.100" # Override all resolved IPs with this address
 ```
 
-**Options:**
+- **`flatten_cnames: true/false`** - Controls whether CNAME records are resolved to A records
+- **`dns_server: "1.1.1.1"`** - Uses external DNS server via nslookup instead of system resolver
+- **`resolve_external: true`** - Forces external DNS resolution, defaults to Cloudflare DNS (1.1.1.1)
+- **`ip_override: "192.168.1.100"`** - Forces all resolved IPs to this address, bypassing DNS entirely
 
-- `path` (required): File path for the hosts file
-- `user`, `group`, `mode`: File ownership/permissions
-- `enable_ipv4`: Include IPv4 A records (default: true)
-- `enable_ipv6`: Include IPv6 AAAA records (default: true)
-- `header_comment`: Custom header comment (default: "Generated by dns-companion")
+**Example: Container DNS Issues**
 
-**Example Output:**
-
+Problem: Herald resolves hostnames to localhost in containers:
 ```
-# DNS Companion managed hosts
-# Generated at: 2025-01-15 10:30:00 UTC
-
-192.0.2.10    www.example.com
-192.0.2.11    api.example.com
-192.0.2.12    app.example.com
+127.0.0.2    git.example.com
+127.0.0.2    mail.example.com
 ```
 
----
+Solution: Use external DNS or IP override:
+```yaml
+hosts:
+  dns_server: "1.1.1.1"
+  resolve_external: true
+```
 
-#### JSON Export Output
-
-The JSON export provider creates structured JSON files with rich metadata for DNS records. These files are perfect for API integration, web services, and machine-readable backups.
-
-**Configuration Example:**
+Result: Correct public IP resolution:
+```
+148.113.218.18    git.example.com
+148.113.218.18    mail.example.com
+```
 
 ```yaml
 outputs:
-  json:
-    path: "/var/www/api/dns/example.com.json"
-    user: "www-data"
-    group: "www-data"
-    mode: 644
-    generator: "dns-companion"
-    hostname: "api-server.example.com"
-    comment: "API-accessible DNS records"
-    indent: true
-```
+  # JSON backup files
+  json_backup:
+    type: file
+    format: json
+    path: "./backups/%domain%.json"
+    user: herald
+    group: herald
+    mode: 0644
 
-**Options:**
-
-- `path` (required): File path for the JSON export
-- `user`, `group`, `mode`: File ownership/permissions
-- `generator`: Custom generator identifier (default: "dns-companion")
-- `hostname`: Hostname identifier for this instance (auto-detected if not specified)
-- `comment`: Global comment for the export
-- `indent`: Pretty print JSON with indentation (default: true)
-
-**Example Output:**
-
-```json
-{
-  "metadata": {
-    "generator": "dns-companion",
-    "hostname": "api-server.example.com",
-    "domain": "example.com",
-    "generated_at": "2025-01-27T10:30:00Z",
-    "comment": "API-accessible DNS records",
-    "version": "1.0"
-  },
-  "domain": {
-    "name": "example.com",
-    "records": [
-      {
-        "name": "www",
-        "type": "A",
-        "value": "192.0.2.1",
-        "ttl": 300,
-        "created_at": "2025-01-27T09:15:00Z",
-        "updated_at": "2025-01-27T10:30:00Z",
-        "source": "docker-container-webapp"
-      },
-      {
-        "name": "api",
-        "type": "A",
-        "value": "192.0.2.2",
-        "ttl": 300,
-        "created_at": "2025-01-27T09:20:00Z",
-        "updated_at": "2025-01-27T09:20:00Z",
-        "source": "docker-container-api"
-      },
-      {
-        "name": "mail",
-        "type": "CNAME",
-        "value": "mail.provider.com",
-        "ttl": 3600,
-        "created_at": "2025-01-27T08:45:00Z",
-        "updated_at": "2025-01-27T08:45:00Z",
-        "source": "manual-config"
-      }
-    ]
-  }
-}
-```
-
----
-
-#### YAML Export Output
-
-The YAML export provider creates structured YAML files with rich metadata for DNS records. These files are ideal for backups, configuration management, and integration with other tools.
-
-**Configuration Example:**
-
-```yaml
-outputs:
-  yaml:
-    path: "/backup/dns/example.com.yaml"
-    user: "dns-backup"
-    group: "dns-backup"
-    mode: 644
-    generator: "dns-companion-prod"
-    hostname: "server01.example.com"
-    comment: "Production DNS records for example.com"
-```
-
-**Options:**
-
-- `path` (required): File path for the YAML export
-- `user`, `group`, `mode`: File ownership/permissions
-- `generator`: Custom generator identifier (default: "dns-companion")
-- `hostname`: Hostname identifier for this instance (auto-detected if not specified)
-- `comment`: Global comment for the export
-
-**Example Output:**
-
-```yaml
-# DNS records for example.com
-# Generated by dns-companion-prod on server01.example.com
-# Production DNS records for example.com
-
-metadata:
-  generator: "dns-companion-prod"
-  hostname: "server01.example.com"
-  domain: "example.com"
-  generated_at: "2025-01-27T10:30:00Z"
-  comment: "Production DNS records for example.com"
-  version: "1.0"
-
-domain:
-  name: "example.com"
-  records:
-    - name: "www"
-      type: "A"
-      value: "192.0.2.1"
-      ttl: 300
-      created_at: "2025-01-27T09:15:00Z"
-      updated_at: "2025-01-27T10:30:00Z"
-      source: "docker-container-webapp"
-    - name: "api"
-      type: "A"
-      value: "192.0.2.2"
-      ttl: 300
-      created_at: "2025-01-27T09:20:00Z"
-      updated_at: "2025-01-27T09:20:00Z"
-      source: "docker-container-api"
-    - name: "mail"
-      type: "CNAME"
-      value: "mail.provider.com"
-      ttl: 3600
-      created_at: "2025-01-27T08:45:00Z"
-      updated_at: "2025-01-27T08:45:00Z"
-      source: "manual-config"
-```
-
----
-
-#### Zone File Output
-
-The zone file output format generates RFC1035-compliant BIND zone files with proper SOA and NS records. These files can be used directly with BIND or other DNS servers.
-
-**Configuration Example:**
-
-```yaml
-outputs:
-  example_zone:
-    format: "zone"
-    path: "/var/named/example.com.zone"
-    domains: "example.com"
-    user: "named"
-    group: "named"
-    mode: 644
+  # Zone files for BIND
+  zone_files:
+    type: file
+    format: zone
+    path: "./zones/%domain%.zone"
     soa:
       primary_ns: "ns1.example.com"
       admin_email: "admin@example.com"
       serial: "auto"
-      refresh: 3600
-      retry: 900
-      expire: 604800
-      minimum: 300
     ns_records:
       - "ns1.example.com"
       - "ns2.example.com"
 ```
 
-**Multiple Domains with Templates:**
+#### Remote Output
+
+Remote output providers use `type: remote` for sending records to remote Herald aggregation servers:
 
 ```yaml
 outputs:
-  all_zones:
-    format: "zone"
-    path: "/var/named/%domain%.zone"
-    domains: "ALL"
-    user: "named"
-    group: "named"
-    mode: 644
-    soa:
-      primary_ns: "ns1.example.com"
-      admin_email: "admin@example.com"
-      serial: "auto"
-      refresh: 3600
-      retry: 900
-      expire: 604800
-      minimum: 300
-    ns_records:
-      - "ns1.example.com"
-      - "ns2.example.com"
+  # Remote aggregation server
+  aggregation_server:
+    type: remote
+    url: "https://dns-aggregator.example.com/api/dns"
+    client_id: "server-01"
+    token: "aggregation-token"
+    timeout: "30s"
+    tls:
+      verify: true
 ```
+
+See the detailed configuration sections above for each output type.
+
+### API Server
+
+Herald includes an optional HTTP API server for distributed DNS management scenarios. The API server receives DNS records from remote Herald instances and can route them to different output profiles.
+
+**Use Case**: Multiple servers running Herald → Central aggregator → Master DNS zone files
+
+#### API Server Configuration
+
+```yaml
+api:
+  enabled: true
+  port: "8080"
+  listen:                                     # Interface patterns to listen on (optional)
+    - "all"                                   # Listen on all interfaces (default)
+    - "192.168.1.100"                         # Listen on specific IP address
+    - "eth0"                                  # Listen on specific interface
+    - "enp*"                                  # Listen on all interfaces matching pattern
+    - "!lo"                                   # Exclude loopback interface
+    - "!docker*"                              # Exclude all Docker interfaces
+  endpoint: "/api/dns"
+  client_expiry: "10m"
+  log_level: "info"
+  profiles:
+    server1:
+      token: "your_bearer_token_here"
+      output_profile: "aggregated_zones"
+    server2:
+      token: "file:///var/run/secrets/server2_token"  # Load token from file
+      output_profile: "special_zones"
+  tls:
+    cert: "/etc/ssl/certs/herald.crt"
+    key: "/etc/ssl/private/herald.key"
+    ca: "/etc/ssl/ca/client-ca.pem"  # Optional for mutual TLS
+```
+
+#### Security Features
+
+- Bearer token authentication per client
+- Failed attempt tracking and rate limiting (20 attempts/hour)
+- TLS with optional mutual authentication
+- Comprehensive security logging
+- Automatic client expiry and cleanup
+
+#### Interface Binding
+
+The `listen` option provides flexible control over which network interfaces the API server binds to:
+
+- **All interfaces**: `"all"` or `"*"` (default if not specified)
+- **Specific IP addresses**: `"192.168.1.100"`, `"10.0.0.50"`
+- **Interface names**: `"eth0"`, `"enp0s3"`, `"wlan0"`
+- **Wildcard patterns**: `"enp*"` (matches `enp0s3`, `enp1s0`, etc.)
+- **Exclusion patterns**: `"!docker*"` (exclude all Docker interfaces)
+- **Combined patterns**: Mix inclusion and exclusion for precise control
+
+```yaml
+api:
+  listen:
+    - "all"           # Start with all interfaces
+    - "!docker*"      # Exclude Docker interfaces
+    - "!lo"           # Exclude loopback
+    - "192.168.1.100" # Always include this specific IP
+```
+
+#### Remote Output Configuration
+
+To send records to a remote Herald API server, configure a `remote` output provider:
+
+```yaml
+outputs:
+  send_to_api:
+    format: remote
+    url: "https://dns-master.company.com/api/dns"
+    client_id: "server1"
+    token: "your_bearer_token_here"
+    timeout: "30s"
+    data_format: "json"  # or "yaml"
+    log_level: "info"
+    tls:
+      verify: true
+      ca: "/etc/ssl/ca/server-ca.pem"    # Optional custom CA
+      cert: "/etc/ssl/certs/client.pem"  # Optional client cert for mutual TLS
+      key: "/etc/ssl/private/client.key" # Optional client key for mutual TLS
+```
+
+
+## Environment Variables
+
+Herald supports a minimal set of environment variables for global application settings:
+
+| Variable           | Description                                        | Default   |
+| ------------------ | -------------------------------------------------- | --------- |
+| `DRY_RUN`          | If true, do not perform actual DNS updates         | `false`   |
+| `LOG_LEVEL`        | Set log level (`trace` `debug`, `verbose`, `info`) | `verbose` |
+| `LOG_TIMESTAMPS`   | Include timestamps in log output (`true`/`false`)  | `true`    |
+
+All other configuration should be done via the YAML configuration file. See the sample [.env](contrib/config/env.sample) file for examples.
+
+## Secret References
+
+Herald supports flexible secret management through special URI-style prefixes in configuration values:
+
+### File References (`file://`)
+
+Load values from files on the filesystem. Useful for Docker secrets, Kubernetes mounted secrets, or any file-based secret management:
+
+```yaml
+inputs:
+  docker:
+    type: docker
+    api_auth_user: "file:///run/secrets/docker_user"
+    api_auth_pass: "file:///run/secrets/docker_pass"
+
+outputs:
+  cloudflare:
+    type: dns
+    provider: cloudflare
+    api_token: "file:///var/secrets/cloudflare_token"
+```
+
+### Environment Variable References (`env://`)
+
+Load values from environment variables. Clean and simple for container deployments:
+
+```yaml
+inputs:
+  tailscale:
+    type: tailscale
+    api_key: "env://TAILSCALE_API_KEY"
+    tailnet: "env://TAILSCALE_TAILNET"
+
+outputs:
+  cloudflare:
+    type: dns
+    provider: cloudflare
+    api_token: "env://CLOUDFLARE_API_TOKEN"
+```
+
+### Mixed Usage
+
+You can mix file and environment references as needed:
+
+```yaml
+api:
+  enabled: true
+  profiles:
+    server1:
+      token: "file:///var/secrets/server1_token"  # From Kubernetes secret
+    server2:
+      token: "env://SERVER2_API_TOKEN"             # From environment
+```
+
+**Benefits:**
+- **Security**: Keep secrets out of configuration files
+- **Flexibility**: Support both file-based and environment-based secret management
+- **Container-friendly**: Works seamlessly with Docker secrets, Kubernetes secrets, and environment variables
+- **No complex environment variable naming**: Use any environment variable name you want
+
+### Default Options
+
+Default DNS record settings, used unless overridden at the domain or container level. These need to be specifically entered into your configuration to be active; they are not application-level defaults.
 
 **Options:**
 
-- `format`: Must be "zone"
-- `path`: File path (must include `%domain%` for multiple domains)
-- `domains`: Target domain(s)
-- `user`, `group`, `mode`: File ownership/permissions
-- `soa`: SOA record configuration
-- `ns_records`: List of authoritative nameservers
+- `record` (object): Default DNS record options:
+  - `type` (string): Default DNS record type (e.g., `A`, `AAAA`, `CNAME`).
+  - `ttl` (integer): Default time-to-live for DNS records (in seconds).
+  - `update_existing` (bool): Whether to update existing records by default.
+  - `allow_multiple` (bool): Allow multiple A/AAAA records by default.
 
-**SOA Record Options:**
+**YAML Example:**
 
-- `primary_ns` (required)
-- `admin_email` (required)
-- `serial`: "auto" for auto-increment or specific number
-- `refresh`, `retry`, `expire`, `minimum`: SOA timing values
-
-**Path Templates:**
-When using multiple domains, you MUST use the `%domain%` template in the path.
-
-**Example Output:**
-
-```bind
-; Zone file for example.com
-; Generated by dns-companion at 2025-01-27T10:30:00Z
-
-$ORIGIN example.com.
-
-example.com.    IN    SOA    ns1.example.com. admin.example.com. (
-                              2025012710001    ; Serial (auto-generated)
-                              3600             ; Refresh
-                              900              ; Retry
-                              604800           ; Expire
-                              300              ; Minimum
-                              )
-
-; NS Records
-example.com.    IN    NS     ns1.example.com.
-example.com.    IN    NS     ns2.example.com.
-
-; DNS Records managed by dns-companion
-www             300   IN    A      192.0.2.1
-api             300   IN    A      192.0.2.2
-mail            300   IN    A      192.0.2.3
+```yaml
+defaults:
+  record:
+    type: A
+    ttl: 300
+    update_existing: true
+    allow_multiple: false
 ```
-
----
-
-#### Metadata Fields (YAML/JSON)
-
-- `generator`: Identifies the DNS Companion instance that created the file
-- `hostname`: Hostname of the server running DNS Companion
-- `domain`: The domain name this file represents
-- `generated_at`: Timestamp when the file was last generated
-- `comment`: Optional global comment
-- `version`: Schema version (currently "1.0")
-
-**Record-Level Metadata:**
-
-- `name`: The record name (subdomain or "@" for apex)
-- `type`: DNS record type (A, AAAA, CNAME, etc.)
-- `value`: The record value (IP address, hostname, etc.)
-- `ttl`: Time-to-live in seconds
-- `created_at`: When this record was first created
-- `updated_at`: When this record was last modified
-- `source`: Which poller or source created this record
 
 ## Support
 

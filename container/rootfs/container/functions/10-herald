@@ -1,0 +1,214 @@
+#!/command/with-contenv bash
+# SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+herald_bootstrap_filesystem() {
+    if [ ! -d "${CONFIG_PATH}" ]; then
+        mkdir -p "${CONFIG_PATH}"
+    fi
+
+    if [ "$(stat -c %U "${CONFIG_PATH}")" != "${HERALD_USER}" ] ; then chown "${HERALD_USER}":"${HERALD_GROUP}" "${CONFIG_PATH}" ; fi
+
+    case "${LOG_TYPE,,}" in
+        "file" | "both" )
+            if [ ! -d "${LOG_PATH}" ]; then
+                mkdir -p "${LOG_PATH}"
+            fi
+
+            if [ "$(stat -c %U "${LOG_PATH}")" != "${HERALD_USER}" ] ; then chown "${HERALD_USER}":"${HERALD_GROUP}" "${LOG_PATH}" ; fi
+            create_logrotate dc "${LOG_PATH}"/"${LOG_FILE}" dc dc dc
+        ;;
+    esac
+}
+
+herald_generate_config() {
+    if [ ! -f "${CONFIG_PATH}/${CONFIG_FILE}" ]; then
+        s6-setuidgid "${HERALD_USER}" touch "${CONFIG_PATH}/${CONFIG_FILE}"
+    fi
+
+    if [ "${HERALD_SETUP_TYPE,,}" = "auto" ]; then
+        print_info "Generating configuration file ${CONFIG_PATH}/${CONFIG_FILE} for herald"
+
+        # Generate base structure
+        s6-setuidgid "${HERALD_USER}" yq -i '.general = {}' "${CONFIG_PATH}/${CONFIG_FILE}"
+        s6-setuidgid "${HERALD_USER}" yq -i '.inputs = {}' "${CONFIG_PATH}/${CONFIG_FILE}"
+        s6-setuidgid "${HERALD_USER}" yq -i '.outputs = {}' "${CONFIG_PATH}/${CONFIG_FILE}"
+        s6-setuidgid "${HERALD_USER}" yq -i '.domains = {}' "${CONFIG_PATH}/${CONFIG_FILE}"
+
+        # General settings
+        [ -n "${LOG_LEVEL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".general.log_level = \"${LOG_LEVEL}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+        [ -n "${LOG_TIMESTAMPS}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".general.log_timestamps = ${LOG_TIMESTAMPS,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+        [ -n "${DRY_RUN}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".general.dry_run = ${DRY_RUN,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+
+        # Docker input configuration
+        if [ -n "${DOCKER_API_URL}" ]; then
+            s6-setuidgid "${HERALD_USER}" yq -i '.inputs.docker = {"type": "docker"}' "${CONFIG_PATH}/${CONFIG_FILE}"
+            s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.api_url = \"${DOCKER_API_URL}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${DOCKER_API_AUTH_USER}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.api_auth_user = \"${DOCKER_API_AUTH_USER}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${DOCKER_API_AUTH_PASS}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.api_auth_pass = \"${DOCKER_API_AUTH_PASS}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${DOCKER_INTERVAL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.interval = \"${DOCKER_INTERVAL}s\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${DOCKER_PROCESS_EXISTING}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.process_existing = ${DOCKER_PROCESS_EXISTING,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${DOCKER_EXPOSE_CONTAINERS}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.expose_containers = ${DOCKER_EXPOSE_CONTAINERS,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${DOCKER_SWARM_MODE}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.swarm_mode = ${DOCKER_SWARM_MODE,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${DOCKER_RECORD_REMOVE_ON_STOP}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.record_remove_on_stop = ${DOCKER_RECORD_REMOVE_ON_STOP,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${DOCKER_LOG_LEVEL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.log_level = \"${DOCKER_LOG_LEVEL}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+
+            # Docker TLS configuration
+            if [ -n "${DOCKER_TLS_VERIFY}" ] || [ -n "${DOCKER_TLS_CA_FILE}" ] || [ -n "${DOCKER_TLS_CERT_FILE}" ] || [ -n "${DOCKER_TLS_KEY_FILE}" ]; then
+                s6-setuidgid "${HERALD_USER}" yq -i '.inputs.docker.tls = {}' "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${DOCKER_TLS_VERIFY}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.tls.verify = ${DOCKER_TLS_VERIFY,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${DOCKER_TLS_CA_FILE}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.tls.ca = \"${DOCKER_TLS_CA_FILE}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${DOCKER_TLS_CERT_FILE}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.tls.cert = \"${DOCKER_TLS_CERT_FILE}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${DOCKER_TLS_KEY_FILE}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.docker.tls.key = \"${DOCKER_TLS_KEY_FILE}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            fi
+        fi
+
+        # Traefik input configuration
+        if [ -n "${TRAEFIK_API_URL}" ]; then
+            s6-setuidgid "${HERALD_USER}" yq -i '.inputs.traefik = {"type": "traefik"}' "${CONFIG_PATH}/${CONFIG_FILE}"
+            s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.api_url = \"${TRAEFIK_API_URL}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${TRAEFIK_API_AUTH_USER}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.api_auth_user = \"${TRAEFIK_API_AUTH_USER}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${TRAEFIK_API_AUTH_PASS}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.api_auth_pass = \"${TRAEFIK_API_AUTH_PASS}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${TRAEFIK_INTERVAL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.interval = \"${TRAEFIK_INTERVAL}s\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${TRAEFIK_PROCESS_EXISTING}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.process_existing = ${TRAEFIK_PROCESS_EXISTING,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${TRAEFIK_RECORD_REMOVE_ON_STOP}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.record_remove_on_stop = ${TRAEFIK_RECORD_REMOVE_ON_STOP,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${TRAEFIK_LOG_LEVEL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.log_level = \"${TRAEFIK_LOG_LEVEL}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+
+            # Traefik TLS configuration
+            if [ -n "${TRAEFIK_TLS_VERIFY}" ] || [ -n "${TRAEFIK_TLS_CA_FILE}" ] || [ -n "${TRAEFIK_TLS_CERT_FILE}" ] || [ -n "${TRAEFIK_TLS_KEY_FILE}" ]; then
+                s6-setuidgid "${HERALD_USER}" yq -i '.inputs.traefik.tls = {}' "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${TRAEFIK_TLS_VERIFY}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.tls.verify = ${TRAEFIK_TLS_VERIFY,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${TRAEFIK_TLS_CA_FILE}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.tls.ca = \"${TRAEFIK_TLS_CA_FILE}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${TRAEFIK_TLS_CERT_FILE}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.tls.cert = \"${TRAEFIK_TLS_CERT_FILE}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${TRAEFIK_TLS_KEY_FILE}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.traefik.tls.key = \"${TRAEFIK_TLS_KEY_FILE}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            fi
+        fi
+
+        # Caddy input configuration
+        if [ -n "${CADDY_API_URL}" ]; then
+            s6-setuidgid "${HERALD_USER}" yq -i '.inputs.caddy = {"type": "caddy"}' "${CONFIG_PATH}/${CONFIG_FILE}"
+            s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.api_url = \"${CADDY_API_URL}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${CADDY_API_AUTH_USER}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.api_auth_user = \"${CADDY_API_AUTH_USER}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${CADDY_API_AUTH_PASS}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.api_auth_pass = \"${CADDY_API_AUTH_PASS}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${CADDY_INTERVAL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.interval = \"${CADDY_INTERVAL}s\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${CADDY_PROCESS_EXISTING}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.process_existing = ${CADDY_PROCESS_EXISTING,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${CADDY_RECORD_REMOVE_ON_STOP}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.record_remove_on_stop = ${CADDY_RECORD_REMOVE_ON_STOP,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${CADDY_LOG_LEVEL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.log_level = \"${CADDY_LOG_LEVEL}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+
+            # Caddy TLS configuration
+            if [ -n "${CADDY_TLS_VERIFY}" ] || [ -n "${CADDY_TLS_CA_FILE}" ] || [ -n "${CADDY_TLS_CERT_FILE}" ] || [ -n "${CADDY_TLS_KEY_FILE}" ]; then
+                s6-setuidgid "${HERALD_USER}" yq -i '.inputs.caddy.tls = {}' "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${CADDY_TLS_VERIFY}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.tls.verify = ${CADDY_TLS_VERIFY,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${CADDY_TLS_CA_FILE}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.tls.ca = \"${CADDY_TLS_CA_FILE}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${CADDY_TLS_CERT_FILE}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.tls.cert = \"${CADDY_TLS_CERT_FILE}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${CADDY_TLS_KEY_FILE}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".inputs.caddy.tls.key = \"${CADDY_TLS_KEY_FILE}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            fi
+        fi
+
+        # Cloudflare DNS output configuration
+        if [ -n "${CLOUDFLARE_API_TOKEN}" ] || [ -n "${CLOUDFLARE_EMAIL}" ]; then
+            s6-setuidgid "${HERALD_USER}" yq -i '.outputs.cloudflare = {"type": "dns", "provider": "cloudflare"}' "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${CLOUDFLARE_API_TOKEN}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".outputs.cloudflare.api_token = \"${CLOUDFLARE_API_TOKEN}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${CLOUDFLARE_EMAIL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".outputs.cloudflare.api_email = \"${CLOUDFLARE_EMAIL}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+            [ -n "${CLOUDFLARE_API_KEY}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".outputs.cloudflare.api_key = \"${CLOUDFLARE_API_KEY}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+        fi
+
+        # Domains configuration - handle multiple domains with DOMAIN_XX_NAME pattern
+        if [ -n "${DOMAIN_NAME}" ] && [ -z "${DOMAIN_01_NAME}" ]; then
+            export DOMAIN_01_NAME="${DOMAIN_NAME}"
+            unset DOMAIN_NAME
+        fi
+
+        if [ -z "${DOMAIN_01_NAME}" ]; then
+            print_error "Need to set DOMAIN_01_NAME variable to configure domains"
+            exit 1
+        fi
+
+        # Count domains and configure each
+        domainnum=$(printenv | sort | grep -cE '^DOMAIN_[0-9]+_NAME=')
+        for ((i = 1; i <= domainnum; i++)); do
+            padded_i=$(printf "%02d" $i)
+
+            # Get domain variables
+            domain_name_var="DOMAIN_${padded_i}_NAME"
+            domain_provider_var="DOMAIN_${padded_i}_PROVIDER"
+            domain_zone_id_var="DOMAIN_${padded_i}_ZONE_ID"
+            domain_record_type_var="DOMAIN_${padded_i}_RECORD_TYPE"
+            domain_record_ttl_var="DOMAIN_${padded_i}_RECORD_TTL"
+            domain_record_target_var="DOMAIN_${padded_i}_RECORD_TARGET"
+            domain_update_existing_var="DOMAIN_${padded_i}_UPDATE_EXISTING"
+            domain_allow_multiple_var="DOMAIN_${padded_i}_ALLOW_MULTIPLE"
+            domain_proxied_var="DOMAIN_${padded_i}_PROXIED"
+            domain_inputs_var="DOMAIN_${padded_i}_INPUTS"
+            domain_outputs_var="DOMAIN_${padded_i}_OUTPUTS"
+
+            # Get values
+            domain_name="${!domain_name_var}"
+            domain_provider="${!domain_provider_var:-cloudflare}"
+            domain_zone_id="${!domain_zone_id_var}"
+            domain_record_type="${!domain_record_type_var:-A}"
+            domain_record_ttl="${!domain_record_ttl_var:-300}"
+            domain_record_target="${!domain_record_target_var}"
+            domain_update_existing="${!domain_update_existing_var:-true}"
+            domain_allow_multiple="${!domain_allow_multiple_var:-false}"
+            domain_proxied="${!domain_proxied_var}"
+            domain_inputs="${!domain_inputs_var}"
+            domain_outputs="${!domain_outputs_var}"
+
+            if [ -n "${domain_name}" ]; then
+                domain_key="domain_${padded_i}"
+                s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key} = {}" "${CONFIG_PATH}/${CONFIG_FILE}"
+                s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.name = \"${domain_name}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+
+                # Set profiles section
+                s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.profiles = {}" "${CONFIG_PATH}/${CONFIG_FILE}"
+
+                # Configure inputs (default to available input providers)
+                if [ -n "${domain_inputs}" ]; then
+                    # Convert comma-separated list to YAML array
+                    IFS=',' read -ra ADDR <<< "${domain_inputs}"
+                    s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.profiles.inputs = []" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    for input in "${ADDR[@]}"; do
+                        s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.profiles.inputs += [\"${input// /}\"]" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    done
+                else
+                    # Default to all configured inputs
+                    s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.profiles.inputs = []" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    [ -n "${DOCKER_API_URL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.profiles.inputs += [\"docker\"]" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    [ -n "${TRAEFIK_API_URL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.profiles.inputs += [\"traefik\"]" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    [ -n "${CADDY_API_URL}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.profiles.inputs += [\"caddy\"]" "${CONFIG_PATH}/${CONFIG_FILE}"
+                fi
+
+                # Configure outputs)
+                if [ -n "${domain_outputs}" ]; then
+                    # Convert comma-separated list to YAML array
+                    IFS=',' read -ra ADDR <<< "${domain_outputs}"
+                    s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.profiles.outputs = []" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    for output in "${ADDR[@]}"; do
+                        s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.profiles.outputs += [\"${output// /}\"]" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    done
+                else
+                    # Default to the provider for this domain
+                    s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.profiles.outputs = [\"${domain_provider}\"]" "${CONFIG_PATH}/${CONFIG_FILE}"
+                fi
+
+                # Configure record settings
+                if [ -n "${domain_record_type}" ] || [ -n "${domain_record_ttl}" ] || [ -n "${domain_record_target}" ] || [ -n "${domain_update_existing}" ] || [ -n "${domain_allow_multiple}" ]; then
+                    s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.record = {}" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    [ -n "${domain_record_type}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.record.type = \"${domain_record_type}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    [ -n "${domain_record_ttl}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.record.ttl = ${domain_record_ttl}" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    [ -n "${domain_record_target}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.record.target = \"${domain_record_target}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    [ -n "${domain_update_existing}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.record.update_existing = ${domain_update_existing,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+                    [ -n "${domain_allow_multiple}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.record.allow_multiple = ${domain_allow_multiple,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+                fi
+
+                # Cloudflare-specific settings
+                [ -n "${domain_zone_id}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.zone_id = \"${domain_zone_id}\"" "${CONFIG_PATH}/${CONFIG_FILE}"
+                [ -n "${domain_proxied}" ] && s6-setuidgid "${HERALD_USER}" yq -i ".domains.${domain_key}.proxied = ${domain_proxied,,}" "${CONFIG_PATH}/${CONFIG_FILE}"
+            fi
+        done
+    else
+        print_info "Skipping configuration generation - using existing configuration file"
+    fi
+}

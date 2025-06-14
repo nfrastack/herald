@@ -1,3 +1,92 @@
+
+
+## 2.0.0-beta1 2025-06-13 <code at nfrastack dot com>
+
+   New project name, Herald.
+
+   **BREAKING CHANGES** As the earlier versions of this tool were built the overall configuration structure started to quickly grow technical debt, so it has been revamped entirely. Please also see   changes in the NixOS configuration.
+
+   The Container image that is available has been simplified. In its "AUTO" generating mode it allows for pulling from Caddy, Traefik, and Docker input providers, and only outputing to Cloudflare. If you wish to have more functionality you can set it to not auto generate the config.
+
+   ### Added
+   - New `profiles` structure for domain configuration with `inputs` and `outputs` fields for cleaner, more logical domain configuration grouping
+   - (domain) Enhanced poll provider validation in BatchProcessor for better filtering
+   - (domain) Poll Provider Targeting - Domain configurations can now specify which poll providers are allowed to use them via `poll_providers` field
+   - (domain) Output Profile Targeting - Domain configurations can now specify which output profiles should process their records via `output_profiles` field
+   - (domain) Configuration validation - Application fails fast with clear error messages if domains reference non-existent poll providers, output profiles, or DNS providers
+   - (domain) Multiple poll providers and output profiles support per domain configuration
+   - (inputs/docker) Docker Connection Pooling - Multiple Docker poll providers now share a single connection per API endpoint for improved resource efficiency
+   - (inputs/docker) Centralized Event Logging - Docker events are now logged once at the shared connection level with clear provider attribution
+   - (inputs/docker) Smart Event Distribution - Container events are intelligently filtered and distributed only to relevant providers based on their filter configuration
+   - (outputs/host) When Flattening CNAMEs - name sometimes gets resolved to localhost. New resolver and ip_override options to force proper entries in hosts file.
+
+   ### Changed
+   - Filters have consistent naming per input provider
+
+   ### Removed
+   - **BREAKING** Environment variables have been removed for the most part. Use the configuration file for better configuration.
+
+   ### Migration Guide
+
+   The entire configuration structure has been simplified and streamlined. The old multi-level structure with separate `poll_providers`, `providers`, and domain fields has been replaced with a cleaner `inputs` and `outputs` approach.
+
+   **Old configuration structure:**
+   ```yaml
+   # OLD: Separate sections for each component type
+   poll_providers:
+     docker_services:
+       type: docker
+       # ... config
+
+   providers:
+     cloudflare_dns:
+       type: cloudflare
+       # ... config
+
+   domains:
+     my_domain:
+       name: "example.com"
+       input_profiles:        # REMOVED
+         - docker_services
+       outputs:              # REMOVED
+         - cloudflare_dns
+       poll_providers:        # REMOVED
+         - docker_services
+       output_profiles:       # REMOVED
+         - cloudflare_dns
+   ```
+
+   **New configuration structure:**
+   ```yaml
+   # NEW: Unified inputs and outputs sections
+   inputs:
+     docker_services:
+       type: docker
+       # ... config
+
+   outputs:
+     cloudflare_dns:
+       type: cloudflare
+       # ... config
+
+   domains:
+     my_domain:
+       name: "example.com"
+       profiles:             # NEW REQUIRED STRUCTURE
+         inputs:
+           - docker_services
+         outputs:
+           - cloudflare_dns
+   ```
+
+   **Key Changes:**
+   - **Configuration Structure**: The old three-section approach (`poll_providers`, `providers`, domains with legacy fields) has been completely replaced with a two-section approach (`inputs`, `outputs`)
+   - `poll_providers` section → `inputs` section
+   - `providers` section → `outputs` section
+   - Domain fields `input_profiles`, `outputs`, `poll_providers`, `output_profiles` → `profiles.inputs` and `profiles.outputs`
+   - **Terminology**: "Poll providers" are now called "inputs", "providers" are now called "outputs"
+   - **Domain Configuration**: All legacy domain fields have been removed in favor of the structured `profiles` object with `inputs` and `outputs` arrays
+
 ## 1.2.1 2025-06-13 <code at nfrastack dot com>
 
    ### Changed
@@ -58,7 +147,7 @@ Reach out if you have DNS servers with API support that I can have access to and
 
 ## 1.0.0 2025-05-23 <code at nfrastack dot com>
 
-Inaugral release of the DNS Companion!
+Inaugral release of the Herald!
 This tool will augment the amazing capabilities of working with the various pollers (eg Docker and Traefik) with hostname entries and perform DNS operations on providers such as Cloudflare.
 This is an evolution from the tiredofit/docker-traefik-cloudflare-companion tool built and maintained in Python. This Go developed tool hopefully provides a more modular, single binary approach
 that can run in a container environment, via the command line or via systemd. It is planned to introduce more polling providers and DNS provider support in the near future.

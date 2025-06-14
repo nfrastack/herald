@@ -5,9 +5,10 @@
 package config
 
 import (
-	"dns-companion/pkg/log"
-	"dns-companion/pkg/output"
+	"herald/pkg/log"
+	"herald/pkg/output"
 
+	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -16,35 +17,34 @@ import (
 )
 
 type ConfigFile struct {
-	General   GeneralConfig                 `yaml:"general"`
-	Defaults  DefaultsConfig                `yaml:"defaults"`
-	Providers map[string]DNSProviderConfig  `yaml:"providers"`
-	Polls     map[string]PollProviderConfig `yaml:"polls"`
-	Domains   map[string]DomainConfig       `yaml:"domains"`
-	Outputs   map[string]interface{}        `yaml:"outputs" json:"outputs"`
-	API       *APIConfig                    `yaml:"api" json:"api"` // New aggregator API config
+	General  GeneralConfig                  `yaml:"general"`
+	Defaults DefaultsConfig                 `yaml:"defaults"`
+	Inputs   map[string]InputProviderConfig `yaml:"inputs"`
+	Domains  map[string]DomainConfig        `yaml:"domains"`
+	Outputs  map[string]interface{}         `yaml:"outputs" json:"outputs"`
+	API      *APIConfig                     `yaml:"api" json:"api"`
 }
 
 // APIConfig defines configuration for the aggregator HTTP API server
 type APIConfig struct {
-	Enabled       bool                           `yaml:"enabled" json:"enabled"`
-	Port          string                         `yaml:"port" json:"port"`
-	Listen        []string                       `yaml:"listen" json:"listen"`         // Interface patterns to listen on
-	TokenFile     string                         `yaml:"token_file" json:"token_file"`
-	OutputProfile string                         `yaml:"output_profile" json:"output_profile"`
-	ClientExpiry  string                         `yaml:"client_expiry" json:"client_expiry"`
-	Endpoint      string                         `yaml:"endpoint" json:"endpoint"`
-	Profiles      map[string]APIClientProfile    `yaml:"profiles" json:"profiles"`
-	TLS           *APITLSConfig                  `yaml:"tls" json:"tls"`
-	LogLevel      string                         `yaml:"log_level" json:"log_level"` // Provider-specific log level override
+	Enabled       bool                        `yaml:"enabled" json:"enabled"`
+	Port          string                      `yaml:"port" json:"port"`
+	Listen        []string                    `yaml:"listen" json:"listen"` // Interface patterns to listen on
+	TokenFile     string                      `yaml:"token_file" json:"token_file"`
+	OutputProfile string                      `yaml:"output_profile" json:"output_profile"`
+	ClientExpiry  string                      `yaml:"client_expiry" json:"client_expiry"`
+	Endpoint      string                      `yaml:"endpoint" json:"endpoint"`
+	Profiles      map[string]APIClientProfile `yaml:"profiles" json:"profiles"`
+	TLS           *APITLSConfig               `yaml:"tls" json:"tls"`
+	LogLevel      string                      `yaml:"log_level" json:"log_level"` // Provider-specific log level override
 }
 
 // APITLSConfig defines TLS configuration for the API server
 type APITLSConfig struct {
-	Verify bool   `yaml:"verify" json:"verify"`     // TLS certificate verification (default: true)
-	CA     string `yaml:"ca" json:"ca"`             // Custom CA certificate file
-	Cert   string `yaml:"cert" json:"cert"`         // Server certificate file
-	Key    string `yaml:"key" json:"key"`           // Server private key file
+	Verify bool   `yaml:"verify" json:"verify"` // TLS certificate verification (default: true)
+	CA     string `yaml:"ca" json:"ca"`         // Custom CA certificate file
+	Cert   string `yaml:"cert" json:"cert"`     // Server certificate file
+	Key    string `yaml:"key" json:"key"`       // Server private key file
 }
 
 // APIClientProfile defines configuration for individual API clients
@@ -54,12 +54,13 @@ type APIClientProfile struct {
 }
 
 type GeneralConfig struct {
-	LogLevel       string   `yaml:"log_level"`
-	LogTimestamps  bool     `yaml:"log_timestamps"`
-	LogType        string   `yaml:"log_type"`
-	PollProfiles   []string `yaml:"poll_profiles"`
-	OutputProfiles []string `yaml:"output_profiles"`
-	DryRun         bool     `yaml:"dry_run"`
+	LogLevel             string   `yaml:"log_level"`
+	LogTimestamps        bool     `yaml:"log_timestamps"`
+	LogType              string   `yaml:"log_type"`
+	InputProfiles        []string `yaml:"input_profiles"` // New input profiles list
+	OutputProfiles       []string `yaml:"output_profiles"`
+	DryRun               bool     `yaml:"dry_run"`
+	SkipDomainValidation bool     `yaml:"skip_domain_validation"`
 }
 
 type DefaultsConfig struct {
@@ -74,16 +75,7 @@ type RecordConfig struct {
 	AllowMultiple  bool   `yaml:"allow_multiple"`
 }
 
-type DNSProviderConfig struct {
-	Type     string                 `yaml:"type"`
-	APIToken string                 `yaml:"api_token"`
-	APIKey   string                 `yaml:"api_key"`
-	APIEmail string                 `yaml:"api_email"`
-	ZoneID   string                 `yaml:"zone_id"`
-	Options  map[string]interface{} `yaml:",inline"`
-}
-
-type PollProviderConfig struct {
+type InputProviderConfig struct {
 	Type             string                 `yaml:"type"`
 	ExposeContainers bool                   `yaml:"expose_containers"`
 	DefaultTTL       int                    `yaml:"default_ttl"`
@@ -91,14 +83,34 @@ type PollProviderConfig struct {
 }
 
 type DomainConfig struct {
-	Name              string                            `yaml:"name"`
-	Provider          string                            `yaml:"provider"`
-	ZoneID            string                            `yaml:"zone_id"`
-	Record            RecordConfig                      `yaml:"record"`
-	Options           map[string]string                 `yaml:"options"`
-	ExcludeSubdomains []string                          `yaml:"exclude_subdomains"`
-	IncludeSubdomains []string                          `yaml:"include_subdomains"`
-	Outputs           map[string]map[string]interface{} `yaml:"outputs"`
+	Name              string            `yaml:"name"`
+	Record            RecordConfig      `yaml:"record"`
+	Options           map[string]string `yaml:"options"`
+	ExcludeSubdomains []string          `yaml:"exclude_subdomains"`
+	IncludeSubdomains []string          `yaml:"include_subdomains"`
+	Profiles          *DomainProfiles   `yaml:"profiles"` // Primary structured format
+}
+
+// GetInputProfiles returns the input profiles from the profiles structure
+func (dc *DomainConfig) GetInputProfiles() []string {
+	if dc.Profiles != nil {
+		return dc.Profiles.Inputs
+	}
+	return []string{}
+}
+
+// GetOutputs returns the outputs from the profiles structure
+func (dc *DomainConfig) GetOutputs() []string {
+	if dc.Profiles != nil {
+		return dc.Profiles.Outputs
+	}
+	return []string{}
+}
+
+// DomainProfiles represents the structured profiles configuration
+type DomainProfiles struct {
+	Inputs  []string `yaml:"inputs" json:"inputs"`
+	Outputs []string `yaml:"outputs" json:"outputs"`
 }
 
 // Global domain configuration storage
@@ -143,7 +155,7 @@ func GetDomainConfig(domain string) map[string]string {
 	return nil
 }
 
-// GetConfig retrieves a configuration key, handling file references
+// GetConfig retrieves a configuration key, handling file and env references
 func GetConfig(config map[string]string, key string) string {
 	value, ok := config[key]
 	if !ok || value == "" {
@@ -151,9 +163,9 @@ func GetConfig(config map[string]string, key string) string {
 	}
 
 	// Check if the value is a file reference
-	if len(value) > 5 && value[:5] == "file:" {
+	if len(value) > 7 && value[:7] == "file://" {
 		// Extract file path
-		filePath := value[5:]
+		filePath := value[7:]
 		log.Debug("[config] Loading %s from file: %s", key, filePath)
 
 		// Read the file content
@@ -165,6 +177,21 @@ func GetConfig(config map[string]string, key string) string {
 
 		// Trim whitespace and return
 		return strings.TrimSpace(string(content))
+	}
+
+	// Check if the value is an environment variable reference
+	if len(value) > 6 && value[:6] == "env://" {
+		// Extract environment variable name
+		envVar := value[6:]
+		log.Debug("[config] Loading %s from environment variable: %s", key, envVar)
+
+		// Read the environment variable
+		if envValue := os.Getenv(envVar); envValue != "" {
+			return envValue
+		}
+
+		log.Warn("[config] Environment variable %s not found for %s", envVar, key)
+		return ""
 	}
 
 	return value
@@ -193,96 +220,12 @@ func LoadFileConfig(value, fieldName string) (string, error) {
 	return result, nil
 }
 
-// GetGlobalProviders returns the list of global providers from environment
-func GetGlobalProviders() []string {
-	providersStr := GetEnvVar("GLOBAL_PROVIDER", "")
-	if providersStr == "" {
-		return nil
-	}
-
-	providers := strings.Split(providersStr, ",")
-	// Trim whitespace from each provider
-	for i := range providers {
-		providers[i] = strings.TrimSpace(providers[i])
-	}
-
-	return providers
-}
-
-// GetGlobalPollers returns the list of global pollers from environment
-func GetGlobalPollers() []string {
-	pollersStr := GetEnvVar("GLOBAL_POLLER", "")
-	if pollersStr == "" {
-		return nil
-	}
-
-	pollers := strings.Split(pollersStr, ",")
-	// Trim whitespace from each poller
-	for i := range pollers {
-		pollers[i] = strings.TrimSpace(pollers[i])
-	}
-
-	return pollers
-}
-
-// Add DNSProviderConfig methods here since struct is defined in this file
-func (dpc *DNSProviderConfig) GetOptions() map[string]string {
+// InputProviderConfig methods
+func (ipc *InputProviderConfig) GetOptions(profileName string) map[string]string {
 	options := make(map[string]string)
-	for k, v := range dpc.Options {
-		switch val := v.(type) {
-		case string:
-			options[k] = val
-		case int:
-			options[k] = fmt.Sprintf("%d", val)
-		case int64:
-			options[k] = fmt.Sprintf("%d", val)
-		case float64:
-			options[k] = fmt.Sprintf("%v", val)
-		case bool:
-			options[k] = fmt.Sprintf("%t", val)
-		default:
-			options[k] = fmt.Sprintf("%v", val)
-		}
-	}
-	if dpc.APIToken != "" {
-		options["api_token"] = dpc.APIToken
-	}
-	if dpc.APIKey != "" {
-		options["api_key"] = dpc.APIKey
-	}
-	if dpc.APIEmail != "" {
-		options["api_email"] = dpc.APIEmail
-	}
-	if dpc.ZoneID != "" {
-		options["zone_id"] = dpc.ZoneID
-	}
-	// Always include type field - this is critical for provider loading
-	if dpc.Type != "" {
-		options["type"] = dpc.Type
-	}
-
-	// Process file-based configuration values for DNS providers
-	fileConfigFields := []string{"api_token", "api_key", "api_email", "zone_id"}
-
-	for _, field := range fileConfigFields {
-		if value, exists := options[field]; exists {
-			if resolvedValue, err := LoadFileConfig(value, field); err != nil {
-				log.Error("[config] Failed to load %s for DNS provider: %v", field, err)
-			} else {
-				options[field] = resolvedValue
-			}
-		}
-	}
-
-	return options
-}
-
-// Add PollProviderConfig methods here since struct is defined in this file
-func (ppc *PollProviderConfig) GetOptions(profileName string) map[string]string {
-	options := make(map[string]string)
-	// Add all struct fields from the PollProviderConfig struct itself
-	val := reflect.ValueOf(*ppc)
-	typ := reflect.TypeOf(*ppc)
+	// Add all struct fields from the InputProviderConfig struct itself
+	val := reflect.ValueOf(*ipc)
+	typ := reflect.TypeOf(*ipc)
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		key := field.Tag.Get("yaml")
@@ -312,23 +255,19 @@ func (ppc *PollProviderConfig) GetOptions(profileName string) map[string]string 
 		}
 	}
 	// Add all keys from Options map (do not filter or restrict)
-	for k, v := range ppc.Options {
-		options[k] = fmt.Sprintf("%v", v)
-	}
-
-	// Process file-based configuration values
-	fileConfigFields := []string{
-		"api_url", "api_auth_user", "api_auth_pass", "tailnet", "domain",
-		"network_id", "api_token", "remote_url", "remote_auth_user", "remote_auth_pass",
-	}
-
-	for _, field := range fileConfigFields {
-		if value, exists := options[field]; exists {
-			if resolvedValue, err := LoadFileConfig(value, field); err != nil {
-				log.Error("[config] Failed to load %s for poll provider %s: %v", field, profileName, err)
+	for k, v := range ipc.Options {
+		// Special handling for filter configuration - convert to JSON
+		if k == "filter" {
+			if filterData, err := json.Marshal(v); err == nil {
+				options[k] = string(filterData)
+				log.Debug("[config] Converted filter to JSON for %s: %s", profileName, string(filterData))
 			} else {
-				options[field] = resolvedValue
+				log.Error("[config] Failed to convert filter to JSON for %s: %v", profileName, err)
+				// Fallback to original behavior
+				options[k] = fmt.Sprintf("%v", v)
 			}
+		} else {
+			options[k] = fmt.Sprintf("%v", v)
 		}
 	}
 
@@ -368,8 +307,56 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 			}
 
 			log.Debug("[config/output] Processing profile: %s", profileName)
+			log.Debug("[config/output] Raw config for %s: %+v", profileName, profileConfig)
+
 			if configMap, ok := profileConfig.(map[string]interface{}); ok {
-				format, _ := configMap["format"].(string)
+				// Debug what keys exist
+				log.Debug("[config/output] Available keys for %s: %v", profileName, func() []string {
+					keys := make([]string, 0, len(configMap))
+					for k := range configMap {
+						keys = append(keys, k)
+					}
+					return keys
+				}())
+
+				// Determine output type and format correctly
+				outputType, _ := configMap["type"].(string)
+
+				var format string
+				switch outputType {
+				case "file":
+					// For file type, require format field (zone, hosts, yaml, json)
+					format = "file"
+					if fileFormat, exists := configMap["format"].(string); exists {
+						log.Debug("[config/output] File type with format: %s", fileFormat)
+					} else {
+						log.Error("[config/output] File type requires 'format' field (zone, hosts, yaml, json)")
+						continue
+					}
+				case "remote":
+					// For remote type, format is always "remote"
+					format = "remote"
+					log.Debug("[config/output] Remote type detected")
+				case "dns":
+					// For dns type, format is "dns" and requires provider field
+					format = "dns"
+					if provider, exists := configMap["provider"].(string); exists {
+						log.Debug("[config/output] DNS type with provider: %s", provider)
+					} else {
+						log.Error("[config/output] DNS type requires 'provider' field")
+						continue
+					}
+				default:
+					// Legacy support - try to infer from format field
+					format, _ = configMap["format"].(string)
+					if format == "" {
+						log.Error("[config/output] No 'type' field specified for profile '%s'. Must be 'file', 'remote', or 'dns'", profileName)
+						continue
+					}
+				}
+
+				log.Debug("[config/output] Determined format for %s: '%s' (type: %s)", profileName, format, outputType)
+
 				path, _ := configMap["path"].(string)
 				domainsRaw := configMap["domains"]
 
@@ -394,7 +381,7 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 				// Remove known keys to get the rest of the config
 				profileConfigCopy := make(map[string]interface{})
 				for k, v := range configMap {
-					if k != "format" && k != "path" && k != "domains" {
+					if k != "format" && k != "path" && k != "domains" && k != "type" {
 						profileConfigCopy[k] = v
 					}
 				}
@@ -421,4 +408,179 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 // GetGlobalConfig returns the current global configuration
 func GetGlobalConfig() *ConfigFile {
 	return &GlobalConfig
+}
+
+// ValidateConfiguration performs comprehensive validation of the configuration
+func ValidateConfiguration(cfg *ConfigFile) error {
+	var errors []string
+
+	// Skip domain validation if requested
+	if cfg.General.SkipDomainValidation {
+		log.Debug("[config] Skipping domain validation as requested by skip_domain_validation=true")
+		return nil
+	}
+
+	// Validate domain configurations
+	if err := ValidateDomainConfiguration(cfg.Domains, cfg.Inputs, cfg.Outputs); err != nil {
+		errors = append(errors, err.Error())
+	}
+
+	// Validate input provider references
+	if err := ValidateInputProviderReferences(cfg.Domains, cfg.Inputs); err != nil {
+		errors = append(errors, err.Error())
+	}
+
+	// Validate output profile references
+	if err := ValidateOutputProfileReferences(cfg.Domains, cfg.Outputs); err != nil {
+		errors = append(errors, err.Error())
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("configuration validation failed:\n  - %s", strings.Join(errors, "\n  - "))
+	}
+
+	return nil
+}
+
+// ValidateDomainConfiguration validates all domain configurations
+func ValidateDomainConfiguration(domains map[string]DomainConfig, inputProfiles map[string]InputProviderConfig, outputProfiles map[string]interface{}) error {
+	var errors []string
+
+	for domainName, domain := range domains {
+		// Get effective input profiles using helper method
+		effectiveInputProfiles := domain.GetInputProfiles()
+
+		// Get effective outputs using helper method
+		effectiveOutputs := domain.GetOutputs()
+
+		// Validate input_profiles exist
+		for _, inputProvider := range effectiveInputProfiles {
+			if _, exists := inputProfiles[inputProvider]; !exists {
+				availableInputs := make([]string, 0, len(inputProfiles))
+				for name := range inputProfiles {
+					availableInputs = append(availableInputs, name)
+				}
+				errors = append(errors, fmt.Sprintf("domain '%s' references non-existent input provider '%s' (available: %s)",
+					domainName, inputProvider, strings.Join(availableInputs, ", ")))
+			}
+		}
+
+		// Validate outputs exist
+		for _, output := range effectiveOutputs {
+			if _, exists := outputProfiles[output]; !exists {
+				availableOutputs := make([]string, 0, len(outputProfiles))
+				for name := range outputProfiles {
+					availableOutputs = append(availableOutputs, name)
+				}
+				errors = append(errors, fmt.Sprintf("domain '%s' references non-existent output '%s' (available: %s)",
+					domainName, output, strings.Join(availableOutputs, ", ")))
+			}
+		}
+
+		// Ensure domain has at least one destination
+		if len(effectiveOutputs) == 0 {
+			errors = append(errors, fmt.Sprintf("domain '%s' has no destination configured (must have either a DNS provider or output profiles)", domainName))
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf(strings.Join(errors, "; "))
+	}
+	return nil
+}
+
+// ValidateInputProviderReferences validates that referenced input providers exist
+func ValidateInputProviderReferences(domains map[string]DomainConfig, inputProfiles map[string]InputProviderConfig) error {
+	var errors []string
+
+	for domainName, domain := range domains {
+		for _, inputProvider := range domain.GetInputProfiles() {
+			if _, exists := inputProfiles[inputProvider]; !exists {
+				errors = append(errors, fmt.Sprintf("domain '%s' references non-existent input provider '%s'", domainName, inputProvider))
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf(strings.Join(errors, "; "))
+	}
+	return nil
+}
+
+// ValidateOutputProfileReferences validates that referenced output profiles exist
+func ValidateOutputProfileReferences(domains map[string]DomainConfig, outputProfiles map[string]interface{}) error {
+	var errors []string
+
+	for domainName, domain := range domains {
+		// Check outputs using helper method
+		for _, outputProfile := range domain.GetOutputs() {
+			if _, exists := outputProfiles[outputProfile]; !exists {
+				errors = append(errors, fmt.Sprintf("domain '%s' references non-existent output '%s'", domainName, outputProfile))
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf(strings.Join(errors, "; "))
+	}
+	return nil
+}
+
+// SetEnvVar sets an environment variable in the OS environment
+func SetEnvVar(key, value string) {
+	os.Setenv(key, value)
+}
+
+// ExtractDomainAndSubdomainForProvider extracts domain config key and subdomain for a specific provider
+func ExtractDomainAndSubdomainForProvider(fqdn, providerName, logPrefix string) (string, string) {
+	log.Trace("%s Extracting domain config for FQDN '%s' with provider '%s'", logPrefix, fqdn, providerName)
+
+	// Remove trailing dot if present
+	fqdn = strings.TrimSuffix(fqdn, ".")
+
+	if GlobalConfig.Domains == nil {
+		log.Error("%s No global config available for domain extraction", logPrefix)
+		return "", ""
+	}
+
+	// Try to match domain configs that include this provider
+	for configKey, domainConfig := range GlobalConfig.Domains {
+		if domainConfig.Name == "" {
+			continue
+		}
+
+		// Check if this provider is allowed for this domain config
+		providerAllowed := false
+		for _, inputProfile := range domainConfig.Profiles.Inputs {
+			if inputProfile == providerName {
+				providerAllowed = true
+				break
+			}
+		}
+
+		if !providerAllowed {
+			log.Trace("%s Provider '%s' not allowed for domain config '%s' (inputs: %v)",
+				logPrefix, providerName, configKey, domainConfig.Profiles.Inputs)
+			continue
+		}
+
+		// Check if FQDN matches this domain
+		domain := domainConfig.Name
+		if fqdn == domain {
+			// Exact match (root domain)
+			log.Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
+				logPrefix, providerName, domain, configKey)
+			return configKey, "@"
+		} else if strings.HasSuffix(fqdn, "."+domain) {
+			// Subdomain match
+			subdomain := strings.TrimSuffix(fqdn, "."+domain)
+			log.Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
+				logPrefix, providerName, domain, configKey)
+			return configKey, subdomain
+		}
+	}
+
+	log.Debug("%s No matching domain config found for FQDN '%s' with provider '%s'",
+		logPrefix, fqdn, providerName)
+	return "", ""
 }
