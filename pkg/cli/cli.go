@@ -5,19 +5,20 @@
 package cli
 
 import (
-	"dns-companion/pkg/config"
+	"herald/pkg/config"
+
 	"flag"
 )
 
 // Options holds all command line options
 type Options struct {
-	ConfigFile  string
+	ConfigFile    string
 	DryRun        bool
 	LogFile       string
 	LogLevel      string
 	LogTimestamps bool
 	LogType       string
-	ShowVersion bool
+	ShowVersion   bool
 }
 
 // ParseFlags parses command line flags and returns the options

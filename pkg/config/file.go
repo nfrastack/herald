@@ -5,11 +5,10 @@
 package config
 
 import (
-	"dns-companion/pkg/log"
-	"dns-companion/pkg/utils"
+	"herald/pkg/log"
+	"herald/pkg/util"
 
 	"fmt"
-	"net"
 	"os"
 	"regexp"
 	"strings"
@@ -54,8 +53,10 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 		return nil, fmt.Errorf("[config/file] failed to decode YAML: %w", err)
 	}
 
-	// Load environment variable configuration (overrides config file)
-	LoadFromEnvironment(&cfg)
+	// Basic environment loading - only core global settings
+	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
+		cfg.General.LogLevel = logLevel
+	}
 
 	// Set application-level defaults ONLY if still unset after config and env
 	if cfg.General.LogLevel == "" {
@@ -68,33 +69,7 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 		cfg.General.LogType = "console"
 	}
 
-	// If poll_profiles is not set, but only one poll is defined, set it automatically
-	if len(cfg.General.PollProfiles) == 0 && len(cfg.Polls) == 1 {
-		for k := range cfg.Polls {
-			cfg.General.PollProfiles = []string{k}
-		}
-	}
-
 	return &cfg, nil
-}
-
-// deepMergeMap recursively merges src into dst (both map[string]interface{}), combining nested maps
-func deepMergeMap(dst, src map[string]interface{}) map[string]interface{} {
-	if dst == nil {
-		dst = map[string]interface{}{}
-	}
-	for k, v := range src {
-		if vMap, ok := v.(map[string]interface{}); ok {
-			if dstMap, ok := dst[k].(map[string]interface{}); ok {
-				dst[k] = deepMergeMap(dstMap, vMap)
-			} else {
-				dst[k] = deepMergeMap(nil, vMap)
-			}
-		} else {
-			dst[k] = v
-		}
-	}
-	return dst
 }
 
 // deepMergeSectionMap merges only matching top-level keys as maps, others are overwritten
@@ -134,7 +109,7 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 	if err != nil {
 		return nil, err
 	}
-	log.Trace("[config/file] Raw YAML map in %s: %#v", basePath, utils.MaskSensitiveMapRecursive(raw))
+	log.Trace("[config/file] Raw YAML map in %s: %#v", basePath, util.MaskSensitiveMapRecursive(raw))
 
 	topKeys := make([]string, 0, len(raw))
 	for k := range raw {
@@ -180,10 +155,10 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 			}
 			log.Trace("[config/file] Imported keys from %s: %v", incPath, topKeys)
 			for _, k := range topKeys {
-				log.Trace("[config/file] Key '%s' from %s: %v", k, incPath, utils.MaskSensitiveMapRecursive(map[string]interface{}{k: incRaw[k]})[k])
+				log.Trace("[config/file] Key '%s' from %s: %v", k, incPath, util.MaskSensitiveMapRecursive(map[string]interface{}{k: incRaw[k]})[k])
 			}
 			// Only merge known top-level sections as maps
-			for _, section := range []string{"providers", "polls", "domains", "defaults", "general"} {
+			for _, section := range []string{"inputs", "domains", "defaults", "general", "outputs", "api"} {
 				if v, ok := incRaw[section]; ok {
 					if dstMap, ok := raw[section].(map[string]interface{}); ok {
 						if srcMap, ok := v.(map[string]interface{}); ok {
@@ -196,7 +171,7 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 			}
 			// For any other keys, just set/overwrite
 			for k, v := range incRaw {
-				if k == "include" || k == "providers" || k == "polls" || k == "domains" || k == "defaults" || k == "general" {
+				if k == "include" || k == "inputs" || k == "domains" || k == "defaults" || k == "general" || k == "outputs" || k == "api" {
 					continue
 				}
 				raw[k] = v
@@ -218,17 +193,17 @@ func getIncludePath(basePath, incFile string) string {
 	return dir + "/" + incFile
 }
 
-// FindConfigFile searches for the config file in the current directory and pollCommonvariants
+// FindConfigFile searches for the config file in the current directory and common locations
 func FindConfigFile(requested string) (string, error) {
 	candidates := []string{}
 	if requested != "" {
 		candidates = append(candidates, requested)
 	}
-	// Always prefer dns-companion.yml, then .yaml, then .conf
+	// Always prefer herald.yml, then .yaml, then .conf
 	candidates = append(candidates,
-		"dns-companion.yml",
-		"dns-companion.yaml",
-		"dns-companion.conf",
+		"herald.yml",
+		"herald.yaml",
+		"herald.conf",
 	)
 	for _, name := range candidates {
 		// Check current directory
@@ -269,11 +244,6 @@ func FieldSetInConfigFile(configFilePath, field string) bool {
 	return exists
 }
 
-// Helper to check if a string is an IP address
-func isIPAddress(s string) bool {
-	return net.ParseIP(s) != nil
-}
-
 // processConfigFileSecrets replaces environment variable references in the config file
 func processConfigFileSecrets(content string) string {
 	// Replace ${ENV_VAR} with the environment variable value
@@ -295,6 +265,20 @@ func processConfigFileSecrets(content string) string {
 
 			// Trim whitespace and return content
 			return strings.TrimSpace(string(fileData))
+		}
+
+		// Check if it's prefixed with "env:"
+		if strings.HasPrefix(varName, "env:") {
+			// Extract environment variable name
+			envVar := strings.TrimPrefix(varName, "env:")
+
+			// Look up environment variable
+			if value, exists := os.LookupEnv(envVar); exists {
+				return value
+			}
+
+			// If environment variable doesn't exist, keep original
+			return match
 		}
 
 		// Look up environment variable
@@ -323,19 +307,6 @@ func ProcessSecretsInMap(options map[string]string) map[string]string {
 	return processed
 }
 
-// Helper to parse a comma-separated list into a slice of strings
-func parseCommaList(s string) []string {
-	parts := strings.Split(s, ",")
-	var out []string
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 // MergeConfigFile merges src into dst, with src overriding dst where set
 func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 	if dst == nil {
@@ -354,8 +325,8 @@ func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 	if src.General.LogTimestamps {
 		dst.General.LogTimestamps = src.General.LogTimestamps
 	}
-	if len(src.General.PollProfiles) > 0 {
-		dst.General.PollProfiles = src.General.PollProfiles
+	if len(src.General.InputProfiles) > 0 {
+		dst.General.InputProfiles = src.General.InputProfiles
 	}
 	if src.General.DryRun {
 		dst.General.DryRun = src.General.DryRun
@@ -364,19 +335,12 @@ func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 	if (src.Defaults != DefaultsConfig{}) {
 		dst.Defaults = src.Defaults
 	}
-	// Merge DNS Providers (src overrides dst)
-	if dst.Providers == nil {
-		dst.Providers = map[string]DNSProviderConfig{}
+	// Merge Input Providers (src overrides dst)
+	if dst.Inputs == nil {
+		dst.Inputs = map[string]InputProviderConfig{}
 	}
-	for k, v := range src.Providers {
-		dst.Providers[k] = v
-	}
-	// Merge Poll Providers (src overrides dst)
-	if dst.Polls == nil {
-		dst.Polls = map[string]PollProviderConfig{}
-	}
-	for k, v := range src.Polls {
-		dst.Polls[k] = v
+	for k, v := range src.Inputs {
+		dst.Inputs[k] = v
 	}
 	// Merge Domains (src overrides dst)
 	if dst.Domains == nil {
@@ -386,10 +350,4 @@ func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 		dst.Domains[k] = v
 	}
 	return dst
-}
-
-// CleanConfigSections removes invalid keys from DNS providers and poll providers after merging includes
-func CleanConfigSections(cfg *ConfigFile) {
-	// No cleaning for DNS providers - pass all options through
-	// This allows providers to handle their own options and filtering
 }

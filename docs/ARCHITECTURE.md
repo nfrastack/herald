@@ -1,271 +1,275 @@
-# DNS Companion - High-Level Architecture Overview
+# Herald DNS Companion - Architecture
 
-## Overview at a Glance
+This document describes the architecture and design principles of Herald DNS Companion.
 
-DNS Companion is a dynamic DNS management system that automatically discovers services and creates/updates DNS records across multiple providers. The application follows a modular architecture with five main component types that work together:
+## Overview
+
+Herald follows a **domain-centric, three-tier architecture** that separates service discovery, record routing, and DNS management into distinct, configurable layers.
+
+## Core Architecture
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Poll Providers │───▶│   Filters       │───▶│ Domain Config   │
-│                 │    │                 │    │                 │
-│ • Docker        │    │ • Type-based    │    │ • Provider      │
-│ • Traefik       │    │ • Value-based   │    │   Selection     │
-│ • Tailscale     │    │ • Pattern       │    │ • Record Config │
-│ • ZeroTier      │    │   Matching      │    │ • TTL/Type      │
-│ • File/Remote   │    │ • Boolean Logic │    │                 │
-│ • Caddy         │    │                 │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         │                       │                       ▼
-         │                       │            ┌─────────────────┐
-         │                       │            │  DNS Providers  │
-         │                       │            │                 │
-         │                       │            │ • Cloudflare    │
-         │                       │            │ • Custom        │
-         │                       │            │                 │
-         │                       │            └─────────────────┘
-         │                       │                       │
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Core Processing Engine                       │
-│                                                                 │
-│ • Service Discovery → Filtering → Domain Matching → DNS Ops     │
-│ • Batch Processing for Efficiency                               │
-│ • Change Detection and Logging                                  │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-                    ┌─────────────────┐
-                    │ Output Providers│
-                    │                 │
-                    │ • /etc/hosts    │
-                    │ • JSON Export   │
-                    │ • YAML Export   │
-                    │ • Zone Files    │
-                    └─────────────────┘
+┌─────────────────┐    ┌──────────────┐    ┌─────────────────┐
+│  Input Sources  │───▶│   Domains    │───▶│    Outputs      │
+└─────────────────┘    └──────────────┘    └─────────────────┘
+│                 │    │              │    │                 │
+│ • Docker        │    │ • Route      │    │ • DNS Providers │
+│ • Traefik       │    │   inputs to  │    │ • File Formats  │
+│ • Tailscale     │    │   outputs    │    │ • Remote APIs   │
+│ • ZeroTier      │    │ • Filter     │    │                 │
+│ • File sources  │    │   records    │    │                 │
+│ • Remote APIs   │    │ • Transform  │    │                 │
+│                 │    │   hostnames  │    │                 │
+└─────────────────┘    └──────────────┘    └─────────────────┘
 ```
 
-## Component Breakdown
+## Components
 
-### 1. Poll Providers - Service Discovery
+### 1. Input Sources (Service Discovery)
 
-Poll providers continuously monitor different systems to discover services that need DNS records:
+Input sources are responsible for discovering services that need DNS records. Each input source runs independently and can be configured with filters and polling intervals.
 
-**Types:**
-- **Docker**: Monitors container labels and Traefik routes
-- **Traefik**: Polls Traefik API for router configurations
-- **Tailscale**: Monitors Tailscale/Headscale networks for devices
-- **ZeroTier**: Tracks ZeroTier network members
-- **File**: Watches local files for DNS record definitions
-- **Remote**: Fetches DNS records from remote HTTP endpoints
-- **Caddy**: Monitors Caddy API for configured routes
+**Supported Input Types:**
+- **Docker**: Container labels and Traefik integration
+- **Traefik**: Reverse proxy route discovery
+- **Tailscale**: VPN mesh network devices
+- **ZeroTier**: Virtual network nodes
+- **File**: Static YAML/JSON definitions
+- **Remote**: HTTP API endpoints
+- **Caddy**: Web server route discovery
 
 **Key Features:**
-- **Polling Intervals**: Configurable timing for each provider
-- **Initial Processing**: Handle existing services on startup
-- **Change Detection**: Only process actual changes to reduce load
-- **Scoped Logging**: Provider-specific log levels and prefixes
+- Independent polling cycles
+- Configurable filtering (labels, names, networks, etc.)
+- Event-driven updates (Docker events, file watching)
+- Authentication support (API keys, basic auth)
+- Scoped logging per input
 
-### 2. Filters - Service Selection
+### 2. Domains (Central Routing)
 
-Filters determine which discovered services should have DNS records created:
+Domains act as the central routing and control layer, determining which input sources can create records and which outputs receive those records.
 
-**Filter Types:**
-- **online**: Service/device online status
-- **name**: Service name pattern matching
-- **tag**: Service tags or labels
-- **authorized**: Authorization status (VPN providers)
-- **Custom**: Provider-specific filters
+**Responsibilities:**
+- **Input Routing**: Control which inputs can create records for specific domains
+- **Output Routing**: Control which outputs receive records from specific domains
+- **Record Transformation**: Apply domain-specific configuration (TTL, targets, etc.)
+- **Lifecycle Management**: Handle record creation, updates, and deletion
+- **Validation**: Ensure record integrity and prevent conflicts
 
-**Operations:**
-- **equals**: Exact matching
-- **contains**: Substring matching
-- **regex**: Regular expression matching
-- **Boolean Logic**: AND/OR combinations with negation
-
-**Examples:**
-```yaml
-# Only online Tailscale devices
-filter_type: online
-filter_value: "true"
-
-# Docker containers with specific labels
-filter_type: label
-filter_value: "traefik.enable=true"
-```
-
-### 3. Domain Configuration - DNS Mapping
-
-Domain configurations define how discovered services map to DNS records:
-
-**Components:**
-- **Provider Selection**: Which DNS provider handles this domain
-- **Record Configuration**: DNS record type (A, AAAA, CNAME), TTL
-- **Subdomain Handling**: Include/exclude specific subdomains
-- **Target Resolution**: How to determine the DNS record target
-
-**Domain Matching Logic:**
-```
-Service FQDN: app.production.example.com
-Domain Config: example.com
-Result: Subdomain = "app.production", Domain = "example.com"
-```
-
-### 4. DNS Providers - Record Management
-
-DNS providers handle the actual creation, update, and deletion of DNS records:
-
-**Current Providers:**
-- **Cloudflare**: Full API integration with zone management
-- **Extensible**: Framework for adding new providers
-
-**Features:**
-- **Lazy Initialization**: Connect only when needed
-- **Change Detection**: Only update when records actually change
-- **Conflict Resolution**: Handle competing record types
-- **Error Handling**: Graceful failure and retry logic
-
-### 5. Output Providers - File Export
-
-Output providers export DNS records to various file formats for local consumption:
-
-**Formats:**
-- **Hosts**: Traditional hosts file format
-- **JSON**: Structured data for APIs
-- **YAML**: Human-readable configuration
-- **Zone Files**: RFC1035 compliant zone files
-
-**Features:**
-- **Selective Export**: Choose which domains to include
-- **File Permissions**: Set ownership and permissions
-- **Atomic Updates**: Safe file replacement
-- **Change-Based Sync**: Only write when data changes
-
-## Data Flow Architecture
-
-### 1. Discovery Phase
-```
-Poll Provider → Service Discovery → Raw Service Data
-```
-- Each poll provider discovers services using its specific method
-- Services include hostname, IP address, labels/metadata
-- Data is normalized into a common `DNSEntry` format
-
-### 2. Filtering Phase
-```
-Raw Service Data → Filters → Filtered Services
-```
-- Apply configured filters to determine which services need DNS
-- Multiple filters can be combined with AND/OR logic
-- Services that don't match filters are ignored
-
-### 3. Domain Mapping Phase
-```
-Filtered Services → Domain Configuration → DNS Operations
-```
-- Extract domain from service FQDN using domain configs
-- Determine which DNS provider and configuration to use
-- Resolve target IP address and record type
-
-### 4. DNS Operations Phase
-```
-DNS Operations → DNS Provider → Live DNS Records
-```
-- Create, update, or delete DNS records as needed
-- Batch operations for efficiency
-- Track changes and provide detailed logging
-
-### 5. Output Phase
-```
-DNS Operations → Output Providers → Files
-```
-- Export DNS records to configured file formats
-- Only sync files when actual changes occur
-- Maintain file permissions and atomic updates
-
-## Configuration Hierarchy
-
-The application supports multiple configuration methods with a clear precedence:
-
-```
-Environment Variables > YAML Config > Defaults
-```
-
-### Poll Provider Configuration
-```yaml
-polls:
-  docker_prod:
-    type: docker
-    api_url: "unix:///var/run/docker.sock"
-    interval: 30s
-    filter_type: label
-    filter_value: "traefik.enable=true"
-    log_level: debug
-```
-
-### DNS Provider Configuration
-```yaml
-providers:
-  cloudflare_main:
-    type: cloudflare
-    api_token: "your-token"
-    zone_id: "optional"
-```
-
-### Domain Configuration
+**Configuration Model:**
 ```yaml
 domains:
-  example_com:
-    name: "example.com"
-    provider: "cloudflare_main"
-    record:
-      type: "A"
+  production_com:
+    name: "production.com"
+    input_profiles:      # Which inputs can create records
+      - docker_prod
+      - traefik_public
+    outputs:             # Which outputs receive records
+      - cloudflare_dns
+      - zone_backup
+    record:              # Domain-specific record config
+      target: "web.production.com"
       ttl: 300
-    exclude_subdomains:
-      - dev
-      - staging
+      update_existing: true
 ```
 
-## Advanced Features
+### 3. Outputs (DNS Management)
 
-### Batch Processing
-- **Efficiency**: Group multiple DNS operations together
-- **Atomic Updates**: All changes in a batch succeed or fail together
-- **Output Sync**: Only write output files when batches complete with changes
+Output destinations handle the final DNS record management, whether updating live DNS providers or generating file exports.
 
-### Change Detection
-- **Smart Diffing**: Only process services that have actually changed
-- **Target Tracking**: Detect IP address changes for existing services
-- **Removal Handling**: Clean up DNS records when services disappear
+**Output Types:**
+- **DNS Providers**: Live DNS updates (Cloudflare, etc.)
+- **File Formats**: Local file generation (JSON, YAML, zone files, hosts)
+- **Remote APIs**: HTTP POST to aggregation services
 
-### Logging Architecture
-- **Scoped Loggers**: Each provider has its own logger with configurable levels
-- **Structured Messages**: Consistent format with source identification
-- **Debug Tracing**: Detailed operation tracking for troubleshooting
+**Key Features:**
+- Independent operation per output
+- File ownership and permissions control
+- Template-based path generation
+- Multi-domain support with domain filtering
+- Metadata preservation and timestamps
 
-### Error Handling
-- **Graceful Degradation**: Continue processing other services if one fails
-- **Retry Logic**: Built-in retry for transient failures
-- **Validation**: Comprehensive input validation and error reporting
+## Design Principles
 
-## Extensibility
+### 1. Separation of Concerns
 
-The architecture is designed for easy extension:
+Each tier has a single, well-defined responsibility:
+- **Inputs**: Service discovery only
+- **Domains**: Routing and record management only
+- **Outputs**: DNS updates and file generation only
 
-### Adding New Poll Providers
-1. Implement the `poll.Provider` interface
-2. Register with `poll.RegisterProvider()`
-3. Follow common patterns for configuration and logging
+### 2. Configuration-Driven
 
-### Adding New DNS Providers
-1. Implement the `dns.Provider` interface
-2. Register with `dns.RegisterProvider()`
-3. Support common configuration patterns
+All behavior is controlled through configuration, not code:
+- Input sources are configured with filters and options
+- Domain routing is explicitly defined in configuration
+- Output destinations are independently configurable
+
+### 3. Independent Operation
+
+Components operate independently where possible:
+- Inputs poll on their own schedules
+- Outputs update on their own triggers
+- Domain routing doesn't block input discovery
+
+### 4. Extensibility
+
+New components can be added without affecting existing ones:
+- New input types register themselves
+- New output formats follow standard interfaces
+- Domain routing supports any input/output combination
+
+## Data Flow
+
+### Record Creation Flow
+
+1. **Discovery**: Input source discovers a service (container, route, device)
+2. **Record Generation**: Input creates DNS record with hostname, type, target, TTL
+3. **Domain Routing**: Domain configuration determines if record is allowed
+4. **Output Distribution**: Records sent to all configured outputs for that domain
+5. **DNS Updates**: Outputs update DNS providers or generate files
+
+### Record Update Flow
+
+1. **Change Detection**: Input detects service change (IP change, label update)
+2. **Record Update**: Input updates existing record with new information
+3. **Domain Validation**: Domain validates the update is allowed
+4. **Output Propagation**: Updated record sent to all configured outputs
+5. **DNS Synchronization**: Outputs sync changes to DNS providers/files
+
+### Record Deletion Flow
+
+1. **Service Removal**: Input detects service removal (container stop, route deletion)
+2. **Record Removal**: Input removes record from its tracking
+3. **Domain Cleanup**: Domain removes record from its state
+4. **Output Cleanup**: Outputs remove record from DNS providers/files
+
+## Configuration Architecture
+
+### Hierarchical Configuration
+
+Herald supports multiple configuration files and includes:
+
+```yaml
+# base.yml
+include:
+  - "/etc/herald/common.yml"
+  - "./local-overrides.yml"
+
+general:
+  log_level: info
+
+# common.yml gets merged
+# local-overrides.yml overrides previous values
+```
+
+### Profile-Based Organization
+
+Inputs and outputs are organized into named profiles:
+
+```yaml
+inputs:
+  docker_prod:     # Profile name
+    type: docker   # Implementation type
+    # ... config
+
+domains:
+  my_domain:
+    input_profiles:  # Reference by profile name
+      - docker_prod
+```
+
+## Extensibility Points
+
+### Adding New Input Sources
+
+1. Implement the `input.Provider` interface
+2. Register with `input.RegisterProvider()`
+3. Handle configuration parsing and validation
+4. Implement polling/event-driven discovery
+5. Generate DNS records via the common interface
 
 ### Adding New Output Formats
-1. Implement output format in the output manager
-2. Add configuration options
-3. Follow atomic update patterns
 
-This modular design allows DNS Companion to adapt to new services, DNS providers, and use cases while maintaining a consistent and reliable core architecture.
+1. Implement the `output.OutputFormat` interface
+2. Register with `output.RegisterFormat()`
+3. Handle file writing, DNS API calls, or HTTP requests
+4. Support multi-domain targeting
+5. Implement proper error handling and logging
+
+### Adding New DNS Providers
+
+1. Implement the DNS provider interface in `pkg/dns/providers/`
+2. Register the provider in the providers map
+3. Handle authentication and API communication
+4. Support all DNS record types (A, AAAA, CNAME, etc.)
+5. Implement proper rate limiting and error handling
+
+## Performance Considerations
+
+### Polling Optimization
+
+- Independent polling cycles prevent blocking
+- Configurable intervals balance freshness vs. load
+- Event-driven updates (Docker events) for immediate response
+- Filtered discovery reduces unnecessary processing
+
+### Memory Management
+
+- Records stored per-domain to limit memory usage
+- Configurable output targeting prevents unnecessary file generation
+- Garbage collection of removed records
+- Efficient data structures for fast lookups
+
+### Concurrency
+
+- Inputs run in parallel goroutines
+- Domain processing is thread-safe with proper locking
+- Outputs operate independently without blocking inputs
+- Graceful shutdown with proper cleanup
+
+## Security Considerations
+
+### API Security
+
+- API tokens stored securely and never logged
+- Basic authentication support where needed
+- TLS certificate verification (configurable)
+- Rate limiting and timeout handling
+
+### File Security
+
+- Configurable file ownership and permissions
+- Secure temporary file creation
+- Atomic file updates to prevent corruption
+- Path validation to prevent directory traversal
+
+### Network Security
+
+- Optional TLS for all HTTP communications
+- Configurable CA certificates for self-signed certs
+- No unnecessary network exposure
+- Secure handling of credentials in memory
+
+## Monitoring and Observability
+
+### Logging
+
+- Structured logging with configurable levels
+- Per-component log level overrides
+- Request/response logging for debugging
+- Error context preservation
+
+### Metrics
+
+- Record creation/update/deletion counters
+- Input source health and timing
+- Output success/failure rates
+- DNS provider API response times
+
+### Health Checks
+
+- Input source connectivity validation
+- DNS provider accessibility checks
+- File system permissions verification
+- Configuration validation on startup

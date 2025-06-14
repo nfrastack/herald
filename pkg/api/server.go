@@ -5,10 +5,10 @@
 package api
 
 import (
-	"dns-companion/pkg/config"
-	"dns-companion/pkg/log"
-	"dns-companion/pkg/output"
-	"dns-companion/pkg/utils"
+	"herald/pkg/config"
+	"herald/pkg/log"
+	"herald/pkg/output"
+	"herald/pkg/util"
 
 	"context"
 	"crypto/rand"
@@ -67,8 +67,9 @@ type APIServer struct {
 	mutex          sync.RWMutex
 	profiles       map[string]config.APIClientProfile // client_id -> profile config
 	clientExpiry   time.Duration
-	outputProfiles map[string]interface{}           // Available output profiles from config
-	logger         *log.ScopedLogger                // Scoped logger for API server
+	outputProfiles map[string]interface{} // Available output profiles from config
+	outputManager  *output.OutputManager  // API server's own output manager
+	logger         *log.ScopedLogger
 	failedAttempts map[string]*FailedAttemptTracker // Track failed authentication attempts by IP
 	attemptsMutex  sync.RWMutex                     // Separate mutex for failed attempts
 }
@@ -87,7 +88,6 @@ func generateConnectionID() string {
 	return hex.EncodeToString(bytes)
 }
 
-// Connection ID context key
 type contextKey string
 
 const connectionIDKey contextKey = "connectionID"
@@ -177,7 +177,7 @@ func (s *APIServer) recordFailedAttempt(remoteAddr string, clientID string, reas
 		s.logger.Warn("Multiple failed auth attempts from %s: %d attempts (client_id: %s, reason: %s)",
 			ip, tracker.Count, clientID, reason)
 	} else {
-		s.logger.Debug("Failed auth attempt from %s (client_id: %s, reason: %s)", ip, clientID, reason)
+		s.logger.Verbose("Failed auth attempt from %s (client_id: %s, reason: %s)", ip, clientID, reason)
 	}
 }
 
@@ -248,8 +248,29 @@ func (s *APIServer) authenticateClient(r *http.Request) (string, bool) {
 	}
 
 	authHeader := r.Header.Get("Authorization")
+	clientIDHeader := r.Header.Get("X-Client-ID")
+
+	// Debug: log what headers we're receiving
+	s.logger.Debug("[%s] Auth headers - Authorization: '%s', X-Client-ID: '%s'", connID,
+		func() string {
+			if authHeader == "" {
+				return "(missing)"
+			}
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				token := strings.TrimPrefix(authHeader, "Bearer ")
+				return "Bearer " + util.MaskSensitiveValue(token)
+			}
+			return util.MaskSensitiveValue(authHeader)
+		}(),
+		func() string {
+			if clientIDHeader == "" {
+				return "(missing)"
+			}
+			return clientIDHeader
+		}())
+
 	if !strings.HasPrefix(authHeader, "Bearer ") {
-		s.recordFailedAttempt(r.RemoteAddr, "unknown", "missing/invalid Authorization header")
+		s.recordFailedAttempt(r.RemoteAddr, clientIDHeader, "missing/invalid Authorization header")
 		return "", false
 	}
 
@@ -349,17 +370,10 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	s.clients[clientID] = &clientData
 
 	s.logger.Info("[%s] Received data from client %s with %d domains", connID, clientID, len(clientData.Domains))
-	s.logger.Debug("[%s] Client %s metadata: generator=%s, hostname=%s", connID, clientID,
+	s.logger.Debug("[%s] Client %s metadata: generator=%s", connID, clientID,
 		func() string {
 			if clientData.Metadata != nil {
 				return clientData.Metadata.Generator
-			} else {
-				return "unknown"
-			}
-		}(),
-		func() string {
-			if clientData.Metadata != nil {
-				return clientData.Metadata.Hostname
 			} else {
 				return "unknown"
 			}
@@ -459,15 +473,13 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 			if _, exists := s.outputProfiles[outputProfile]; exists {
 				s.logger.Trace("[%s] Found output profile configuration for '%s'", connID, outputProfile)
 
-				// Write aggregated records through the output manager
-				//s.logger.Info("[%s] Writing %d domains to output profile '%s'", connID, len(aggregatedRecords), outputProfile)
+				// Write aggregated records ONLY to the specific API output profile
+				// This prevents API data from being written to main domain outputs like Cloudflare DNS
+				if s.outputManager != nil {
+					var writeErrors []string
+					recordsWritten := 0
 
-				outputManager := output.GetOutputManager()
-				if outputManager != nil {
-					// Write each aggregated record through the output manager
-					var writeErrors []error
-					recordCount := 0
-
+					// Write each record to ONLY the API output profile, not all outputs
 					for domainName, records := range aggregatedRecords {
 						for _, record := range records {
 							hostname, _ := record["hostname"].(string)
@@ -476,27 +488,37 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 							ttl, _ := record["ttl"].(uint32)
 							source, _ := record["source"].(string)
 
-							err := outputManager.WriteRecordWithSource(domainName, hostname, target, recordType, int(ttl), source)
+							// Use the API server's own output manager
+							err := s.writeToSpecificProfile(s.outputManager, outputProfile, domainName, hostname, target, recordType, int(ttl), source)
 							if err != nil {
-								s.logger.Error("[%s] Failed to write aggregated record %s.%s: %v", connID, hostname, domainName, err)
-								writeErrors = append(writeErrors, err)
-							} else {
-								recordCount++
+								s.logger.Error("[%s] Failed to write record %s.%s to profile '%s': %v", connID, hostname, domainName, outputProfile, err)
+								writeErrors = append(writeErrors, fmt.Sprintf("record %s.%s: %v", hostname, domainName, err))
+								continue
 							}
+
+							recordsWritten++
+							s.logger.Debug("[%s] Successfully wrote %s.%s (%s) -> %s to profile '%s'",
+								connID, hostname, domainName, recordType, target, outputProfile)
 						}
 					}
 
-					// Sync all output formats to flush changes
-					syncErr := outputManager.SyncAll()
-					if syncErr != nil {
-						s.logger.Error("[%s] Failed to sync output formats: %v", connID, syncErr)
-						writeErrors = append(writeErrors, syncErr)
-					}
+					// Trigger sync for the specific profile after writing all records
+					if len(writeErrors) == 0 && recordsWritten > 0 {
+						s.logger.Debug("[%s] Syncing zone file profile '%s' after writing %d records", connID, outputProfile, recordsWritten)
 
-					// Only log success if there were no errors
-					if len(writeErrors) == 0 && recordCount > 0 {
-						s.logger.Info("[%s] Successfully wrote %d records from %d domains (%d clients) to output profile '%s'",
-							connID, recordCount, len(aggregatedRecords), len(clientIDs), outputProfile)
+						// Sync only the specific zone file profile, not all outputs
+						profile := s.outputManager.GetProfile(outputProfile)
+						if profile != nil {
+							err := profile.Sync()
+							if err != nil {
+								s.logger.Error("[%s] Failed to sync zone file profile '%s': %v", connID, outputProfile, err)
+							} else {
+								s.logger.Info("[%s] Successfully wrote and synced %d records to zone file '%s'",
+									connID, recordsWritten, outputProfile)
+							}
+						} else {
+							s.logger.Error("[%s] Zone file profile '%s' not found for sync", connID, outputProfile)
+						}
 					} else if len(writeErrors) > 0 {
 						s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred",
 							connID, outputProfile, len(writeErrors))
@@ -525,6 +547,81 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 	}
 }
 
+// writeToSpecificProfile writes a record to only the specified output profile
+func (s *APIServer) writeToSpecificProfile(outputManager *output.OutputManager, profileName, domain, hostname, target, recordType string, ttl int, source string) error {
+	// Get the specific output profile and write directly to it
+	profile := outputManager.GetProfile(profileName)
+	if profile == nil {
+		return fmt.Errorf("output profile '%s' not found", profileName)
+	}
+
+	// Write directly to the zone file profile, bypassing domain routing
+	err := profile.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
+	if err != nil {
+		return fmt.Errorf("failed to write to profile '%s': %v", profileName, err)
+	}
+
+	s.logger.Debug("API record written to zone file: %s.%s (%s) -> %s (TTL: %d)",
+		hostname, domain, recordType, target, ttl)
+
+	return nil
+}
+
+// initializeAPIOutputProfiles initializes output profiles that the API server needs
+func (s *APIServer) initializeAPIOutputProfiles(outputConfigs map[string]interface{}) error {
+	// Get list of output profiles that API clients will use
+	profilesNeeded := make(map[string]bool)
+	for _, profile := range s.profiles {
+		if profile.OutputProfile != "" {
+			profilesNeeded[profile.OutputProfile] = true
+		}
+	}
+	
+	if len(profilesNeeded) == 0 {
+		s.logger.Debug("No API output profiles needed")
+		return nil
+	}
+	
+	// Convert to slice for InitializeOutputManagerWithProfiles
+	enabledProfiles := make([]string, 0, len(profilesNeeded))
+	for profileName := range profilesNeeded {
+		enabledProfiles = append(enabledProfiles, profileName)
+	}
+	
+	s.logger.Debug("Initializing API output profiles: %v", enabledProfiles)
+	
+	// Debug: check if the profile exists in config
+	for _, profileName := range enabledProfiles {
+		if _, exists := outputConfigs[profileName]; exists {
+			s.logger.Debug("Found config for API output profile '%s'", profileName)
+		} else {
+			s.logger.Error("API output profile '%s' not found in config", profileName)
+		}
+	}
+	
+	// Initialize output manager with only the profiles the API needs
+	err := output.InitializeOutputManagerWithProfiles(outputConfigs, enabledProfiles)
+	if err != nil {
+		s.logger.Error("Failed to initialize API output manager: %v", err)
+		return err
+	}
+	
+	// Store reference to the API server's output manager
+	s.outputManager = output.GetOutputManager()
+	s.logger.Debug("Successfully initialized API output manager")
+	return nil
+}
+
+// syncNonRemoteOutputs syncs only non-remote outputs to prevent infinite loops
+func (s *APIServer) syncNonRemoteOutputs(outputManager *output.OutputManager) error {
+	s.logger.Debug("API server syncing non-remote outputs only to prevent loops")
+
+	// For now, just skip sync entirely for API aggregation to prevent loops
+	// The zone files and other file outputs will be synced by the normal input providers
+	s.logger.Debug("Skipping sync for API aggregation to prevent infinite loops with remote outputs")
+	return nil
+}
+
 // StartAPIServer starts the DNS API server
 func StartAPIServer(apiConfig *config.APIConfig) error {
 	if !apiConfig.Enabled {
@@ -544,40 +641,29 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		resolvedProfiles := make(map[string]config.APIClientProfile)
 
 		for clientID, profile := range apiConfig.Profiles {
-			token := profile.Token
-
-			// Support file-based token loading
-			if strings.HasPrefix(token, "file://") {
-				filePath := token[7:] // Remove "file://" prefix
-				server.logger.Debug("Loading token for client '%s' from file: %s", clientID, filePath)
-
-				tokenBytes, err := os.ReadFile(filePath)
-				if err != nil {
-					return fmt.Errorf("failed to read token file for client '%s' at '%s': %w", clientID, filePath, err)
-				}
-
-				token = strings.TrimSpace(string(tokenBytes))
-				if token == "" {
-					return fmt.Errorf("token file for client '%s' is empty: %s", clientID, filePath)
-				}
-
-				server.logger.Verbose("Successfully loaded token for client '%s' from file", clientID)
-			}
+			// Use utils function for reading file:// and env:// values
+			token := util.ReadSecretValue(profile.Token)
 
 			if token == "" {
 				return fmt.Errorf("client '%s' has empty token", clientID)
 			}
-
 			// Store the resolved token
 			resolvedProfiles[clientID] = config.APIClientProfile{
 				Token:         token,
 				OutputProfile: profile.OutputProfile,
 			}
 
-			server.logger.Debug("Registered client profile: %s -> %s", clientID, profile.OutputProfile)
+			server.logger.Debug("Registered client profile: %s -> %s (token: %s)", clientID, profile.OutputProfile, util.MaskSensitiveValue(token))
 		}
 
 		server.LoadClientProfiles(resolvedProfiles)
+		
+		// Initialize API server's output manager after loading client profiles
+		server.logger.Debug("About to initialize API output profiles...")
+		if err := server.initializeAPIOutputProfiles(globalConfig.Outputs); err != nil {
+			return fmt.Errorf("failed to initialize API output profiles: %w", err)
+		}
+		server.logger.Debug("API output profiles initialization completed")
 	}
 
 	// Load client tokens if token file is specified (for backward compatibility)
@@ -632,21 +718,33 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 
 	// Validate listen patterns before proceeding
 	if len(apiConfig.Listen) > 0 {
-		if err := utils.ValidateListenPatterns(apiConfig.Listen); err != nil {
+		if err := util.ValidateListenPatterns(apiConfig.Listen); err != nil {
 			return fmt.Errorf("invalid listen patterns: %w", err)
 		}
-		server.logger.Trace("Listen patterns validated: %v", apiConfig.Listen)
 	}
 
-	// Resolve listen addresses based on patterns with API-specific logging
-	addresses, err := utils.ResolveListenAddressesQuiet(apiConfig.Listen, port)
-	if err != nil {
-		server.logger.Warn("Interface resolution warning: %v", err)
-	} else {
-		server.logger.Debug("Resolved %d listen addresses from patterns %v", len(addresses), apiConfig.Listen)
+	// Resolve listen addresses based on patterns
+	var resolvedAddresses []string
+	for _, pattern := range apiConfig.Listen {
+		if strings.Contains(pattern, ":") {
+			// Address already contains port, use as-is
+			resolvedAddresses = append(resolvedAddresses, pattern)
+		} else {
+			// Pattern needs port resolution
+			addresses, err := util.ResolveListenAddressesQuiet([]string{pattern}, port)
+			if err != nil {
+				server.logger.Warn("Interface resolution warning for '%s': %v", pattern, err)
+			} else {
+				resolvedAddresses = append(resolvedAddresses, addresses...)
+			}
+		}
 	}
 
-	for _, addr := range addresses {
+	if len(resolvedAddresses) == 0 {
+		resolvedAddresses = []string{fmt.Sprintf(":%s", port)}
+	}
+
+	for _, addr := range resolvedAddresses {
 		server.logger.Verbose("Listen address: %s", addr)
 	}
 
@@ -678,7 +776,7 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		}
 
 		server.logger.Info("Starting HTTPS servers with TLS")
-		for _, address := range addresses {
+		for _, address := range resolvedAddresses {
 			addr := address // capture for closure
 			httpServer := &http.Server{
 				Addr:      addr,
@@ -693,7 +791,7 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		}
 	} else {
 		server.logger.Warn("WARNING: Running HTTP servers without TLS - use only on trusted networks!")
-		for _, address := range addresses {
+		for _, address := range resolvedAddresses {
 			addr := address // capture for closure
 			serverFunc := func() error {
 				server.logger.Verbose("Starting HTTP server on %s", addr)
@@ -703,7 +801,6 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		}
 	}
 
-	// Start all servers in goroutines so they don't block
 	for i, serverFunc := range serverFuncs {
 		go func(index int, fn func() error) {
 			if err := fn(); err != nil {
@@ -712,7 +809,6 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		}(i, serverFunc)
 	}
 
-	// Start background cleanup routine for failed attempts
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour) // Cleanup every hour
 		defer ticker.Stop()

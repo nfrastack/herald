@@ -1,8 +1,8 @@
-BINARY_NAME := dns-companion
-BUILD_DIR := ./cmd/dns-companion
+BINARY_NAME := herald
+BUILD_DIR := ./cmd/herald
 GO := go
 LDFLAGS := -s -w
-VERSION := $(shell git describe --tags --exact-match 2>/dev/null || git describe --always --dirty || echo "dev")
+VERSION := $(shell [ -n "$$HERALD_VERSION" ] && echo "$$HERALD_VERSION" || (git describe --tags --exact-match 2>/dev/null || git describe --always --dirty || echo "dev"))
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD_FLAGS := -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)
 
@@ -49,16 +49,16 @@ check-release:
 	fi
 
 container-build:
-	docker build --build-arg DC_VERSION=$(VERSION) -t nfrastack/$(BINARY_NAME):$(VERSION) -f container/Containerfile .
+	docker build --build-arg HERALD_VERSION=$(VERSION) -t nfrastack/$(BINARY_NAME):$(VERSION) -f container/Containerfile .
 	docker tag nfrastack/$(BINARY_NAME):$(VERSION) nfrastack/$(BINARY_NAME):latest
 
 help:
-	@echo "make build           Build the binary"
-	@echo "make build-release   Build the binary with version information"
-	@echo "make build-all       Build binaries for x86_64 and aarch64"
-	@echo "make clean           Clean up build artifacts"
-	@echo "make install         Install the binary locally"
-	@echo "make release         Build and prepare for release"
-	@echo "make check-release   Verify if the repository is tagged and clean"
-	@echo "make container-build    Build the Container image with DC_VERSION as build-arg and tag"
-	@echo "make help            Show this message"
+	@echo "make build              Build the binary"
+	@echo "make build-release      Build the binary with version information"
+	@echo "make build-all          Build binaries for x86_64 and aarch64"
+	@echo "make clean              Clean up build artifacts"
+	@echo "make install            Install the binary locally"
+	@echo "make release            Build and prepare for release"
+	@echo "make check-release      Verify if the repository is tagged and clean"
+	@echo "make container-build    Build the Container image with HERALD_VERSION as build-arg and tag"
+	@echo "make help               Show this message"

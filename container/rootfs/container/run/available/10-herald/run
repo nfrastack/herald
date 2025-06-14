@@ -1,0 +1,16 @@
+#!/command/with-contenv bash
+# SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+source /container/base/functions/container/init
+SERVICE_NAME="herald"
+prepare_service single
+check_container_initialized
+check_service_initialized init
+liftoff
+
+print_start "Starting Herald $(herald -version | awk '{print $1}')"
+exec s6-setuidgid "${HERALD_USER}" \
+                                /usr/local/bin/herald -container \
+                                    -config "${CONFIG_PATH}/${CONFIG_FILE}"

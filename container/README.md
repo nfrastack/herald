@@ -1,8 +1,8 @@
-# github.com/nfrastack/docker-dns-companion
+# github.com/nfrastack/docker-herald
 
 ## About
 
-Container file to build a [DNS Companion](https://github.com/nfrastack/dns-companion) container image for monitoring events and writing appropriate records to an upstream DNS server.
+Container file to build a [Herald](https://github.com/nfrastack/herald) container image for monitoring events and writing appropriate records to an upstream DNS server.
 
 [Changelog](../CHANGELOG.md)
 
@@ -24,8 +24,7 @@ Container file to build a [DNS Companion](https://github.com/nfrastack/dns-compa
     - [Container Options](#container-options)
     - [Provider Environment Variables](#provider-environment-variables)
     - [Domain Environment Variables](#domain-environment-variables)
-    - [Poll Provider Environment Variables](#poll-provider-environment-variables)
-      - [Defaults](#defaults)
+    - [Integration Environment Variables](#integration-environment-variables)
 - [Maintenance](#maintenance)
   - [Shell Access](#shell-access)
 - [Support](#support)
@@ -43,28 +42,29 @@ Container file to build a [DNS Companion](https://github.com/nfrastack/dns-compa
 
 ## Installation
 
-Automated builds of the image are available on [Docker Hub](https://hub.docker.com/r/nfrastack/dns-companion)
+Automated builds of the image are available on [Docker Hub](https://hub.docker.com/r/nfrastack/herald)
 
 ```bash
-docker pull hub.docker.com/nfrastack/dns-companion:(imagetag)
+docker pull nfrastack/herald:(imagetag)
 ```
 
-Builds of the image are also available on the [Github Container Registry](https://github.com/nfrastack/dns-companion/pkgs/container/dns-companion)
+Builds of the image are also available on the [Github Container Registry](https://github.com/nfrastack/herald/pkgs/container/herald)
 
 ```
-docker pull ghcr.io/nfrastack/dns-companion:(imagetag)
+docker pull ghcr.io/nfrastack/herald:(imagetag)
 ```
 
 The following image tags are available along with the repository Releases:
 
-- `latest` - Most recent release of dns-companion w/ Alpine Linux
+- `latest` - Most recent release of herald w/ Alpine Linux
 
 ### Quick Start
 
-- The quickest way to get started is using [docker-compose](https://docs.docker.com/compose/). See the examples folder for a working [compose.yml](../contrib/container/compose.yml) that can be modified for development or production use.
-
+- The quickest way to get started is using [docker-compose](https://docs.docker.com/compose/). See the [compose.yml](../contrib/compose/compose.yml) for a working example that can be modified for development or production use.
 - Set various [environment variables](#environment-variables) to understand the capabilities of this image.
-- Map [persistent storage](#data-volumes) for access to configuration and data files for backup.
+- Map [persistent storage](#persistent-storage) for access to configuration and data files for backup.
+
+This container automatically generates configuration to poll either from a Docker, Traefik, or Caddy Reverse Proxy, and supports writing upstream to Cloudflare DNS. If you wish to perform more functions, disable the automatic configuration generation by setting `HERALD_SETUP_TYPE=manual`. You can then configure based on the upstream packages configuration format.
 
 ## Configuration
 
@@ -73,101 +73,122 @@ The following image tags are available along with the repository Releases:
 | Folders                | Description                                                                                            |
 | ---------------------- | ------------------------------------------------------------------------------------------------------ |
 | `/logs/`               | Optional Log Path                                                                                      |
-| `config/`              | Optional Config File Path                                                                              |
+| `/config/`             | Optional Config File Path                                                                              |
 | `/var/run/docker.sock` | (example) You must have access to a docker socket in order to utilize the Docker polling functionality |
 
 ### Environment Variables
 
-- This Container uses a [customized Alpine Linux base](https://hub.docker.com/r/nfrastack/base) that contains advanced functionality for logging, metrics, monitoring and more.
-
-Along with the Environment Variables from the [Base image](https://hub.docker.com/r/nfrastack/base), below are the complete list of available options that can be used to customize your installation.
+Below are the main environment variables supported by the image, as reflected in the example compose file. Adjust as needed for your deployment.
 
 #### Container Options
 
-| Variable         | Description                                     | Default                     |
-| ---------------- | ----------------------------------------------- | --------------------------- |
-| `DC_USER`        | User to run as                                  | `cdc`                       |
-| `DC_GROUP`       | Group to run as                                 | `cdc`                       |
-| `DC_SETUP_TYPE`  | `AUTO` generate config file.                    | `AUTO`                      |
-| `CONFIG_FILE`    | Path to config file (alternative to `-config`)  | `/config/dns-companion.yml` |
-| `LOG_TYPE`       | Display on `console`, write to `file` or `both` | `console`                   |
-| `LOG_PATH`       | Log file directory                              | `/logs/`                    |
-| `LOG_FILE`       | Log file name                                   | `cdc.log`                   |
-| `LOG_LEVEL`      | Logging level `info`, `default`, or `trace`     | `info`                      |
-| `LOG_TIMESTAMPS` | Show timestamps in logs (`TRUE`/`FALSE`)        | `TRUE`                      |
+| Variable            | Description                                    | Default      |
+| ------------------- | ---------------------------------------------- | ------------ |
+| `TIMEZONE`          | Set container timezone                         | `UTC`        |
+| `HERALD_SETUP_TYPE` | `auto` to generate config, `manual` for custom | `auto`       |
+| `HERALD_USER`       | User to run as (`root` needed for docker.sock) | `herald`     |
+| `LOG_TYPE`          | Log to `console`, `file`, or `both`            | `console`    |
+| `LOG_LEVEL`         | Logging level (`info`, `verbose`, etc)         | `info`       |
+| `LOG_PATH`          | Log file directory                             | `/logs`      |
+| `LOG_FILE`          | Log file name                                  | `herald.log` |
+| `LOG_TIMESTAMPS`    | Show timestamps in logs (`TRUE`/`FALSE`)       | `TRUE`       |
+| `CONFIG_PATH`       | Config file directory                          | `/config/`   |
+| `CONFIG_FILE`       | Config file name                               | `herald.yml` |
 
 #### Provider Environment Variables
-
-Create as many providers as you want under the syntax of `PROVIDER_`<PROFILENAME>`_<OPTION>`
 
 | Variable                           | Description                      | Example/Default           |
 | ---------------------------------- | -------------------------------- | ------------------------- |
 | `PROVIDER_01_TYPE`                 | Provider type (e.g., cloudflare) | `cloudflare`              |
 | `PROVIDER_01_CLOUDFLARE_API_TOKEN` | Cloudflare API token             | (required for Cloudflare) |
-| `PROVIDER_01_CLOUDFLARE_API_EMAIL` | Cloudflare API email             | (optional)                |
-| `PROVIDER_01_CLOUDFLARE_API_KEY`   | Cloudflare API key               | (optional)                |
+| `CLOUDFLARE_API_TOKEN`             | Global Cloudflare API token      | (optional)                |
+| `CLOUDFLARE_API_EMAIL`             | Cloudflare API email             | (optional)                |
+| `CLOUDFLARE_API_KEY`               | Cloudflare API key               | (optional)                |
 
 #### Domain Environment Variables
 
-Create as many domains as you want under the syntax of `DOMAIN_`<PROFILENAME>`_<OPTION>`
+| Variable                           | Description                           | Example/Default     |
+| ---------------------------------- | ------------------------------------- | ------------------- |
+| `DOMAIN_NAME`                      | Domain name                           |                     |
+| `DOMAIN_01_NAME`                   | Domain name (legacy/compat)           | `example.com`       |
+| `DOMAIN_01_PROVIDER`               | Provider profile to use               | `cloudflare`        |
+| `DOMAIN_01_ZONE_ID`                | (optional) Zone ID for the domain     | `your_zone_id_here` |
+| `DOMAIN_01_RECORD_TYPE`            | DNS record type                       | `A`                 |
+| `DOMAIN_01_TTL`                    | TTL for the domain record             | `300`               |
+| `DOMAIN_01_TARGET`                 | DNS record target                     | `192.0.2.1`         |
+| `DOMAIN_01_UPDATE_EXISTING_RECORD` | Update existing records               | `TRUE` or `FALSE`   |
+| `DOMAIN_01_ALLOW_MULTIPLE`         | Allow multiple records                | `TRUE` or `FALSE`   |
+| `DOMAIN_01_INPUT`                  | Comma-separated list of inputs        | `docker`            |
+| `DOMAIN_01_OUTPUT`                 | Comma-separated list of outputs       | `cloudflare`        |
+| `DOMAIN_01_PROXIED`                | Enable Cloudflare proxying            | `FALSE`             |
+| `DOMAIN_01_INPUTS`                 | (alt) Comma-separated list of inputs  |                     |
+| `DOMAIN_01_OUTPUTS`                | (alt) Comma-separated list of outputs |                     |
+| `DOMAIN_01_RECORD_TTL`             | TTL for the domain record (alt)       | `300`               |
+| `DOMAIN_01_RECORD_TARGET`          | DNS record target (alt)               |                     |
+| `DOMAIN_01_UPDATE_EXISTING`        | Update existing records (alt)         | `TRUE`              |
 
-| Variable                           | Description                              | Example              |
-| ---------------------------------- | ---------------------------------------- | -------------------- |
-| `DOMAIN_01_NAME`                   | Domain name                              | `example.com`        |
-| `DOMAIN_01_PROVIDER`               | Provider profile to use                  | `01`                 |
-| `DOMAIN_01_ZONE_ID`                | (optional) Zone ID for the domain        | `your_zone_id_here`  |
-| `DOMAIN_01_TTL`                    | TTL for the domain record                | `300`                |
-| `DOMAIN_01_RECORD_TYPE`            | DNS record type                          | `A`, `AAAA`, `CNAME` |
-| `DOMAIN_01_TARGET`                 | DNS record target                        | `192.0.2.1`          |
-| `DOMAIN_01_UPDATE_EXISTING_RECORD` | Update existing records                  | `TRUE` or `FALSE`    |
-| `DOMAIN_01_ALLOW_MULTIPLE`         | Allow multiple records                   | `TRUE` or `FALSE`    |
-| `DOMAIN_01_EXCLUDE_SUBDOMAINS`     | Comma-separated subdomains to exclude eg | `dev,staging`        |
-| `DOMAIN_01_INCLUDE_SUBDOMAINS`     | Comma-separated subdomains to include eg | `api,internal`       |
+#### Integration Environment Variables
 
-#### Poll Provider Environment Variables
+These variables control integration with Docker, Caddy, and Traefik. Prefixes are used for each integration.
 
-If you don't add anything in the Poll Provider environment variables the following options will be used per provider type.
+##### Docker
 
-##### Defaults
+| Variable                       | Description                            | Default/Example               |
+| ------------------------------ | -------------------------------------- | ----------------------------- |
+| `DOCKER_API_URL`               | Docker socket path                     | `unix:///var/run/docker.sock` |
+| `DOCKER_API_AUTH_USER`         | Docker API auth username               |                               |
+| `DOCKER_API_AUTH_PASS`         | Docker API auth password               |                               |
+| `DOCKER_EXPOSE_CONTAINERS`     | Expose all Docker containers           | `TRUE`                        |
+| `DOCKER_LOG_LEVEL`             | Log level for Docker integration       |                               |
+| `DOCKER_PROCESS_EXISTING`      | Process existing containers on startup | `TRUE`                        |
+| `DOCKER_RECORD_REMOVE_ON_STOP` | Remove DNS records on container stop   | `FALSE`                       |
+| `DOCKER_SWARM_MODE`            | Enable Docker Swarm mode               | `FALSE`                       |
+| `DOCKER_TLS_CA_FILE`           | Path to Docker CA cert                 |                               |
+| `DOCKER_TLS_CERT_FILE`         | Path to Docker client cert             |                               |
+| `DOCKER_TLS_KEY_FILE`          | Path to Docker client key              |                               |
+| `DOCKER_TLS_VERIFY`            | Enable Docker TLS verification         | `TRUE`                        |
 
-| Variable                                     | Description                                   | Default/Example                        |
-| -------------------------------------------- | --------------------------------------------- | -------------------------------------- |
-| `DEFAULT_POLL_DOCKER_API_URL`                | Docker socket path                            | `unix:///var/run/docker.sock`          |
-| `DEFAULT_POLL_DOCKER_API_AUTH_USER`          | Docker API basic auth user                    | (optional)                             |
-| `DEFAULT_POLL_DOCKER_API_AUTH_PASS`          | Docker API basic auth password                | (optional)                             |
-| `DEFAULT_POLL_DOCKER_EXPOSE_CONTAINERS`      | Expose all Docker containers                  | `TRUE`                                 |
-| `DEFAULT_POLL_DOCKER_FILTER_TYPE`            | Docker poll filter type                       | `none`                                 |
-| `DEFAULT_POLL_DOCKER_PROCESS_EXISTING`       | Process existing Docker containers on startup | `TRUE`                                 |
-| `DEFAULT_POLL_DOCKER_RECORD_REMOVE_ON_STOP`  | Remove DNS records on container stop          | `FALSE`                                |
-| `DEFAULT_POLL_DOCKER_SWARM_MODE`             | Enable Docker Swarm mode                      | `FALSE`                                |
-| `DEFAULT_POLL_TRAEFIK_API_URL`               | Docker socket path                            | `http://traefik:8080/api/http/routers` |
-| `DEFAULT_POLL_TRAEFIK_API_AUTH_USER`         | Docker API basic auth user                    | (optional)                             |
-| `DEFAULT_POLL_TRAEFIK_API_AUTH_PASS`         | Docker API basic auth password                | (optional)                             |
-| `DEFAULT_POLL_TRAEFIK_FILTER_TYPE`           | Traefik poll filter type                      | `none`                                 |
-| `DEFAULT_POLL_TRAEFIK_INTERVAL`              | Traefik poll interval (seconds)               | `60`                                   |
-| `DEFAULT_POLL_TRAEFIK_PROCESS_EXISTING`      | Process existing Traefik Routers at startup   | `TRUE`                                 |
-| `DEFAULT_POLL_TRAEFIK_RECORD_REMOVE_ON_STOP` | Remove DNS records on container stop          | `FALSE`                                |
+##### Caddy
 
-Create as many poll providers as you want under the syntax of `POLL_<PROFILENAME>_<OPTION>`
+| Variable                      | Description                               | Default/Example |
+| ----------------------------- | ----------------------------------------- | --------------- |
+| `CADDY_API_AUTH_PASS`         | Caddy API auth password                   |                 |
+| `CADDY_API_AUTH_USER`         | Caddy API auth username                   |                 |
+| `CADDY_API_URL`               | Caddy API URL                             |                 |
+| `CADDY_INTERVAL`              | Poll interval for Caddy (seconds)         | `60`            |
+| `CADDY_LOG_LEVEL`             | Log level for Caddy integration           |                 |
+| `CADDY_PROCESS_EXISTING`      | Process existing Caddy configs on startup | `TRUE`          |
+| `CADDY_RECORD_REMOVE_ON_STOP` | Remove DNS records on config removal      | `FALSE`         |
+| `CADDY_TLS_CA_FILE`           | Path to Caddy CA cert                     |                 |
+| `CADDY_TLS_CERT_FILE`         | Path to Caddy client cert                 |                 |
+| `CADDY_TLS_KEY_FILE`          | Path to Caddy client key                  |                 |
+| `CADDY_TLS_VERIFY`            | Enable Caddy TLS verification             | `TRUE`          |
 
-| Variable                        | Description                                   | Example                                |
-| ------------------------------- | --------------------------------------------- | -------------------------------------- |
-| `POLL_01_TYPE`                  | Poll provider type                            | `docker` `traefik`                     |
-| `POLL_01_API_URL`               | API Endpoint (Docker socket or Traefik API)   | `unix:///var/run/docker.sock`          |
-|                                 |                                               | `http://traefik:8080/api/http/routers` |
-| `POLL_01_API_AUTH_USER`         | Basic Authentication User                     | (optional)                             |
-| `POLL_01_API_AUTH_PASS`         | Basic Authentication Pass                     | (optional)                             |
-| `POLL_01_EXPOSE_CONTAINERS`     | Expose all Docker containers                  | `TRUE`                                 |
-| `POLL_01_FILTER_TYPE`           | Poll filter type                              | `none`                                 |
-| `POLL_01_FILTER_VALUE`          | Poll filter value                             | (optional)                             |
-| `POLL_01_PROCESS_EXISTING`      | Process existing Docker containers on startup | `TRUE`                                 |
-| `POLL_01_RECORD_REMOVE_ON_STOP` | Remove DNS records on container stop          | `FALSE`                                |
-| `POLL_01_SWARM_MODE`            | Enable Docker Swarm mode                      | `FALSE`                                |
-| `POLL_01_TLS_CA_PATH`           | Path to Docker TLS CA cert                    | (optional)                             |
-| `POLL_01_TLS_CERT_PATH`         | Path to Docker TLS cert                       | (optional)                             |
-| `POLL_01_TLS_KEY_PATH`          | Path to Docker TLS key                        | (optional)                             |
-| `POLL_01_TLS_VERIFY`            | Verify Docker TLS connection                  | `TRUE` or `FALSE`                      |
-| `POLL_01_INTERVAL`              | Traefik poll interval (seconds)               | `60`                                   |
+##### Traefik
+
+| Variable                        | Description                                 | Default/Example |
+| ------------------------------- | ------------------------------------------- | --------------- |
+| `TRAEFIK_API_AUTH_PASS`         | Traefik API auth password                   |                 |
+| `TRAEFIK_API_AUTH_USER`         | Traefik API auth username                   |                 |
+| `TRAEFIK_API_URL`               | Traefik API URL                             |                 |
+| `TRAEFIK_INTERVAL`              | Poll interval for Traefik (seconds)         | `60`            |
+| `TRAEFIK_LOG_LEVEL`             | Log level for Traefik integration           |                 |
+| `TRAEFIK_PROCESS_EXISTING`      | Process existing Traefik routers on startup | `TRUE`          |
+| `TRAEFIK_RECORD_REMOVE_ON_STOP` | Remove DNS records on router removal        | `FALSE`         |
+| `TRAEFIK_TLS_CA_FILE`           | Path to Traefik CA cert                     |                 |
+| `TRAEFIK_TLS_CERT_FILE`         | Path to Traefik client cert                 |                 |
+| `TRAEFIK_TLS_KEY_FILE`          | Path to Traefik client key                  |                 |
+| `TRAEFIK_TLS_VERIFY`            | Enable Traefik TLS verification             | `TRUE`          |
+
+#### Cloudflare Environment Variables
+
+| Variable               | Description                 | Default/Example |
+| ---------------------- | --------------------------- | --------------- |
+| `CLOUDFLARE_API_TOKEN` | Global Cloudflare API token | (optional)      |
+| `CLOUDFLARE_API_EMAIL` | Cloudflare API email        | (optional)      |
+| `CLOUDFLARE_API_KEY`   | Cloudflare API key          | (optional)      |
+
+>> The EMAIL and KEY are only required if using Global API keys. It is recommended to create a scoped token.
 
 ## Maintenance
 
@@ -176,7 +197,7 @@ Create as many poll providers as you want under the syntax of `POLL_<PROFILENAME
 For debugging and maintenance purposes you may want access the containers shell.
 
 ```bash
-docker exec -it (whatever your container name is e.g. dns-companion) bash
+docker exec -it herald bash
 ```
 
 ## Support

@@ -1,4 +1,4 @@
-module dns-companion
+module herald
 
 go 1.23.0
 
@@ -8,13 +8,11 @@ require (
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/docker/docker v25.0.6+incompatible
 	github.com/fsnotify/fsnotify v1.9.0
-	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6
+	github.com/miekg/dns v1.1.62
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-// This replace directive tells Go to use the local module code
-// when any imports reference the GitHub repository
-replace github.com/nfrastack/dns-companion => ./
+replace github.com/nfrastack/herald => ./
 
 require (
 	github.com/Microsoft/go-winio v0.6.1 // indirect
