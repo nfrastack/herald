@@ -1,6 +1,4 @@
-
-
-## 2.0.0-beta1 2025-06-13 <code at nfrastack dot com>
+## 2.0.0 2025-06-20 <code at nfrastack dot com>
 
    New project name, Herald.
 
@@ -78,14 +76,6 @@
          outputs:
            - cloudflare_dns
    ```
-
-   **Key Changes:**
-   - **Configuration Structure**: The old three-section approach (`poll_providers`, `providers`, domains with legacy fields) has been completely replaced with a two-section approach (`inputs`, `outputs`)
-   - `poll_providers` section → `inputs` section
-   - `providers` section → `outputs` section
-   - Domain fields `input_profiles`, `outputs`, `poll_providers`, `output_profiles` → `profiles.inputs` and `profiles.outputs`
-   - **Terminology**: "Poll providers" are now called "inputs", "providers" are now called "outputs"
-   - **Domain Configuration**: All legacy domain fields have been removed in favor of the structured `profiles` object with `inputs` and `outputs` arrays
 
 ## 1.2.1 2025-06-13 <code at nfrastack dot com>
 
