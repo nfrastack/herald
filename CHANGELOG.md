@@ -9,9 +9,9 @@
    ### Added
    - New `profiles` structure for domain configuration with `inputs` and `outputs` fields for cleaner, more logical domain configuration grouping
    - (domain) Enhanced poll provider validation in BatchProcessor for better filtering
-   - (domain) Poll Provider Targeting - Domain configurations can now specify which poll providers are allowed to use them via `poll_providers` field
-   - (domain) Output Profile Targeting - Domain configurations can now specify which output profiles should process their records via `output_profiles` field
-   - (domain) Configuration validation - Application fails fast with clear error messages if domains reference non-existent poll providers, output profiles, or DNS providers
+   - (domain) Poll Provider Targeting - Domain configurations can now specify which poll providers are allowed to use them via `profiles.inputs` field
+   - (domain) Output Profile Targeting - Domain configurations can now specify which output profiles should process their records via `profiles.outputs` field
+   - (domain) Configuration validation - Application fails fast with clear error messages if domains reference non-existent input providers, output profiles, or DNS providers
    - (domain) Multiple poll providers and output profiles support per domain configuration
    - (inputs/docker) Docker Connection Pooling - Multiple Docker poll providers now share a single connection per API endpoint for improved resource efficiency
    - (inputs/docker) Centralized Event Logging - Docker events are now logged once at the shared connection level with clear provider attribution
