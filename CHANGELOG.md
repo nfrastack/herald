@@ -1,3 +1,8 @@
+## 2.0.1 2025-06-21 <code at nfrastack dot com>
+
+   ### Changed
+   - (domain) Fixed issue with domains readinfg old hardcoded profile information throwing warnings
+
 ## 2.0.0 2025-06-20 <code at nfrastack dot com>
 
    New project name, Herald.
