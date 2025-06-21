@@ -278,6 +278,17 @@ func (ipc *InputProviderConfig) GetOptions(profileName string) map[string]string
 	return options
 }
 
+// ConfigFile methods for interface compliance
+
+// GetDomains returns the domains map for output filtering interface
+func (cf *ConfigFile) GetDomains() map[string]output.DomainConfig {
+	result := make(map[string]output.DomainConfig)
+	for key, domainConfig := range cf.Domains {
+		result[key] = &domainConfig
+	}
+	return result
+}
+
 // InitializeOutputManager initializes the output manager with profiles from config
 func InitializeOutputManager() error {
 	return InitializeOutputManagerWithProfiles(GlobalConfig.Outputs, GlobalConfig.General.OutputProfiles)

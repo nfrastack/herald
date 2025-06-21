@@ -5,11 +5,10 @@
 package domain
 
 import (
+	"fmt"
 	"herald/pkg/log"
 	"herald/pkg/output"
 	"herald/pkg/output/types/dns"
-
-	"fmt"
 )
 
 // GlobalDomainManager holds the global domain manager instance
@@ -94,11 +93,14 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 				}
 			}
 
-			// Parse record configuration
+			// Parse record configuration (deep override for merging)
 			if recordRaw, ok := configMap["record"].(map[string]interface{}); ok {
 				log.Debug("[domain] Domain '%s' has record config: %+v", domainName, recordRaw)
+				// Elegantly override only provided fields, but allow autodetection if type is not set
 				if recordType, ok := recordRaw["type"].(string); ok {
 					domainConfig.Record.Type = recordType
+				} else {
+					domainConfig.Record.Type = "" // allow autodetection if not set
 				}
 				if ttl, ok := recordRaw["ttl"].(int); ok {
 					domainConfig.Record.TTL = ttl
@@ -147,7 +149,7 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 		GlobalDomainManager.AddDomain(domainName, domainConfig)
 	}
 
-	log.Info("[domain] Initialized %d domain configurations with validation", len(domains))
+	log.Verbose("[domain] Initialized %d domain configurations with validation", len(domains))
 	return nil
 }
 
