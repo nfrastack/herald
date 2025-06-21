@@ -21,6 +21,32 @@ import (
 	"github.com/miekg/dns"
 )
 
+// DomainConfig represents a minimal domain config for output filtering
+type DomainConfig interface {
+	GetOutputs() []string
+}
+
+// GlobalConfigForOutput represents the minimal config interface needed by output
+type GlobalConfigForOutput interface {
+	GetDomains() map[string]DomainConfig
+}
+
+// globalConfigGetter is a function that returns the global config
+var globalConfigGetter func() GlobalConfigForOutput
+
+// SetGlobalConfigGetter sets the function to retrieve global config
+func SetGlobalConfigGetter(getter func() GlobalConfigForOutput) {
+	globalConfigGetter = getter
+}
+
+// getGlobalConfigForOutput safely gets the global config without import cycles
+func getGlobalConfigForOutput() GlobalConfigForOutput {
+	if globalConfigGetter != nil {
+		return globalConfigGetter()
+	}
+	return nil
+}
+
 // min returns the smaller of two integers
 func min(a, b int) int {
 	if a < b {
@@ -408,18 +434,26 @@ func (om *OutputManager) WriteRecordWithDomainFilter(domain, hostname, target, r
 }
 
 // getAllowedOutputsForDomainConfig returns the output profiles allowed for a domain config
-// This is a temporary solution to avoid import cycles
+// This uses the global config to determine the allowed outputs dynamically
 func (om *OutputManager) getAllowedOutputsForDomainConfig(domainConfigKey string) []string {
-	// Hardcoded mapping based on your configuration
-	// TODO: This should be made dynamic by having the domain layer pass this info
-	switch domainConfigKey {
-	case "domain01":
-		return []string{"hosts_pub", "json_pub", "yaml_pub", "zone_pub", "output01"}
-	case "domain02":
-		return []string{"hosts_int", "json_int", "yaml_int", "zone_int", "output02"}
-	default:
-		return []string{} // No outputs = fall back to all
+	// Import the config package to access global configuration
+	// This is safe as config doesn't import output
+	globalConfig := getGlobalConfigForOutput()
+	if globalConfig == nil {
+		log.Debug("[output/manager] No global config available, falling back to all outputs")
+		return []string{}
 	}
+
+	// Find the domain config by key
+	if domainConfig, exists := globalConfig.GetDomains()[domainConfigKey]; exists {
+		// Use the GetOutputs helper method to get effective outputs
+		outputs := domainConfig.GetOutputs()
+		log.Debug("[output/manager] Domain config '%s' allows outputs: %v", domainConfigKey, outputs)
+		return outputs
+	}
+
+	log.Debug("[output/manager] Domain config '%s' not found, falling back to all outputs", domainConfigKey)
+	return []string{} // No outputs = fall back to all
 }
 
 // GetProfile returns a specific output profile by name
@@ -653,14 +687,8 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 			enabledSet[profile] = true
 		}
 
-		// Process each output profile
+		// Register all profiles from config, not just enabledProfiles
 		for profileName, profileConfig := range outputConfigs {
-			// Skip profiles not in the enabled list (if list is provided)
-			if len(enabledProfiles) > 0 && !enabledSet[profileName] {
-				log.Debug("[output] Skipping disabled profile: %s", profileName)
-				continue
-			}
-
 			log.Debug("[output] Processing profile: %s", profileName)
 
 			if configMap, ok := profileConfig.(map[string]interface{}); ok {
@@ -1605,11 +1633,11 @@ func (c *cloudflareFormat) WriteRecord(domain, hostname, target, recordType stri
 func (c *cloudflareFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
 	c.mutex.Lock()
 	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	
+
 	// Check if this record actually changed
 	existingRecord, exists := c.records[key]
-	recordChanged := !exists || 
-		existingRecord.Target != target || 
+	recordChanged := !exists ||
+		existingRecord.Target != target ||
 		existingRecord.TTL != ttl ||
 		existingRecord.Source != source
 
@@ -1635,14 +1663,14 @@ func (c *cloudflareFormat) WriteRecordWithSource(domain, hostname, target, recor
 	// Immediately sync only this record to prevent batching with other changes
 	log.Debug("[output/dns/cloudflare] Immediately syncing record: %s.%s %s -> %s (TTL: %d, Source: %s)",
 		hostname, domain, recordType, target, ttl, source)
-	
+
 	return c.syncSingleRecord(newRecord)
 }
 
 func (c *cloudflareFormat) RemoveRecord(domain, hostname, recordType string) error {
 	c.mutex.Lock()
 	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	
+
 	// Check if record actually exists
 	if _, exists := c.records[key]; !exists {
 		c.mutex.Unlock()
@@ -1712,32 +1740,32 @@ func (c *cloudflareFormat) Sync() error {
 // syncSingleDeletion immediately deletes a single DNS record without batching
 func (c *cloudflareFormat) syncSingleDeletion(domain, hostname, recordType string) error {
 	log.Debug("[output/dns/cloudflare] Syncing single deletion: %s.%s (%s)", hostname, domain, recordType)
-	
+
 	// Get zone ID
 	zoneID, err := c.getZoneID(domain)
 	if err != nil {
 		log.Error("[output/dns/cloudflare] Failed to get zone ID for domain %s: %v", domain, err)
 		return fmt.Errorf("failed to get zone ID for domain %s: %v", domain, err)
 	}
-	
+
 	// Find existing record to delete
 	record := &dnsRecord{
 		Domain:     domain,
 		Hostname:   hostname,
 		RecordType: recordType,
 	}
-	
+
 	existingRecordID, err := c.findExistingRecord(zoneID, record)
 	if err != nil {
 		log.Error("[output/dns/cloudflare] Failed to find record for deletion: %v", err)
 		return fmt.Errorf("failed to find record for deletion: %v", err)
 	}
-	
+
 	if existingRecordID == "" {
 		log.Debug("[output/dns/cloudflare] Record %s.%s (%s) not found in DNS, already deleted", hostname, domain, recordType)
 		return nil
 	}
-	
+
 	// Delete the record
 	return c.deleteRecord(zoneID, existingRecordID, hostname, domain, recordType)
 }

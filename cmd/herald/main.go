@@ -161,6 +161,11 @@ func main() {
 	// NOW set the global config and continue with initialization
 	config.GlobalConfig = *cfg
 
+	// Set up the global config getter for output manager to avoid import cycles
+	output.SetGlobalConfigGetter(func() output.GlobalConfigForOutput {
+		return &config.GlobalConfig
+	})
+
 	// NOW initialize the domain system with validation (after logger is properly configured)
 	// Convert config types for domain validation
 	domainsInterface := make(map[string]interface{})
