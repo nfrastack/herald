@@ -4,7 +4,7 @@ Automate DNS record management for containers and services. Herald monitors Cont
 
 > **Commercial/Enterprise Users:**
 >
-> This tool is free to use for all users. However, if you are using Herald in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project [please reach out](mailto:code+dc@nfrastack.com).
+> This tool is free to use for all users. However, if you are using Herald in a commercial or enterprise environment, please consider purchasing a license to support ongoing development and receive priority support. There is no charge to use the tool and no differences in binaries, but a license purchase helps ensure continued improvements and faster response times for your organization. If this is useful to your organization and you wish to support the project [please reach out](mailto:code+herald@nfrastack.com).
 
 ## Disclaimer
 
@@ -1420,7 +1420,7 @@ defaults:
 
 ### Implementation
 
-[Cotnact us](mailto:code+dc@nfrastack.com) for rates.
+[Contact us](mailto:code+herald@nfrastack.com) for rates.
 
 ### Usage
 
@@ -1432,7 +1432,7 @@ defaults:
 
 ### Feature Requests
 
-- Feel free to submit a feature request; however, there is no guarantee that it will be added or at what timeline.  [Cotnact us](mailto:code+dc@nfrastack.com) for custom development.
+- Feel free to submit a feature request; however, there is no guarantee that it will be added or at what timeline.  [Contact us](mailto:code+herald@nfrastack.com) for custom development.
 
 ### Updates
 
