@@ -144,12 +144,27 @@ func (p *RemoteProvider) GetDNSEntries() ([]DNSEntry, error) {
 }
 
 func (p *RemoteProvider) pollLoop() {
+	// Always perform an initial poll immediately on startup
+	if p.opts.ProcessExisting {
+		p.logger.Trace("Processing existing remote records on startup (process_existing=true)")
+		p.processRemote()
+	} else {
+		p.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
+		entries, err := p.readRemote()
+		if err == nil {
+			current := make(map[string]DNSEntry)
+			for _, e := range entries {
+				fqdn := e.GetFQDN()
+				recordType := e.GetRecordType()
+				key := fqdn + ":" + recordType
+				current[key] = e
+			}
+			p.lastRecords = current
+		}
+	}
+
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
-	if p.opts.ProcessExisting {
-		log.Trace("%s Processing existing remote file on startup", p.logPrefix)
-		p.processRemote()
-	}
 	for p.running {
 		<-ticker.C
 		p.processRemote()

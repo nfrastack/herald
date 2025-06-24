@@ -839,24 +839,42 @@ func exchangeAuthToken(authToken, authID, logPrefix string) (string, error) {
 }
 
 func (p *TailscaleProvider) pollLoop() {
-	p.logger.Verbose("%s Starting poll loop (interval: %v)", p.logPrefix, p.interval)
-	ticker := time.NewTicker(p.interval)
-	defer ticker.Stop()
-
-	// Do initial poll if processExisting is enabled
+	// Always perform an initial poll immediately on startup
 	if p.processExisting {
-		p.logger.Verbose("%s Processing existing Tailscale devices on startup", p.logPrefix)
+		p.logger.Trace("Processing existing Tailscale devices on startup (process_existing=true)")
 		p.processDevices()
+	} else {
+		p.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
+		devices, err := p.fetchTailscaleDevices()
+		if err == nil {
+			current := make(map[string]string) // hostname:recordType -> target
+			for _, device := range devices {
+				hostname := p.formatHostname(device)
+				if hostname == "" || len(device.Addresses) == 0 {
+					continue
+				}
+				for _, ip := range device.Addresses {
+					cleanIP := ip
+					if strings.Contains(ip, "/") {
+						cleanIP = strings.Split(ip, "/")[0]
+					}
+					recordType := "A"
+					if strings.Contains(cleanIP, ":") {
+						recordType = "AAAA"
+					}
+					key := hostname + ":" + recordType
+					current[key] = cleanIP
+				}
+			}
+			p.lastKnownRecords = current
+		}
 	}
 
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			p.logger.Trace("%s Ticker triggered, processing Tailscale devices", p.logPrefix)
-			p.processDevices()
-		}
+	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop()
+	for p.running {
+		<-ticker.C
+		p.processDevices()
 	}
 }
 

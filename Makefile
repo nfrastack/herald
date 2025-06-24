@@ -9,17 +9,20 @@ BUILD_FLAGS := -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)
 all: build
 
 build:
-	$(GO) build -ldflags "$(BUILD_FLAGS)" -o $(BINARY_NAME) $(BUILD_DIR)
+	$(GO) build -mod=mod -ldflags "$(BUILD_FLAGS)" -o $(BINARY_NAME) $(BUILD_DIR)
 
 build-release:
-	$(GO) build -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME) $(BUILD_DIR)
+	$(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME) $(BUILD_DIR)
 
 build-all:
-	GOOS=linux GOARCH=amd64 $(GO) build -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME)_x86_64 $(BUILD_DIR)
-	GOOS=linux GOARCH=arm64 $(GO) build -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME)_aarch64 $(BUILD_DIR)
+	GOOS=linux GOARCH=amd64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME)_x86_64 $(BUILD_DIR)
+	GOOS=linux GOARCH=arm64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME)_aarch64 $(BUILD_DIR)
 
 clean:
 	rm -f $(BINARY_NAME) $(BINARY_NAME)_x86_64 $(BINARY_NAME)_aarch64
+
+clean-vendor:
+	rm -rf vendor
 
 install:
 	mkdir -p /usr/local/bin

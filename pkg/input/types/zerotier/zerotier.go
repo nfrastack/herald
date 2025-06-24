@@ -255,52 +255,32 @@ func (p *ZerotierProvider) GetDNSEntries() ([]DNSEntry, error) {
 }
 
 func (p *ZerotierProvider) pollLoop() {
-	p.logger.Verbose("Entering poll loop (interval: %v)", p.interval)
+	// Always perform an initial poll immediately on startup
+	if p.processExisting {
+		p.logger.Trace("Processing existing Zerotier members on startup (process_existing=true)")
+		entries, err := p.fetchMembers()
+		if err == nil {
+			_ = p.updateDNSEntries(entries, nil)
+		}
+	} else {
+		p.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
+		entries, err := p.fetchMembers()
+		if err == nil {
+			p.lastKnownRecords = make(map[string]string)
+			for _, entry := range entries {
+				key := entry.GetFQDN() + ":" + entry.GetRecordType()
+				p.lastKnownRecords[key] = entry.Target
+			}
+		}
+	}
+
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
-	var lastEntries []DNSEntry
-	var lastMemberIDs map[string]struct{} = make(map[string]struct{})
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			entries, err := p.fetchMembers()
-			if err != nil {
-				p.logger.Error("%s Error fetching members: %v", p.logPrefix, err)
-				continue
-			}
-			currentMemberIDs := make(map[string]struct{})
-			for _, entry := range entries {
-				currentMemberIDs[entry.Hostname] = struct{}{}
-			}
-			if len(lastMemberIDs) == 0 {
-				// Only log initial discovery on the very first poll
-				if p.isFirstPoll {
-					p.logger.Debug("%s Initial member discovery completed: %v", p.logPrefix, keys(currentMemberIDs))
-					p.isFirstPoll = false
-				}
-			} else {
-				added, removed := diffKeys(lastMemberIDs, currentMemberIDs)
-				for _, name := range added {
-					p.logMemberAdded(name)
-				}
-				for _, name := range removed {
-					p.logMemberRemoved(name)
-				}
-				if len(added) > 0 {
-					p.logger.Info("%s Members added by filter: %v", p.logPrefix, added)
-				}
-				if len(removed) > 0 {
-					p.logger.Info("%s Members removed by filter: %v", p.logPrefix, removed)
-				}
-			}
-			// Actually update DNS/output
-			if err := p.updateDNSEntries(entries, lastEntries); err != nil {
-				p.logger.Error("%s Failed to update DNS/output: %v", p.logPrefix, err)
-			}
-			lastEntries = entries
-			lastMemberIDs = currentMemberIDs
+	for p.running {
+		<-ticker.C
+		entries, err := p.fetchMembers()
+		if err == nil {
+			_ = p.updateDNSEntries(entries, nil)
 		}
 	}
 }

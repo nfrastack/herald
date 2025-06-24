@@ -208,6 +208,10 @@ func (p *FileProvider) pollLoop() {
 		p.logger.Trace("%s Processing existing file on startup", p.logPrefix)
 		p.processFile()
 	}
+	// Always process once immediately on startup
+	if !p.processExisting {
+		p.processFile()
+	}
 	for {
 		select {
 		case <-p.ctx.Done():
