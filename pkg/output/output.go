@@ -255,14 +255,19 @@ func createCloudflareOutputDirect(profileName string, config map[string]interfac
 
 // Global registry for output format creators
 var (
-	outputFormatRegistry = make(map[string]func(string, map[string]interface{}) (OutputFormat, error))
-	registryMutex        sync.RWMutex
+	outputFormatRegistry   = make(map[string]func(string, map[string]interface{}) (OutputFormat, error))
+	registryMutex          sync.RWMutex
+	outputManagerInitCount int // Track how many times output manager is initialized
 )
 
 // RegisterFormat registers an output format creator function
 func RegisterFormat(formatName string, createFunc func(string, map[string]interface{}) (OutputFormat, error)) {
 	registryMutex.Lock()
 	defer registryMutex.Unlock()
+	if _, exists := outputFormatRegistry[formatName]; exists {
+		log.Debug("[output] Format '%s' already registered, skipping duplicate registration", formatName)
+		return
+	}
 	outputFormatRegistry[formatName] = createFunc
 	log.Debug("[output] Registered format creator for '%s'", formatName)
 }
@@ -469,6 +474,11 @@ func (om *OutputManager) AddProfile(profileName, format, path string, domains []
 	om.mutex.Lock()
 	defer om.mutex.Unlock()
 
+	if _, exists := om.profiles[profileName]; exists {
+		log.Debug("[output] Output profile '%s' already exists, skipping duplicate registration", profileName)
+		return nil
+	}
+
 	var outputFormat OutputFormat
 	var err error
 
@@ -476,19 +486,11 @@ func (om *OutputManager) AddProfile(profileName, format, path string, domains []
 	case "remote":
 		outputFormat, err = createRemoteFormat(profileName, config)
 	case "file":
-		// Use the actual file format implementation
 		outputFormat, err = createFileFormat(profileName, config)
 	case "dns":
-		// Use the actual DNS format implementation
 		outputFormat, err = createDNSFormat(profileName, config)
 	case "json", "yaml", "hosts", "zone":
-		// These are file formats - create them as file type
-		fileConfig := make(map[string]interface{})
-		for k, v := range config {
-			fileConfig[k] = v
-		}
-		fileConfig["format"] = format
-		outputFormat, err = createFileFormat(profileName, fileConfig)
+		outputFormat, err = createFileFormat(profileName, config)
 	default:
 		return fmt.Errorf("unsupported output format: %s", format)
 	}
@@ -498,6 +500,8 @@ func (om *OutputManager) AddProfile(profileName, format, path string, domains []
 	}
 
 	om.profiles[profileName] = outputFormat
+	// Only log here, and only once, at INFO level
+	log.Info("[output] Registered output profile '%s' (%s)", profileName, format)
 	return nil
 }
 
@@ -674,6 +678,17 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 
 // InitializeOutputManagerWithProfiles initializes the output manager with specific profiles from config
 func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, enabledProfiles []string) error {
+	outputManagerInitCount++
+	log.Trace("[output] InitializeOutputManagerWithProfiles called %d time(s)", outputManagerInitCount)
+
+	globalOutputManagerMutex.Lock()
+	if globalOutputManager != nil {
+		log.Debug("[output] Output manager already initialized, skipping re-initialization.")
+		globalOutputManagerMutex.Unlock()
+		return nil
+	}
+	globalOutputManagerMutex.Unlock()
+
 	outputManager := NewOutputManager()
 
 	log.Trace("[output] Starting output manager initialization with profiles: %v", enabledProfiles)
@@ -691,34 +706,24 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 		for profileName, profileConfig := range outputConfigs {
 			log.Debug("[output] Processing profile: %s", profileName)
 
-			if configMap, ok := profileConfig.(map[string]interface{}); ok {
-				// Determine output type and format
-				outputType, _ := configMap["type"].(string)
-				format, _ := configMap["format"].(string)
-
-				if outputType == "" && format != "" {
-					// Legacy: infer type from format
-					outputType = format
+			configMap, ok := profileConfig.(map[string]interface{})
+			if !ok {
+				log.Error("[output] Invalid config for profile '%s', skipping", profileName)
+				continue
+			}
+			format, _ := configMap["format"].(string)
+			path, _ := configMap["path"].(string)
+			domains := []string{}
+			if d, ok := configMap["domains"].([]interface{}); ok {
+				for _, v := range d {
+					if s, ok := v.(string); ok {
+						domains = append(domains, s)
+					}
 				}
-
-				if format == "" {
-					format = outputType
-				}
-
-				log.Debug("[output] Determined format for %s: '%s' (type: %s)", profileName, format, outputType)
-
-				path, _ := configMap["path"].(string)
-				var domains []string
-
-				err := outputManager.AddProfile(profileName, format, path, domains, configMap)
-				if err != nil {
-					log.Error("[output] Failed to add output profile '%s': %v", profileName, err)
-					return err
-				} else {
-					log.Verbose("[output] Registered output profile '%s' (%s)", profileName, format)
-				}
-			} else {
-				log.Warn("[output] Profile '%s' has invalid configuration type", profileName)
+			}
+			err := outputManager.AddProfile(profileName, format, path, domains, configMap)
+			if err != nil {
+				log.Error("[output] Failed to add profile '%s': %v", profileName, err)
 			}
 		}
 	} else {
@@ -1737,7 +1742,7 @@ func (c *cloudflareFormat) Sync() error {
 	return nil
 }
 
-// syncSingleDeletion immediately deletes a single DNS record without batching
+// syncSingleDeletion immediately deletes a DNS record without batching
 func (c *cloudflareFormat) syncSingleDeletion(domain, hostname, recordType string) error {
 	log.Debug("[output/dns/cloudflare] Syncing single deletion: %s.%s (%s)", hostname, domain, recordType)
 
@@ -1905,8 +1910,10 @@ func (c *cloudflareFormat) getZoneID(domain string) (string, error) {
 	var response struct {
 		Success bool `json:"success"`
 		Result  []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Type    string `json:"type"`
+			Content string `json:"content"`
 		} `json:"result"`
 	}
 
