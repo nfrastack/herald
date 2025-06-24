@@ -166,7 +166,6 @@ outputs:
     type: file
     format: hosts
     path: "./output/%domain%.hosts"
-    domains: ["example.com"]
     user: herald
     group: herald
     mode: 0644
@@ -182,7 +181,6 @@ outputs:
     format: json
     path: "./output/%domain%.json"
     # path: env://BACKUP_PATH/herald-%domain%.json  # Dynamic path from environment
-    domains: ["example.com"]
     user: herald
     group: herald
     mode: 0644
@@ -192,14 +190,12 @@ outputs:
     type: file
     format: yaml
     path: "./output/%domain%.yml"
-    domains: ["example.com"]
 
   # Zone file
   zone_file:
     type: file
     format: zone
     path: "./output/%domain%.zone"
-    domains: ["example.com"]
     user: herald
     group: herald
     mode: 0644
