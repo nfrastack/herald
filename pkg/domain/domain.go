@@ -111,7 +111,11 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 	// Apply VPN provider logic
 	if state.ForceServiceAsTarget && state.Service != "" {
 		if ip := net.ParseIP(state.Service); ip != nil {
-			log.Verbose("[domain/%s/%s] Input provider forcing IP '%s' for hostname '%s' (overriding domain target '%s')", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), state.Service, hostname, target)
+			if target != state.Service {
+				log.Verbose("[domain/%s/%s] Input provider supplying IP '%s' for hostname '%s' (overriding domain target '%s')", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), state.Service, hostname, target)
+			} else {
+				log.Verbose("[domain/%s/%s] Input provider supplying IP '%s' for hostname '%s'", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), state.Service, hostname)
+			}
 			target = state.Service
 		} else {
 			log.Error("[domain/%s/%s] ForceServiceAsTarget=true but Service field '%s' is not a valid IP address (SourceType=%s)", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), state.Service, state.SourceType)
