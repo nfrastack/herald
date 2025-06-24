@@ -882,7 +882,7 @@ func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 		return
 	}
 
-	log.Info("%s Found %d containers", p.logPrefix, len(containers))
+	log.Verbose("%s Found %d containers", p.logPrefix, len(containers))
 
 	// Track how many containers actually get processed
 	processedCount := 0
