@@ -432,7 +432,7 @@ func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
 		if err == nil && len(entries) > 0 {
 			p.apiType = "ztnet"
 			p.apiTypeDetected = true
-			p.logger.Info("Detected ZTNet API, will use for all future polls")
+			p.logger.Verbose("Detected ZTNet API")
 			return entries, nil
 		} else if err != nil {
 			p.logger.Debug("ZTNet API error: %v", err)
@@ -443,7 +443,7 @@ func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
 		if err == nil && len(entries) > 0 {
 			p.apiType = "zerotier"
 			p.apiTypeDetected = true
-			p.logger.Info("Detected Zerotier Central API, will use for all future polls")
+			p.logger.Verbose("Detected Zerotier Central API")
 			return entries, nil
 		} else if err != nil {
 			p.logger.Debug("Zerotier Central API error: %v", err)
