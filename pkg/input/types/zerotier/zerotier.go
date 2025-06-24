@@ -52,6 +52,7 @@ type ZerotierProvider struct {
 	token                  string
 	networkID              string
 	apiType                string // "zerotier" or "ztnet"
+	apiTypeDetected        bool   // true if we've already detected and cached the API type
 	domain                 string
 	interval               time.Duration
 	processExisting        bool
@@ -423,14 +424,31 @@ func diffKeys(old, new map[string]struct{}) (added, removed []string) {
 }
 
 func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
-	p.logger.Trace("%s fetchMembers called (apiType=%s)", p.logPrefix, p.apiType)
-	// Detect API type if not set
-	apiType := p.apiType
-	if apiType == "" {
-		apiType = detectAPIType(p.apiURL, p.networkID, p.token)
-		p.logger.Trace("%s API type autodetected as '%s'", p.logPrefix, apiType)
+	p.logger.Trace("%s fetchMembers called (apiType=%s, detected=%v)", p.logPrefix, p.apiType, p.apiTypeDetected)
+	if !p.apiTypeDetected {
+		// Try ZTNet first
+		p.logger.Debug("%s Attempting ZTNet API detection", p.logPrefix)
+		apiType := "ztnet"
+		if _, err := p.fetchZTNetMembers(); err == nil {
+			p.apiType = "ztnet"
+			p.apiTypeDetected = true
+			p.logger.Info("%s Detected ZTNet API, will use for all future polls", p.logPrefix)
+			return p.fetchZTNetMembers()
+		}
+		// If ZTNet fails, try Zerotier Central
+		p.logger.Debug("%s ZTNet API not detected, falling back to Zerotier Central", p.logPrefix)
+		if _, err := p.fetchZerotierMembers(); err == nil {
+			p.apiType = "zerotier"
+			p.apiTypeDetected = true
+			p.logger.Info("%s Detected Zerotier Central API, will use for all future polls", p.logPrefix)
+			return p.fetchZerotierMembers()
+		}
+		// If both fail, log error and return
+		p.logger.Error("%s Could not detect working Zerotier API (tried ZTNet and Zerotier Central)", p.logPrefix)
+		return nil, fmt.Errorf("could not detect working Zerotier API (tried ZTNet and Zerotier Central)")
 	}
-	if apiType == "ztnet" {
+	// Use cached type for all future polls
+	if p.apiType == "ztnet" {
 		return p.fetchZTNetMembers()
 	}
 	return p.fetchZerotierMembers()
