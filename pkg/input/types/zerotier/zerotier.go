@@ -698,8 +698,11 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 			if strings.Contains(ip, ":") {
 				recordType = "AAAA"
 			}
+			fqdn := hostname + "." + domain
+			p.logger.Debug("%s [ZT fallback] Constructed FQDN: hostname='%s', domain='%s', fqdn='%s'", p.logPrefix, hostname, domain, fqdn)
 			// Create DNS entry
 			entry := DNSEntry{
+				Name:       fqdn,
 				Hostname:   hostname,
 				Domain:     domain,
 				RecordType: recordType,
