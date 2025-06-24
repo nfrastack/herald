@@ -613,36 +613,28 @@ func (t *TraefikProvider) MonitorTraefik(callback func(hostnames []string) error
 
 // pollLoop continuously polls the Traefik API at the specified interval
 func (t *TraefikProvider) pollLoop() {
-	log.Debug("%s Starting poll loop", t.logPrefix)
-
-	// Process existing routers first
-	log.Verbose("%s Performing initial processing of Traefik routers", t.logPrefix)
-	if err := t.processTraefikRouters(); err != nil {
-		// Error is already logged in processTraefikRouters, no need to log it again
-		log.Trace("%s Initial processing encountered an error (see above logs)", t.logPrefix)
+	// Always perform an initial poll immediately on startup
+	if t.opts.ProcessExisting {
+		t.logger.Trace("Processing existing Traefik routers on startup (process_existing=true)")
+		err := t.processTraefikRouters()
+		if err != nil {
+			t.logger.Error("Failed to process Traefik routers: %v", err)
+		}
 	} else {
-		log.Debug("%s Initial processing of Traefik routers completed", t.logPrefix)
+		t.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
+		err := t.processTraefikRouters()
+		if err != nil {
+			t.logger.Error("Failed to process Traefik routers: %v", err)
+		}
 	}
 
-	// Create ticker for regular polling
-	log.Trace("%s Creating polling timer with interval: %s", t.logPrefix, t.pollInterval)
 	ticker := time.NewTicker(t.pollInterval)
-	t.ticker = ticker
 	defer ticker.Stop()
-
-	log.Debug("%s Entering main poll loop with interval: %s", t.logPrefix, t.pollInterval)
-	for {
-		select {
-		case <-t.ctx.Done():
-			return
-		case <-ticker.C:
-			log.Trace("%s Ticker triggered, processing Traefik routers", t.logPrefix)
-			if err := t.processTraefikRouters(); err != nil {
-				// The error details have already been logged in processTraefikRouters
-				log.Trace("%s Encountered error during processing (see above logs)", t.logPrefix)
-			} else {
-				log.Trace("%s Successfully processed Traefik routers", t.logPrefix)
-			}
+	for t.running {
+		<-ticker.C
+		err := t.processTraefikRouters()
+		if err != nil {
+			t.logger.Error("Failed to process Traefik routers: %v", err)
 		}
 	}
 }

@@ -116,12 +116,32 @@ func (p *CaddyProvider) IsRunning() bool {
 }
 
 func (p *CaddyProvider) pollLoop() {
+	// Always perform an initial poll immediately on startup
+	if p.opts.ProcessExisting {
+		p.logger.Trace("Processing existing Caddy config on startup (process_existing=true)")
+		p.processCaddy()
+	} else {
+		p.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
+		// Inventory the current state without processing/updates
+		hosts, err := p.readCaddy()
+		if err == nil {
+			current := make(map[string]domain.RouterState)
+			for _, h := range hosts {
+				fqdn := h.FQDN
+				key := fqdn + ":A"
+				state := domain.RouterState{
+					Name:       h.FQDN,
+					Service:    h.Service,
+					RecordType: "A",
+				}
+				current[key] = state
+			}
+			p.lastHosts = current
+		}
+	}
+
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
-	if p.opts.ProcessExisting {
-		p.logger.Trace("Processing existing Caddy config on startup")
-		p.processCaddy()
-	}
 	for p.running {
 		<-ticker.C
 		p.processCaddy()

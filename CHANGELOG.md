@@ -1,3 +1,9 @@
+## 2.0.2beta1 2025-06-23 <code at nfrastack dot com>
+
+   ### Changed
+   - (input) Providers with interval (file, remote, caddy, traefik, zerotier, tailscale) all now perform an initial check upon startup. Previously they waited for the first interval to pass - Now it happens on startup, and depending on value of process_existing - either performs record updates, or takes an inventory and bases the next interval execution on the initial inventory for changes. This is a much saner approach.
+
+
 ## 2.0.1 2025-06-21 <code at nfrastack dot com>
 
    ### Changed
