@@ -256,6 +256,7 @@ func (p *ZerotierProvider) GetDNSEntries() ([]DNSEntry, error) {
 }
 
 func (p *ZerotierProvider) pollLoop() {
+	p.logger.Info("%s pollLoop started: performing initial poll immediately on startup", p.logPrefix)
 	// Always perform an initial poll immediately on startup
 	if p.processExisting {
 		p.logger.Trace("Processing existing Zerotier members on startup (process_existing=true)")
@@ -428,7 +429,6 @@ func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
 	if !p.apiTypeDetected {
 		// Try ZTNet first
 		p.logger.Debug("%s Attempting ZTNet API detection", p.logPrefix)
-		apiType := "ztnet"
 		if _, err := p.fetchZTNetMembers(); err == nil {
 			p.apiType = "ztnet"
 			p.apiTypeDetected = true
@@ -717,7 +717,7 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 				recordType = "AAAA"
 			}
 			fqdn := hostname + "." + domain
-			p.logger.Debug("%s [ZT fallback] Constructed FQDN: hostname='%s', domain='%s', fqdn='%s'", p.logPrefix, hostname, domain, fqdn)
+			p.logger.Debug("%s Constructed FQDN: hostname='%s', domain='%s', fqdn='%s'", p.logPrefix, hostname, domain, fqdn)
 			// Create DNS entry
 			entry := DNSEntry{
 				Name:       fqdn,
