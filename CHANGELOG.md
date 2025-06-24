@@ -4,6 +4,7 @@
    - (input) Providers with interval (file, remote, caddy, traefik, zerotier, tailscale) all now perform an initial check upon startup. Previously they waited for the first interval to pass - Now it happens on startup, and depending on value of process_existing - either performs record updates, or takes an inventory and bases the next interval execution on the initial inventory for changes. This is a much saner approach.
    - (input/zerotier) Set Name feld when calling DNSEntry struct to fix entries without FQDN not to be written
    - (input/zerotier) Cache API type when auto detecting version and try both on intialpoll as opposed to flip-flopping.
+   - (input/zerotier) Handle cases where double logprefixes appears
 
 
 ## 2.0.1 2025-06-21 <code at nfrastack dot com>
