@@ -58,15 +58,15 @@ func NewCloudflareProvider(config map[string]string) (dns.Provider, error) {
 	// Parse optional configuration
 	retries := 3
 	if retriesStr, ok := config["retries"]; ok && retriesStr != "" {
-		if r, err := strconv.Atoi(retriesStr); err == nil && r > 0 {
+		if r, err := strconv.Atoi(retriesStr); err == nil {
 			retries = r
 		}
 	}
 
 	timeout := 30 * time.Second
 	if timeoutStr, ok := config["timeout"]; ok && timeoutStr != "" {
-		if t, err := time.ParseDuration(timeoutStr); err == nil && t > 0 {
-			timeout = t
+		if t, err := strconv.Atoi(timeoutStr); err == nil {
+			timeout = time.Duration(t) * time.Second
 		}
 	}
 
@@ -100,6 +100,7 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 	// Get zone ID
 	zoneID, err := c.getZoneID(ctx, domain)
 	if err != nil {
+		c.logger.Error("Failed to get zone ID for domain %s: %v", domain, err)
 		return fmt.Errorf("failed to get zone ID for domain %s: %v", domain, err)
 	}
 
@@ -114,7 +115,12 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 	// Look for existing record
 	existingRecord, err := c.findExistingRecord(ctx, zoneID, fullName, recordType)
 	if err != nil {
+		c.logger.Error("Failed to search for existing record: %v", err)
 		return fmt.Errorf("failed to search for existing record: %v", err)
+	}
+
+	if existingRecord == nil {
+		c.logger.Trace("No existing record found for update: %s %s %s", fullName, recordType, target)
 	}
 
 	// Prepare record data
@@ -147,7 +153,8 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 		if comment != "" {
 			updateParams.Comment = &comment
 		}
-
+		// Set the record ID in the params struct as required by the Cloudflare Go SDK
+		updateParams.ID = existingRecord.ID
 		_, err = c.client.UpdateDNSRecord(ctx, rc, updateParams)
 		if err != nil {
 			return fmt.Errorf("failed to update DNS record: %v", err)
@@ -239,10 +246,15 @@ func (c *CloudflareProvider) findExistingRecord(ctx context.Context, zoneID, nam
 		Type: recordType,
 	}
 
+	c.logger.Trace("Searching for existing record: zoneID=%s, name=%s, type=%s", zoneID, name, recordType)
+
 	records, _, err := c.client.ListDNSRecords(ctx, rc, params)
 	if err != nil {
+		c.logger.Error("Error searching DNS records: %v", err)
 		return nil, fmt.Errorf("failed to search DNS records: %v", err)
 	}
+
+	c.logger.Trace("Found %d records for name=%s, type=%s", len(records), name, recordType)
 
 	if len(records) == 0 {
 		return nil, nil // No existing record found
