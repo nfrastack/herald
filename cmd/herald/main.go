@@ -13,6 +13,8 @@ import (
 	"herald/pkg/output"
 	"herald/pkg/util"
 
+	_ "herald/pkg/output/types/dns/providers"
+
 	"encoding/json"
 	"flag"
 	"fmt"

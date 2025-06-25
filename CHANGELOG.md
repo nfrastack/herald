@@ -5,8 +5,9 @@
    - (input/zerotier) Set Name feld when calling DNSEntry struct to fix entries without FQDN not to be written
    - (input/zerotier) Cache API type when auto detecting version and try both on intialpoll as opposed to flip-flopping.
    - (input/zerotier) Handle cases where double logprefixes appears
-
-
+   - (input/docker) quiet down some INFO log level output
+   - (domain) Log that an Input Provider is overriding an IP Address properly
+   -
 ## 2.0.1 2025-06-21 <code at nfrastack dot com>
 
    ### Changed

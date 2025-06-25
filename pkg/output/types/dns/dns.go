@@ -127,3 +127,33 @@ func processConfigValue(value string) string {
 
 	return value
 }
+
+// DNSOutputFormat wraps a DNS Provider as an OutputFormat for the output manager
+// This allows the output manager to treat DNS providers as output profiles
+
+type DNSOutputFormat struct {
+	ProfileName string
+	Provider    Provider
+	Config      map[string]interface{}
+}
+
+func (d *DNSOutputFormat) GetName() string {
+	return fmt.Sprintf("dns/%s", d.Provider.GetName())
+}
+
+func (d *DNSOutputFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
+	return d.Provider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, false)
+}
+
+func (d *DNSOutputFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
+	return d.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, false, "", source)
+}
+
+func (d *DNSOutputFormat) RemoveRecord(domain, hostname, recordType string) error {
+	return d.Provider.DeleteRecord(domain, recordType, hostname)
+}
+
+func (d *DNSOutputFormat) Sync() error {
+	// No-op for most DNS providers, but could be extended
+	return nil
+}

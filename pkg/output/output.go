@@ -6,6 +6,7 @@ package output
 
 import (
 	"herald/pkg/log"
+	"herald/pkg/output/types/dns"
 	"herald/pkg/util"
 
 	"encoding/json"
@@ -18,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miekg/dns"
+	miekgdns "github.com/miekg/dns"
 )
 
 // DomainConfig represents a minimal domain config for output filtering
@@ -77,7 +78,6 @@ func registerAllCoreFormats() {
 
 	// Register DNS format
 	RegisterFormat("dns", createDNSOutput)
-	RegisterFormat("dns/cloudflare", createCloudflareOutputDirect)
 
 	log.Debug("[output] Registered core formats: file, remote, dns")
 }
@@ -216,40 +216,11 @@ func createDNSOutput(profileName string, config map[string]interface{}) (OutputF
 		return nil, fmt.Errorf("dns output requires 'provider' field")
 	}
 
-	// Check if we have specific provider support
-	switch provider {
-	case "cloudflare":
-		return createCloudflareOutputDirect(profileName, config)
-	default:
-		// Return placeholder for unsupported providers
-		return &placeholderFormat{
-			profileName: profileName,
-			formatType:  fmt.Sprintf("dns/%s", provider),
-		}, nil
-	}
-}
-
-// createCloudflareOutputDirect creates Cloudflare DNS outputs directly
-func createCloudflareOutputDirect(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	apiTokenRaw, ok := config["api_token"]
-	if !ok || apiTokenRaw == nil {
-		return nil, fmt.Errorf("cloudflare DNS requires 'api_token' field")
-	}
-
-	apiToken := apiTokenRaw.(string)
-	apiToken = util.ReadSecretValue(apiToken)
-
-	if apiToken == "" {
-		return nil, fmt.Errorf("cloudflare DNS api_token cannot be empty after processing")
-	}
-
-	return &cloudflareFormat{
-		profileName:    profileName,
-		config:         config,
-		apiToken:       apiToken,
-		records:        make(map[string]*dnsRecord),
-		changedRecords: make(map[string]bool),
-		zoneCache:      make(map[string]string),
+	// All DNS provider logic is now handled in pkg/output/types/dns.
+	// This function only returns a placeholder.
+	return &placeholderFormat{
+		profileName: profileName,
+		formatType:  fmt.Sprintf("dns/%s", provider),
 	}, nil
 }
 
@@ -482,13 +453,41 @@ func (om *OutputManager) AddProfile(profileName, format, path string, domains []
 	var outputFormat OutputFormat
 	var err error
 
+	// Support both 'format' and 'type' as synonyms for output format
+	format, _ = config["format"].(string)
+	if format == "" {
+		if t, ok := config["type"].(string); ok && t != "" {
+			format = t
+		}
+	}
+
 	switch format {
 	case "remote":
 		outputFormat, err = createRemoteFormat(profileName, config)
 	case "file":
 		outputFormat, err = createFileFormat(profileName, config)
 	case "dns":
-		outputFormat, err = createDNSFormat(profileName, config)
+		// Use the DNS provider registry to instantiate the provider
+		providerName, ok := config["provider"].(string)
+		if !ok || providerName == "" {
+			return fmt.Errorf("dns output requires 'provider' field")
+		}
+		// Convert config to map[string]string for the DNS provider
+		providerConfig := make(map[string]string)
+		for k, v := range config {
+			if str, ok := v.(string); ok {
+				providerConfig[k] = str
+			}
+		}
+		provider, errProvider := dns.GetProvider(providerName, providerConfig)
+		if errProvider != nil {
+			return fmt.Errorf("failed to instantiate DNS provider '%s': %v", providerName, errProvider)
+		}
+		outputFormat = &dns.DNSOutputFormat{
+			ProfileName: profileName,
+			Provider:    provider,
+			Config:      config,
+		}
 	case "json", "yaml", "hosts", "zone":
 		outputFormat, err = createFileFormat(profileName, config)
 	default:
@@ -1443,12 +1442,12 @@ func (h *hostsFormat) resolveWithCustomDNS(target, dnsServer string) string {
 	log.Debug("[output/hosts] Resolving %s using external DNS server %s", target, dnsServer)
 
 	// Use the miekg/dns library for external DNS resolution
-	c := dns.Client{
+	c := miekgdns.Client{
 		Timeout: 10 * time.Second,
 	}
 
-	m := dns.Msg{}
-	m.SetQuestion(dns.Fqdn(target), dns.TypeA)
+	m := miekgdns.Msg{}
+	m.SetQuestion(miekgdns.Fqdn(target), miekgdns.TypeA)
 	m.RecursionDesired = true
 
 	// Query the external DNS server
@@ -1458,14 +1457,14 @@ func (h *hostsFormat) resolveWithCustomDNS(target, dnsServer string) string {
 		return ""
 	}
 
-	if r.Rcode != dns.RcodeSuccess {
+	if r.Rcode != miekgdns.RcodeSuccess {
 		log.Debug("[output/hosts] DNS query returned error code %d for %s using server %s", r.Rcode, target, dnsServer)
 		return ""
 	}
 
 	// Extract A records from the response
 	for _, ans := range r.Answer {
-		if a, ok := ans.(*dns.A); ok {
+		if a, ok := ans.(*miekgdns.A); ok {
 			ip := a.A.String()
 			log.Debug("[output/hosts] External DNS resolution: %s -> %s (via %s)", target, ip, dnsServer)
 			return ip
@@ -1602,497 +1601,5 @@ func (z *zoneFormat) Sync() error {
 	}
 
 	log.Info("[output/zone/%s] Successfully wrote %d records to %s", z.profileName, len(z.records), actualPath)
-	return nil
-}
-
-// dnsRecord represents a single DNS record for DNS provider output
-type dnsRecord struct {
-	Domain     string
-	Hostname   string
-	Target     string
-	RecordType string
-	TTL        int
-	Source     string
-	ID         string // Provider-specific record ID
-}
-
-// cloudflareFormat implements Cloudflare DNS API output
-type cloudflareFormat struct {
-	profileName    string
-	config         map[string]interface{}
-	apiToken       string
-	records        map[string]*dnsRecord
-	changedRecords map[string]bool // Track which records changed
-	mutex          sync.RWMutex
-	syncMutex      sync.Mutex        // Prevent concurrent syncs
-	zoneCache      map[string]string // Cache zone IDs to reduce API calls
-	zoneMutex      sync.RWMutex
-}
-
-func (c *cloudflareFormat) GetName() string { return "cloudflare" }
-
-func (c *cloudflareFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
-	return c.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
-}
-
-func (c *cloudflareFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	c.mutex.Lock()
-	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-
-	// Check if this record actually changed
-	existingRecord, exists := c.records[key]
-	recordChanged := !exists ||
-		existingRecord.Target != target ||
-		existingRecord.TTL != ttl ||
-		existingRecord.Source != source
-
-	if !recordChanged {
-		c.mutex.Unlock()
-		log.Debug("[output/dns/cloudflare] Record %s.%s unchanged, skipping", hostname, domain)
-		return nil
-	}
-
-	newRecord := &dnsRecord{
-		Domain:     domain,
-		Hostname:   hostname,
-		Target:     target,
-		RecordType: recordType,
-		TTL:        ttl,
-		Source:     source,
-		ID:         "", // Will be set after API call
-	}
-
-	c.records[key] = newRecord
-	c.mutex.Unlock()
-
-	// Immediately sync only this record to prevent batching with other changes
-	log.Debug("[output/dns/cloudflare] Immediately syncing record: %s.%s %s -> %s (TTL: %d, Source: %s)",
-		hostname, domain, recordType, target, ttl, source)
-
-	return c.syncSingleRecord(newRecord)
-}
-
-func (c *cloudflareFormat) RemoveRecord(domain, hostname, recordType string) error {
-	c.mutex.Lock()
-	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-
-	// Check if record actually exists
-	if _, exists := c.records[key]; !exists {
-		c.mutex.Unlock()
-		log.Debug("[output/dns/cloudflare] Record %s.%s (%s) does not exist, skipping removal", hostname, domain, recordType)
-		return nil
-	}
-
-	// Remove the record immediately and sync only this deletion
-	delete(c.records, key)
-	c.mutex.Unlock()
-
-	// Immediately sync only this deletion to prevent batching with other changes
-	log.Debug("[output/dns/cloudflare] Immediately syncing deletion of: %s.%s %s", hostname, domain, recordType)
-	return c.syncSingleDeletion(domain, hostname, recordType)
-}
-
-func (c *cloudflareFormat) Sync() error {
-	// Prevent concurrent syncs to the same Cloudflare account
-	c.syncMutex.Lock()
-	defer c.syncMutex.Unlock()
-
-	c.mutex.Lock()
-
-	// Only sync records that have changed
-	changedRecordKeys := make([]string, 0, len(c.changedRecords))
-	for key := range c.changedRecords {
-		changedRecordKeys = append(changedRecordKeys, key)
-	}
-
-	if len(changedRecordKeys) == 0 {
-		c.mutex.Unlock()
-		log.Debug("[output/dns/cloudflare] No changed records to sync")
-		return nil
-	}
-
-	log.Info("[output/dns/cloudflare] Syncing %d changed record(s) to Cloudflare DNS", len(changedRecordKeys))
-
-	// Actually sync the records instead of dry-run
-	var errors []string
-	for _, key := range changedRecordKeys {
-		if record, exists := c.records[key]; exists {
-			log.Debug("[output/dns/cloudflare] → Updating: %s.%s (%s) -> %s (TTL: %d)",
-				record.Hostname, record.Domain, record.RecordType, record.Target, record.TTL)
-			err := c.syncSingleRecord(record)
-			if err != nil {
-				errors = append(errors, fmt.Sprintf("record %s: %v", key, err))
-				log.Error("[output/dns/cloudflare] Failed to sync record %s: %v", key, err)
-			}
-		} else {
-			log.Debug("[output/dns/cloudflare] → Deleting: %s", key)
-			// Handle deletion if needed
-		}
-	}
-
-	// Clear changed records after sync
-	c.changedRecords = make(map[string]bool)
-	c.mutex.Unlock()
-
-	if len(errors) > 0 {
-		return fmt.Errorf("failed to sync some records: %s", strings.Join(errors, "; "))
-	}
-
-	log.Info("[output/dns/cloudflare] Sync completed successfully - %d record(s) processed", len(changedRecordKeys))
-	return nil
-}
-
-// syncSingleDeletion immediately deletes a DNS record without batching
-func (c *cloudflareFormat) syncSingleDeletion(domain, hostname, recordType string) error {
-	log.Debug("[output/dns/cloudflare] Syncing single deletion: %s.%s (%s)", hostname, domain, recordType)
-
-	// Get zone ID
-	zoneID, err := c.getZoneID(domain)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to get zone ID for domain %s: %v", domain, err)
-		return fmt.Errorf("failed to get zone ID for domain %s: %v", domain, err)
-	}
-
-	// Find existing record to delete
-	record := &dnsRecord{
-		Domain:     domain,
-		Hostname:   hostname,
-		RecordType: recordType,
-	}
-
-	existingRecordID, err := c.findExistingRecord(zoneID, record)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to find record for deletion: %v", err)
-		return fmt.Errorf("failed to find record for deletion: %v", err)
-	}
-
-	if existingRecordID == "" {
-		log.Debug("[output/dns/cloudflare] Record %s.%s (%s) not found in DNS, already deleted", hostname, domain, recordType)
-		return nil
-	}
-
-	// Delete the record
-	return c.deleteRecord(zoneID, existingRecordID, hostname, domain, recordType)
-}
-
-// deleteRecord deletes a DNS record by ID
-func (c *cloudflareFormat) deleteRecord(zoneID, recordID, hostname, domain, recordType string) error {
-	recordName := hostname + "." + domain
-	if hostname == "@" || hostname == "" {
-		recordName = domain
-	}
-
-	log.Debug("[output/dns/cloudflare] Deleting DNS record ID %s: %s (%s)", recordID, recordName, recordType)
-
-	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", zoneID, recordID)
-
-	req, err := http.NewRequest("DELETE", url, nil)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to create HTTP request for record deletion: %v", err)
-		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] HTTP request failed for record deletion: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		log.Error("[output/dns/cloudflare] Delete record API error %d: %s", resp.StatusCode, string(body))
-		return fmt.Errorf("failed to delete record: %d %s", resp.StatusCode, string(body))
-	}
-
-	log.Info("[output/dns/cloudflare] Deleted DNS record: %s %s", recordName, recordType)
-	return nil
-}
-
-// syncSingleRecordWithZone syncs a single record using a pre-fetched zone ID
-func (c *cloudflareFormat) syncSingleRecordWithZone(zoneID string, record *dnsRecord) error {
-	log.Debug("[output/dns/cloudflare] Syncing record: %s.%s (%s) -> %s", record.Hostname, record.Domain, record.RecordType, record.Target)
-
-	// Check if record already exists
-	log.Trace("[output/dns/cloudflare] Checking for existing record: %s.%s (%s)", record.Hostname, record.Domain, record.RecordType)
-	existingRecordID, err := c.findExistingRecord(zoneID, record)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to check existing record: %v", err)
-		return fmt.Errorf("failed to check existing record: %v", err)
-	}
-
-	if existingRecordID != "" {
-		log.Debug("[output/dns/cloudflare] Found existing record ID: %s, updating", existingRecordID)
-		// Update existing record
-		return c.updateRecord(zoneID, existingRecordID, record)
-	} else {
-		log.Debug("[output/dns/cloudflare] No existing record found, creating new record")
-		// Create new record
-		return c.createRecord(zoneID, record)
-	}
-}
-
-func (c *cloudflareFormat) syncSingleRecord(record *dnsRecord) error {
-	log.Debug("[output/dns/cloudflare] Syncing record: %s.%s (%s) -> %s", record.Hostname, record.Domain, record.RecordType, record.Target)
-
-	// First, get the zone ID for the domain
-	log.Trace("[output/dns/cloudflare] Getting zone ID for domain: %s", record.Domain)
-	zoneID, err := c.getZoneID(record.Domain)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to get zone ID for domain %s: %v", record.Domain, err)
-		return fmt.Errorf("failed to get zone ID for domain %s: %v", record.Domain, err)
-	}
-	log.Debug("[output/dns/cloudflare] Found zone ID: %s for domain: %s", zoneID, record.Domain)
-
-	// Check if record already exists
-	log.Trace("[output/dns/cloudflare] Checking for existing record: %s.%s (%s)", record.Hostname, record.Domain, record.RecordType)
-	existingRecordID, err := c.findExistingRecord(zoneID, record)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to check existing record: %v", err)
-		return fmt.Errorf("failed to check existing record: %v", err)
-	}
-
-	if existingRecordID != "" {
-		log.Debug("[output/dns/cloudflare] Found existing record ID: %s, updating", existingRecordID)
-		// Update existing record
-		return c.updateRecord(zoneID, existingRecordID, record)
-	} else {
-		log.Debug("[output/dns/cloudflare] No existing record found, creating new record")
-		// Create new record
-		return c.createRecord(zoneID, record)
-	}
-}
-
-func (c *cloudflareFormat) getZoneID(domain string) (string, error) {
-	// Check cache first
-	c.zoneMutex.RLock()
-	if zoneID, exists := c.zoneCache[domain]; exists {
-		c.zoneMutex.RUnlock()
-		log.Debug("[output/dns/cloudflare] Using cached zone ID: %s for domain: %s", zoneID, domain)
-		return zoneID, nil
-	}
-	c.zoneMutex.RUnlock()
-
-	log.Trace("[output/dns/cloudflare] Making API call to get zone ID for domain: %s", domain)
-
-	// Make API call to get zone ID
-	url := "https://api.cloudflare.com/client/v4/zones?name=" + domain
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to create HTTP request for zone lookup: %v", err)
-		return "", err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	log.Trace("[output/dns/cloudflare] Sending GET request to: %s", url)
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] HTTP request failed for zone lookup: %v", err)
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		log.Error("[output/dns/cloudflare] Zone lookup API error %d: %s", resp.StatusCode, string(body))
-		return "", fmt.Errorf("cloudflare API error %d: %s", resp.StatusCode, string(body))
-	}
-
-	var response struct {
-		Success bool `json:"success"`
-		Result  []struct {
-			ID      string `json:"id"`
-			Name    string `json:"name"`
-			Type    string `json:"type"`
-			Content string `json:"content"`
-		} `json:"result"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		log.Error("[output/dns/cloudflare] Failed to decode zone lookup response: %v", err)
-		return "", err
-	}
-
-	log.Trace("[output/dns/cloudflare] Zone lookup response: success=%v, results_count=%d", response.Success, len(response.Result))
-
-	if !response.Success || len(response.Result) == 0 {
-		log.Error("[output/dns/cloudflare] Zone not found for domain %s", domain)
-		return "", fmt.Errorf("zone not found for domain %s", domain)
-	}
-
-	zoneID := response.Result[0].ID
-
-	// Cache the zone ID
-	c.zoneMutex.Lock()
-	c.zoneCache[domain] = zoneID
-	c.zoneMutex.Unlock()
-
-	log.Debug("[output/dns/cloudflare] Successfully found and cached zone ID: %s for domain: %s", zoneID, domain)
-	return zoneID, nil
-}
-
-func (c *cloudflareFormat) findExistingRecord(zoneID string, record *dnsRecord) (string, error) {
-	// Construct record name
-	recordName := record.Hostname + "." + record.Domain
-	if record.Hostname == "@" || record.Hostname == "" {
-		recordName = record.Domain
-	}
-
-	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records?name=%s&type=%s",
-		zoneID, recordName, record.RecordType)
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("cloudflare API error %d: %s", resp.StatusCode, string(body))
-	}
-
-	var response struct {
-		Success bool `json:"success"`
-		Result  []struct {
-			ID      string `json:"id"`
-			Name    string `json:"name"`
-			Type    string `json:"type"`
-			Content string `json:"content"`
-		} `json:"result"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", err
-	}
-
-	if response.Success && len(response.Result) > 0 {
-		return response.Result[0].ID, nil
-	}
-
-	return "", nil // No existing record found
-}
-
-func (c *cloudflareFormat) createRecord(zoneID string, record *dnsRecord) error {
-	recordName := record.Hostname + "." + record.Domain
-	if record.Hostname == "@" || record.Hostname == "" {
-		recordName = record.Domain
-	}
-
-	log.Debug("[output/dns/cloudflare] Creating new DNS record: %s (%s) -> %s", recordName, record.RecordType, record.Target)
-
-	payload := map[string]interface{}{
-		"type":    record.RecordType,
-		"name":    recordName,
-		"content": record.Target,
-		"ttl":     record.TTL,
-	}
-
-	log.Trace("[output/dns/cloudflare] Create record payload: %+v", payload)
-
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to marshal create record payload: %v", err)
-		return err
-	}
-
-	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records", zoneID)
-	log.Trace("[output/dns/cloudflare] Sending POST request to: %s", url)
-
-	req, err := http.NewRequest("POST", url, strings.NewReader(string(jsonBytes)))
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to create HTTP request for record creation: %v", err)
-		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] HTTP request failed for record creation: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		log.Error("[output/dns/cloudflare] Create record API error %d: %s", resp.StatusCode, string(body))
-		return fmt.Errorf("failed to create record: %d %s", resp.StatusCode, string(body))
-	}
-
-	log.Info("[output/dns/cloudflare] Created DNS record: %s %s -> %s", recordName, record.RecordType, record.Target)
-	return nil
-}
-
-func (c *cloudflareFormat) updateRecord(zoneID, recordID string, record *dnsRecord) error {
-	recordName := record.Hostname + "." + record.Domain
-	if record.Hostname == "@" || record.Hostname == "" {
-		recordName = record.Domain
-	}
-
-	log.Debug("[output/dns/cloudflare] Updating existing DNS record ID %s: %s (%s) -> %s", recordID, recordName, record.RecordType, record.Target)
-
-	payload := map[string]interface{}{
-		"type":    record.RecordType,
-		"name":    recordName,
-		"content": record.Target,
-		"ttl":     record.TTL,
-	}
-
-	log.Trace("[output/dns/cloudflare] Update record payload: %+v", payload)
-
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to marshal update record payload: %v", err)
-		return err
-	}
-
-	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", zoneID, recordID)
-	log.Trace("[output/dns/cloudflare] Sending PUT request to: %s", url)
-
-	req, err := http.NewRequest("PUT", url, strings.NewReader(string(jsonBytes)))
-	if err != nil {
-		log.Error("[output/dns/cloudflare] Failed to create HTTP request for record update: %v", err)
-		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Error("[output/dns/cloudflare] HTTP request failed for record update: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		log.Error("[output/dns/cloudflare] Update record API error %d: %s", resp.StatusCode, string(body))
-		return fmt.Errorf("failed to update record: %d %s", resp.StatusCode, string(body))
-	}
-
-	log.Info("[output/dns/cloudflare] Updated DNS record: %s %s -> %s", recordName, record.RecordType, record.Target)
 	return nil
 }
