@@ -82,7 +82,7 @@ func NewCloudflareProvider(config map[string]string) (dns.Provider, error) {
 		timeout: timeout,
 	}
 
-	logger.Info("Cloudflare DNS provider initialized (retries: %d, timeout: %v)", retries, timeout)
+	logger.Debug("Cloudflare DNS provider initialized (retries: %d, timeout: %v)", retries, timeout)
 	return provider, nil
 }
 
