@@ -6,7 +6,6 @@ package providers
 
 import (
 	"herald/pkg/log"
-	"herald/pkg/output/types/dns"
 	"herald/pkg/util"
 
 	"context"
@@ -18,21 +17,20 @@ import (
 	"github.com/cloudflare/cloudflare-go"
 )
 
-func init() {
-	dns.RegisterProvider("cloudflare", NewCloudflareProvider)
-}
-
 // CloudflareProvider implements the DNS provider interface for Cloudflare
+// Add ProfileName for log prefix
 type CloudflareProvider struct {
-	client  *cloudflare.API
-	config  map[string]string
-	logger  *log.ScopedLogger
-	retries int
-	timeout time.Duration
+	client      *cloudflare.API
+	config      map[string]string
+	logger      *log.ScopedLogger
+	retries     int
+	timeout     time.Duration
+	profileName string // NEW: store profile name
 }
 
-// NewCloudflareProvider creates a new Cloudflare DNS provider
-func NewCloudflareProvider(config map[string]string) (dns.Provider, error) {
+// NewCloudflareProviderWithProfile creates a new Cloudflare DNS provider
+// Accepts profileName for log prefix
+func NewCloudflareProviderWithProfile(profileName string, config map[string]string) (interface{}, error) {
 	token, ok := config["token"]
 	if !ok || token == "" {
 		// Try legacy fields as fallbacks
@@ -70,20 +68,26 @@ func NewCloudflareProvider(config map[string]string) (dns.Provider, error) {
 		}
 	}
 
-	// Create scoped logger
 	logLevel := config["log_level"]
-	logger := log.NewScopedLogger("[output/dns/cloudflare]", logLevel)
+	logPrefix := fmt.Sprintf("[output/dns/cloudflare/%s]", profileName)
+	logger := log.NewScopedLogger(logPrefix, logLevel)
 
 	provider := &CloudflareProvider{
-		client:  api,
-		config:  config,
-		logger:  logger,
-		retries: retries,
-		timeout: timeout,
+		client:      api,
+		config:      config,
+		logger:      logger,
+		retries:     retries,
+		timeout:     timeout,
+		profileName: profileName, // store for reference
 	}
 
 	logger.Debug("Cloudflare DNS provider initialized (retries: %d, timeout: %v)", retries, timeout)
 	return provider, nil
+}
+
+// For backward compatibility, keep the old constructor but mark as deprecated
+func NewCloudflareProvider(config map[string]string) (interface{}, error) {
+	return NewCloudflareProviderWithProfile("default", config)
 }
 
 // CreateOrUpdateRecord creates or updates a DNS record
