@@ -357,41 +357,48 @@ func GetGlobalOutputManager() *OutputManager {
 }
 
 // WriteRecordWithSourceAndDomainFilter writes a DNS record with source and domain filtering
-func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domain, hostname, target, recordType string, ttl int, source string, domainManager interface{}) error {
-	// Use domainManager to get the correct domain config key and allowed outputs
-	var domainConfigKey string
+// Now requires domainConfigKey for strict config-based routing
+func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType string, ttl int, source string, domainManager interface{}) error {
+	// Use domainConfigKey to get the correct domain config and allowed outputs
 	var allowedOutputs []string
 
 	// Try to get allowed outputs from domainManager if possible
 	if dm, ok := domainManager.(interface {
 		GetAllDomains() map[string]DomainConfig
 	}); ok {
-		for key, config := range dm.GetAllDomains() {
-			if config.GetName() == domain {
-				domainConfigKey = key
-				allowedOutputs = config.GetOutputs()
-				break
-			}
+		if config, exists := dm.GetAllDomains()[domainConfigKey]; exists {
+			allowedOutputs = config.GetOutputs()
 		}
 	}
 
 	// Fallback: use global config if available
-	if domainConfigKey == "" {
+	if len(allowedOutputs) == 0 {
 		globalConfig := getGlobalConfigForOutput()
 		if globalConfig != nil {
-			for key, config := range globalConfig.GetDomains() {
-				if config.GetName() == domain {
-					domainConfigKey = key
-					allowedOutputs = config.GetOutputs()
-					break
-				}
+			if config, exists := globalConfig.GetDomains()[domainConfigKey]; exists {
+				allowedOutputs = config.GetOutputs()
 			}
 		}
 	}
 
+	// Extra safety: filter allowedOutputs using domainManager.ValidateOutputProfileAccess if available
+	if dm, ok := domainManager.(interface {
+		ValidateOutputProfileAccess(domainConfigKey, outputProfileName string) bool
+	}); ok {
+		filtered := make([]string, 0, len(allowedOutputs))
+		for _, outputProfile := range allowedOutputs {
+			if dm.ValidateOutputProfileAccess(domainConfigKey, outputProfile) {
+				filtered = append(filtered, outputProfile)
+			} else {
+				log.Debug("[output/manager] Output profile '%s' not allowed for domain config key '%s' (filtered by ValidateOutputProfileAccess)", outputProfile, domainConfigKey)
+			}
+		}
+		allowedOutputs = filtered
+	}
+
 	if len(allowedOutputs) == 0 {
-		log.Warn("[output/manager] No outputs configured for domain '%s' - skipping record write", domain)
-		return nil // Do not write to any outputs if none are configured for this domain
+		log.Warn("[output/manager] No outputs allowed for domain config key '%s' after filtering - skipping record write", domainConfigKey)
+		return nil
 	}
 
 	om.mutex.RLock()
@@ -417,7 +424,7 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domain, hostname, 
 				om.changesMutex.Unlock()
 			}
 		} else {
-			log.Warn("[output/manager] Output profile '%s' not found (referenced by domain '%s')", outputProfile, domain)
+			log.Warn("[output/manager] Output profile '%s' not found (referenced by domain config key '%s')", outputProfile, domainConfigKey)
 		}
 	}
 
@@ -426,7 +433,7 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domain, hostname, 
 	}
 
 	if writtenCount > 0 {
-		log.Debug("[output/manager] Successfully wrote to %d output profiles for domain '%s'", writtenCount, domain)
+		log.Debug("[output/manager] Successfully wrote to %d output profiles for domain config key '%s'", writtenCount, domainConfigKey)
 	}
 
 	return nil
