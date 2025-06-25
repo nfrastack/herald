@@ -71,6 +71,7 @@ type ZerotierProvider struct {
 	loggedFallbackMembers  map[string]bool   // Track members we've already logged fallback message for
 	addressFallbackMembers map[string]bool   // Track which members are using address fallback (for output context)
 	name                   string
+	lastEntries            []DNSEntry
 }
 
 func NewProvider(options map[string]string) (Provider, error) {
@@ -262,6 +263,7 @@ func (p *ZerotierProvider) pollLoop() {
 		entries, err := p.fetchMembers()
 		if err == nil {
 			_ = p.updateDNSEntries(entries, nil)
+			p.lastEntries = entries
 		}
 	} else {
 		p.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
@@ -272,6 +274,7 @@ func (p *ZerotierProvider) pollLoop() {
 				key := entry.GetFQDN() + ":" + entry.GetRecordType()
 				p.lastKnownRecords[key] = entry.Target
 			}
+			p.lastEntries = entries
 		}
 	}
 
@@ -281,7 +284,8 @@ func (p *ZerotierProvider) pollLoop() {
 		<-ticker.C
 		entries, err := p.fetchMembers()
 		if err == nil {
-			_ = p.updateDNSEntries(entries, nil)
+			_ = p.updateDNSEntries(entries, p.lastEntries)
+			p.lastEntries = entries
 		}
 	}
 }
@@ -311,15 +315,14 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 		last[key] = entry
 	}
 
-	// Create batch processor for efficient sync handling
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
 
-	// Process additions
+	// Process additions and changes
 	for key, entry := range current {
-		if _, exists := last[key]; !exists {
+		if lastEntry, exists := last[key]; !exists {
+			// NEW ENTRY
 			fqdn := entry.GetFQDN()
 			fqdnNoDot := strings.TrimSuffix(fqdn, ".")
-			recordType := entry.GetRecordType()
 			p.logMemberAdded(fqdn)
 
 			domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot)
@@ -342,7 +345,7 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 				SourceType:           "zerotier",
 				Name:                 p.profileName,
 				Service:              entry.Target,
-				RecordType:           recordType,
+				RecordType:           entry.RecordType,
 				ForceServiceAsTarget: true, // VPN providers always use Service IP as target
 			}
 
@@ -351,52 +354,85 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 			if err != nil {
 				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
 			}
-		}
-	}
-
-	// Process removals (if record_remove_on_stop is enabled)
-	if p.recordRemoveOnStop {
-		for key, entry := range last {
-			if _, exists := current[key]; !exists {
+		} else {
+			// CHANGED ENTRY: compare fields
+			if entry.Target != lastEntry.Target || entry.TTL != lastEntry.TTL || entry.RecordType != lastEntry.RecordType {
 				fqdn := entry.GetFQDN()
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
-				recordType := entry.GetRecordType()
-				p.logMemberRemoved(fqdn)
+				p.logger.Info("Member changed: %s (target: %s -> %s, ttl: %d -> %d, type: %s -> %s)", fqdn, lastEntry.Target, entry.Target, lastEntry.TTL, entry.TTL, lastEntry.RecordType, entry.RecordType)
 
 				domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot)
-				p.logger.Trace("Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", domainKey, subdomain, fqdnNoDot)
+				p.logger.Trace("Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", domainKey, subdomain, fqdnNoDot)
 				if domainKey == "" {
-					p.logger.Error("No domain config found for '%s' (removal, tried to match domain from FQDN)", fqdnNoDot)
+					p.logger.Error("No domain config found for '%s' (tried to match domain from FQDN)", fqdnNoDot)
 					continue
 				}
 
 				domainCfg, ok := config.GlobalConfig.Domains[domainKey]
 				if !ok {
-					p.logger.Error("Domain '%s' not found in config for fqdn='%s' (removal)", domainKey, fqdnNoDot)
+					p.logger.Error("Domain '%s' not found in config for fqdn='%s'", domainKey, fqdnNoDot)
 					continue
 				}
 
 				realDomain := domainCfg.Name
-				p.logger.Trace("Using real domain name '%s' for DNS provider (configKey='%s') (removal)", realDomain, domainKey)
+				p.logger.Trace("Using real domain name '%s' for DNS provider (configKey='%s')", realDomain, domainKey)
 
 				state := domain.RouterState{
 					SourceType:           "zerotier",
 					Name:                 p.profileName,
 					Service:              entry.Target,
-					RecordType:           recordType,
+					RecordType:           entry.RecordType,
 					ForceServiceAsTarget: true, // VPN providers always use Service IP as target
 				}
 
-				p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
-				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
+				p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+				err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 				if err != nil {
-					p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
+					p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
 				}
 			}
 		}
 	}
 
-	// Finalize the batch - this will sync output files only if there were changes
+	// Process removals
+	for key, entry := range last {
+		if _, exists := current[key]; !exists {
+			fqdn := entry.GetFQDN()
+			fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+			p.logMemberRemoved(fqdn)
+
+			domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot)
+			p.logger.Trace("Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", domainKey, subdomain, fqdnNoDot)
+			if domainKey == "" {
+				p.logger.Error("No domain config found for '%s' (removal, tried to match domain from FQDN)", fqdnNoDot)
+				continue
+			}
+
+			domainCfg, ok := config.GlobalConfig.Domains[domainKey]
+			if !ok {
+				p.logger.Error("Domain '%s' not found in config for fqdn='%s' (removal)", domainKey, fqdnNoDot)
+				continue
+			}
+
+			realDomain := domainCfg.Name
+			p.logger.Trace("Using real domain name '%s' for DNS provider (configKey='%s') (removal)", realDomain, domainKey)
+
+			state := domain.RouterState{
+				SourceType:           "zerotier",
+				Name:                 p.profileName,
+				Service:              entry.Target,
+				RecordType:           entry.RecordType,
+				ForceServiceAsTarget: true, // VPN providers always use Service IP as target
+			}
+
+			p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+			err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
+			if err != nil {
+				p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
+			}
+		}
+	}
+
 	batchProcessor.FinalizeBatch()
 	return nil
 }
