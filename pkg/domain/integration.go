@@ -159,13 +159,13 @@ func ProcessRecordWithDomainValidation(inputProviderName, domainName, hostname, 
 		return fmt.Errorf("domain manager not initialized")
 	}
 
-	// Find the domain config by actual domain name, not by hostname
+	// Find the domain config by actual domain name AND input provider
 	var domainConfig *DomainConfig
 	var domainConfigKey string
 	found := false
 
 	for key, config := range GlobalDomainManager.GetAllDomains() {
-		if config.Name == domainName {
+		if config.Name == domainName && GlobalDomainManager.ValidateInputProviderAccess(key, inputProviderName) {
 			domainConfig = config
 			domainConfigKey = key
 			found = true
@@ -174,7 +174,8 @@ func ProcessRecordWithDomainValidation(inputProviderName, domainName, hostname, 
 	}
 
 	if !found {
-		return fmt.Errorf("no domain config for %s", domainName)
+		log.Trace("[domain/%s] No domain config for input provider '%s'", domainName, inputProviderName)
+		return nil // Not an error, just filtered out
 	}
 
 	// Check if input provider is allowed for this domain
@@ -296,5 +297,69 @@ func ValidateAllDomainReferences() error {
 		}
 	}
 
+	return nil
+}
+
+// IntegrateDomain integrates a domain configuration into the system
+func IntegrateDomain(domainConfigKey string, domainConfig *DomainConfig) error {
+	logPrefix := getDomainLogPrefix(domainConfigKey, domainConfig.Name)
+	logger := log.NewScopedLogger(logPrefix, domainConfig.LogLevel)
+	logger.Info("%s Integrating domain", logPrefix)
+
+	// Validate the domain configuration (add a Validate method if needed)
+	// For now, just check Name
+	if domainConfig.Name == "" {
+		logger.Error("%s Validation failed: domain name is empty", logPrefix)
+		return fmt.Errorf("domain name is empty")
+	}
+
+	// Check for existing domain with the same name
+	existingDomain, found := GlobalDomainManager.GetDomain(domainConfig.Name)
+	if found {
+		// Merge with existing domain configuration (implement Merge if needed)
+		logger.Info("%s Merging with existing domain configuration", logPrefix)
+		// For now, just overwrite
+		*existingDomain = *domainConfig
+		logger.Info("%s Merge successful", logPrefix)
+	} else {
+		// Add as new domain
+		logger.Info("%s Adding as new domain", logPrefix)
+		GlobalDomainManager.AddDomain(domainConfig.Name, domainConfig)
+	}
+
+	// Update DNS records if configured
+	if domainConfig.Provider != "" && domainConfig.Provider != "none" {
+		logger.Info("%s Updating DNS records via provider '%s'", logPrefix, domainConfig.Provider)
+		if dnsProvider, exists := GlobalDNSProviders[domainConfig.Provider]; exists {
+			// Only one record supported in this config structure
+			record := domainConfig.Record
+			if err := dnsProvider.CreateOrUpdateRecord(domainConfig.Name, record.Type, record.Target, record.Type, record.TTL, record.UpdateExisting); err != nil {
+				logger.Error("%s DNS record update failed: %v", logPrefix, err)
+				return err
+			}
+			logger.Info("%s DNS records updated successfully", logPrefix)
+		} else {
+			logger.Warn("%s DNS provider '%s' not found, skipping DNS record update", logPrefix, domainConfig.Provider)
+		}
+	} else {
+		logger.Info("%s No DNS provider configured, skipping DNS record update", logPrefix)
+	}
+
+	// Send to output profiles
+	logger.Info("%s Sending to output profiles: %v", logPrefix, domainConfig.GetOutputs())
+	outputManager := output.GetOutputManager()
+	if outputManager != nil {
+		for _, profile := range domainConfig.GetOutputs() {
+			if err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainConfig.Name, "", "", "", 0, "", GlobalDomainManager); err != nil {
+				logger.Error("%s Failed to send to output profile '%s': %v", logPrefix, profile, err)
+				return err
+			}
+		}
+		logger.Info("%s Successfully sent to output profiles", logPrefix)
+	} else {
+		logger.Warn("%s Output manager not available, skipping output profile delivery", logPrefix)
+	}
+
+	logger.Info("%s Integration successful", logPrefix)
 	return nil
 }

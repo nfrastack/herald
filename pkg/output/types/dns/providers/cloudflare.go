@@ -97,14 +97,15 @@ func (c *CloudflareProvider) CreateOrUpdateRecord(domain, recordType, name, targ
 
 // CreateOrUpdateRecordWithSource creates or updates a DNS record with source information
 func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, name, target string, ttl int, proxied bool, comment, source string) error {
-	c.logger.Debug("Creating/updating record: %s.%s %s -> %s (TTL: %d, Proxied: %t)", name, domain, recordType, target, ttl, proxied)
+	logPrefix := getDomainLogPrefix(c.profileName, domain)
+	c.logger.Debug("%s Creating/updating record: %s.%s %s -> %s (TTL: %d, Proxied: %t)", logPrefix, name, domain, recordType, target, ttl, proxied)
 
 	ctx := context.Background()
 
 	// Get zone ID
 	zoneID, err := c.getZoneID(ctx, domain)
 	if err != nil {
-		c.logger.Error("Failed to get zone ID for domain %s: %v", domain, err)
+		c.logger.Error("%s Failed to get zone ID for domain %s: %v", logPrefix, domain, err)
 		return fmt.Errorf("failed to get zone ID for domain %s: %v", domain, err)
 	}
 
@@ -128,29 +129,29 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 		}
 		records, _, err := c.client.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), params)
 		if err != nil {
-			c.logger.Error("Error searching for conflicting record: %v", err)
+			c.logger.Error("%s Error searching for conflicting record: %v", logPrefix, err)
 			return fmt.Errorf("failed to search for conflicting DNS records: %v", err)
 		}
 		for _, rec := range records {
-			c.logger.Warn("Conflicting record exists and will be deleted: [type=%s] [name=%s] [content=%s] [id=%s]", rec.Type, rec.Name, rec.Content, rec.ID)
+			c.logger.Warn("%s Conflicting record exists and will be deleted: [type=%s] [name=%s] [content=%s] [id=%s]", logPrefix, rec.Type, rec.Name, rec.Content, rec.ID)
 			// Always log full record at trace level (Trace() will only output if enabled)
-			c.logger.Trace("Full conflicting record: %+v", rec)
+			c.logger.Trace("%s Full conflicting record: %+v", logPrefix, rec)
 			err := c.client.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), rec.ID)
 			if err != nil {
-				c.logger.Error("Failed to delete conflicting record [type=%s] [name=%s] [id=%s]: %v", rec.Type, rec.Name, rec.ID, err)
+				c.logger.Error("%s Failed to delete conflicting record [type=%s] [name=%s] [id=%s]: %v", logPrefix, rec.Type, rec.Name, rec.ID, err)
 				return fmt.Errorf("failed to delete conflicting DNS record: %v", err)
 			}
-			c.logger.Info("Deleted conflicting record [type=%s] [name=%s] [id=%s] before creating new record", rec.Type, rec.Name, rec.ID)
+			c.logger.Info("%s Deleted conflicting record [type=%s] [name=%s] [id=%s] before creating new record", logPrefix, rec.Type, rec.Name, rec.ID)
 			// Verify deletion
 			verifyParams := cloudflare.ListDNSRecordsParams{Name: rec.Name, Type: rec.Type}
 			verifyRecords, _, verr := c.client.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), verifyParams)
 			if verr != nil {
-				c.logger.Warn("Could not verify deletion of record [type=%s] [name=%s]: %v", rec.Type, rec.Name, verr)
+				c.logger.Warn("%s Could not verify deletion of record [type=%s] [name=%s]: %v", logPrefix, rec.Type, rec.Name, verr)
 			} else if len(verifyRecords) == 0 {
-				c.logger.Debug("Verified deletion of record [type=%s] [name=%s]", rec.Type, rec.Name)
+				c.logger.Debug("%s Verified deletion of record [type=%s] [name=%s]", logPrefix, rec.Type, rec.Name)
 			} else {
-				c.logger.Warn("Record [type=%s] [name=%s] still exists after deletion attempt!", rec.Type, rec.Name)
-				c.logger.Trace("Remaining record(s): %+v", verifyRecords)
+				c.logger.Warn("%s Record [type=%s] [name=%s] still exists after deletion attempt!", logPrefix, rec.Type, rec.Name)
+				c.logger.Trace("%s Remaining record(s): %+v", logPrefix, verifyRecords)
 			}
 
 			// Wait for Cloudflare to propagate deletion (retry up to 5 times, 200ms each)
@@ -158,16 +159,16 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 				time.Sleep(200 * time.Millisecond)
 				verifyRecords, _, verr := c.client.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), verifyParams)
 				if verr != nil {
-					c.logger.Warn("Could not verify deletion of record [type=%s] [name=%s] (retry %d): %v", rec.Type, rec.Name, i+1, verr)
+					c.logger.Warn("%s Could not verify deletion of record [type=%s] [name=%s] (retry %d): %v", logPrefix, rec.Type, rec.Name, i+1, verr)
 					break
 				}
 				if len(verifyRecords) == 0 {
-					c.logger.Debug("Verified deletion of record [type=%s] [name=%s] after %d retries", rec.Type, rec.Name, i+1)
+					c.logger.Debug("%s Verified deletion of record [type=%s] [name=%s] after %d retries", logPrefix, rec.Type, rec.Name, i+1)
 					break
 				}
 				if i == 4 {
-					c.logger.Warn("Record [type=%s] [name=%s] still exists after %d retries!", rec.Type, rec.Name, i+1)
-					c.logger.Trace("Remaining record(s): %+v", verifyRecords)
+					c.logger.Warn("%s Record [type=%s] [name=%s] still exists after %d retries!", logPrefix, rec.Type, rec.Name, i+1)
+					c.logger.Trace("%s Remaining record(s): %+v", logPrefix, verifyRecords)
 				}
 			}
 		}
@@ -177,12 +178,12 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 	// Look for existing record of the same type
 	existingRecord, err := c.findExistingRecord(ctx, zoneID, fullName, recordType)
 	if err != nil {
-		c.logger.Error("Failed to search for existing record: %v", err)
+		c.logger.Error("%s Failed to search for existing record: %v", logPrefix, err)
 		return fmt.Errorf("failed to search for existing record: %v", err)
 	}
 
 	if existingRecord == nil {
-		c.logger.Trace("No existing record found for update: %s %s %s", fullName, recordType, target)
+		c.logger.Trace("%s No existing record found for update: %s %s %s", logPrefix, fullName, recordType, target)
 	}
 
 	// Prepare record data
@@ -199,7 +200,7 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 
 	// Update or create record
 	if existingRecord != nil {
-		c.logger.Debug("Updating existing record %s", existingRecord.ID)
+		c.logger.Debug("%s Updating existing record %s", logPrefix, existingRecord.ID)
 
 		updateParams := cloudflare.UpdateDNSRecordParams{
 			Type:    recordType,
@@ -218,16 +219,16 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 			return fmt.Errorf("failed to update DNS record: %v", err)
 		}
 
-		c.logger.Info("Updated DNS record: %s %s -> %s", fullName, recordType, target)
+		c.logger.Info("%s Updated DNS record: %s %s -> %s", logPrefix, fullName, recordType, target)
 	} else {
-		c.logger.Debug("Creating new record")
+		c.logger.Debug("%s Creating new record", logPrefix)
 
 		_, err = c.client.CreateDNSRecord(ctx, rc, recordParams)
 		if err != nil {
 			return fmt.Errorf("failed to create DNS record: %v", err)
 		}
 
-		c.logger.Info("Created DNS record: %s %s -> %s", fullName, recordType, target)
+		c.logger.Info("%s Created DNS record: %s %s -> %s", logPrefix, fullName, recordType, target)
 	}
 
 	return nil
@@ -235,7 +236,8 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 
 // DeleteRecord deletes a DNS record
 func (c *CloudflareProvider) DeleteRecord(domain, recordType, name string) error {
-	c.logger.Debug("Deleting record: %s.%s %s", name, domain, recordType)
+	logPrefix := getDomainLogPrefix(c.profileName, domain)
+	c.logger.Debug("%s Deleting record: %s.%s %s", logPrefix, name, domain, recordType)
 
 	ctx := context.Background()
 
@@ -260,7 +262,7 @@ func (c *CloudflareProvider) DeleteRecord(domain, recordType, name string) error
 	}
 
 	if existingRecord == nil {
-		c.logger.Warn("Record not found for deletion: %s %s", fullName, recordType)
+		c.logger.Warn("%s Record not found for deletion: %s %s", logPrefix, fullName, recordType)
 		return nil // Not an error - record doesn't exist
 	}
 
@@ -273,7 +275,7 @@ func (c *CloudflareProvider) DeleteRecord(domain, recordType, name string) error
 		return fmt.Errorf("failed to delete DNS record: %v", err)
 	}
 
-	c.logger.Info("Deleted DNS record: %s %s", fullName, recordType)
+	c.logger.Info("%s Deleted DNS record: %s %s", logPrefix, fullName, recordType)
 	return nil
 }
 
@@ -295,6 +297,7 @@ func (c *CloudflareProvider) getZoneID(ctx context.Context, domain string) (stri
 
 // findExistingRecord searches for an existing DNS record
 func (c *CloudflareProvider) findExistingRecord(ctx context.Context, zoneID, name, recordType string) (*cloudflare.DNSRecord, error) {
+	logPrefix := getDomainLogPrefix(c.profileName, name)
 	// Create resource container for the zone
 	rc := cloudflare.ZoneIdentifier(zoneID)
 
@@ -304,15 +307,15 @@ func (c *CloudflareProvider) findExistingRecord(ctx context.Context, zoneID, nam
 		Type: recordType,
 	}
 
-	c.logger.Trace("Searching for existing record: zoneID=%s, name=%s, type=%s", zoneID, name, recordType)
+	c.logger.Trace("%s Searching for existing record: zoneID=%s, name=%s, type=%s", logPrefix, zoneID, name, recordType)
 
 	records, _, err := c.client.ListDNSRecords(ctx, rc, params)
 	if err != nil {
-		c.logger.Error("Error searching DNS records: %v", err)
+		c.logger.Error("%s Error searching DNS records: %v", logPrefix, err)
 		return nil, fmt.Errorf("failed to search DNS records: %v", err)
 	}
 
-	c.logger.Trace("Found %d records for name=%s, type=%s", len(records), name, recordType)
+	c.logger.Trace("%s Found %d records for name=%s, type=%s", logPrefix, len(records), name, recordType)
 
 	if len(records) == 0 {
 		return nil, nil // No existing record found
@@ -344,3 +347,24 @@ func (c *CloudflareProvider) Validate() error {
 	c.logger.Debug("Cloudflare provider validation successful")
 	return nil
 }
+
+// New: always include domain config key in log prefix if available
+func getDomainLogPrefix(domainConfigKey, domain string) string {
+	if domainConfigKey != "" {
+		return fmt.Sprintf("[domain/%s/%s]", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
+	}
+	return fmt.Sprintf("[domain/%s]", strings.ReplaceAll(domain, ".", "_"))
+}
+
+// Example usage in a domain-related log statement:
+// c.logger.Debug("%s Domain config '%s' does not allow input provider '%s' (allowed: %s)", getDomainLogPrefix(domainConfigKey, domain), domainConfigKey, inputProvider, allowedInputs)
+//
+// Refactor: Replace all domain log statements to use getDomainLogPrefix(domainConfigKey, domain)
+//
+// For illustration, here is how you would update a log statement:
+// BEFORE:
+// c.logger.Debug("Domain config '%s' does not allow input provider '%s' (allowed: %s)", domainConfigKey, inputProvider, allowedInputs)
+// AFTER:
+// c.logger.Debug("%s Domain config '%s' does not allow input provider '%s' (allowed: %s)", getDomainLogPrefix(domainConfigKey, domain), domainConfigKey, inputProvider, allowedInputs)
+//
+// Apply this pattern throughout your domain logic and output manager for all domain-related logs.

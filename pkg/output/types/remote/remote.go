@@ -93,6 +93,7 @@ func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 
 	r.records[key] = record
 	r.logger.Debug("Queued record: %s.%s (%s) -> %s", hostname, domain, recordType, target)
+	r.logger.Debug("[output/remote] WriteRecordWithSource called: domain=%s, hostname=%s, recordType=%s, target=%s, ttl=%d, source=%s", domain, hostname, recordType, target, ttl, source)
 	return nil
 }
 
@@ -152,6 +153,8 @@ func (r *RemoteFormat) Sync() error {
 	}
 
 	r.logger.Info("Successfully synced %d records to remote endpoint", len(r.records))
+	// Clear records after successful sync
+	r.records = make(map[string]*RemoteRecord)
 	return nil
 }
 

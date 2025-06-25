@@ -12,6 +12,7 @@
    - (output/dns/cloudflare) refine operations
    - (output/dns/cloudflare) change log prefix to [function/pkg/provider/profile_name]
    - (output/dns/cloudflare) properly accomodate for multiple domains with same name
+   - (common) introduce common package to deal with records and logprefixes properly
 
 ## 2.0.1 2025-06-21 <code at nfrastack dot com>
 
