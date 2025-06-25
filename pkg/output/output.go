@@ -472,13 +472,14 @@ func (om *OutputManager) AddProfile(profileName, format, path string, domains []
 		if !ok || providerName == "" {
 			return fmt.Errorf("dns output requires 'provider' field")
 		}
-		// Convert config to map[string]string for the DNS provider
+		// Pass profileName in config for per-profile log prefixing
 		providerConfig := make(map[string]string)
 		for k, v := range config {
 			if str, ok := v.(string); ok {
 				providerConfig[k] = str
 			}
 		}
+		providerConfig["profile_name"] = profileName
 		provider, errProvider := dns.GetProvider(providerName, providerConfig)
 		if errProvider != nil {
 			return fmt.Errorf("failed to instantiate DNS provider '%s': %v", providerName, errProvider)
@@ -909,7 +910,7 @@ func (j *jsonFormat) Sync() error {
 					Source    string `json:"source"`
 				} `json:"records"`
 			}{
-				Comment: fmt.Sprintf("Domain: %s", domain),
+				Comment: "Domain: " + domain,
 				Records: []struct {
 					Hostname  string `json:"hostname"`
 					Type      string `json:"type"`
