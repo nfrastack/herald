@@ -839,6 +839,11 @@ func (p *DockerProvider) processSpecificContainer(containerID string) {
 
 	// Check if container is running and should be processed
 	if container.State.Running && p.shouldProcessContainer(container) {
+		// Only log label override here, not in shouldProcessContainer
+		enableDNS, hasLabel := container.Config.Labels["nfrastack.dns.enable"]
+		if hasLabel && (strings.ToLower(enableDNS) == "true" || enableDNS == "1") && !p.config.ExposeContainers {
+			p.logger.Verbose("Processing container '%s' because it has 'nfrastack.dns.enable=true' label (overriding expose_containers=false)", containerName)
+		}
 		// Process this container's DNS records
 		p.processContainer(ctx, containerID)
 	} else {
@@ -887,6 +892,9 @@ func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 	// Track how many containers actually get processed
 	processedCount := 0
 
+	// Deduplication: track processed container IDs in this poll cycle
+	processedIDs := make(map[string]struct{})
+
 	// Process each container
 	for _, container := range containers {
 		// Get container details for filtering
@@ -898,8 +906,17 @@ func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 
 		// Check if container should be processed
 		if p.shouldProcessContainer(containerDetails) {
-			processedCount++
-			p.processContainer(ctx, container.ID)
+			// Only process if not already processed in this cycle
+			if _, already := processedIDs[container.ID]; !already {
+				// Only log label override here, not in shouldProcessContainer
+				enableDNS, hasLabel := containerDetails.Config.Labels["nfrastack.dns.enable"]
+				if hasLabel && (strings.ToLower(enableDNS) == "true" || enableDNS == "1") && !p.config.ExposeContainers {
+					p.logger.Verbose("Processing container '%s' because it has 'nfrastack.dns.enable=true' label (overriding expose_containers=false)", getContainerName(containerDetails))
+				}
+				processedCount++
+				processedIDs[container.ID] = struct{}{}
+				p.processContainer(ctx, container.ID)
+			}
 		}
 	}
 
@@ -970,7 +987,6 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 
 	// If expose_containers is false but label exists and is true, process the container
 	if strings.ToLower(enableDNS) == "true" || enableDNS == "1" {
-		p.logger.Verbose("Processing container '%s' because it has 'nfrastack.dns.enable=true' label (overriding expose_containers=false)", containerName)
 		return true
 	}
 
