@@ -152,6 +152,24 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 				c.logger.Warn("Record [type=%s] [name=%s] still exists after deletion attempt!", rec.Type, rec.Name)
 				c.logger.Trace("Remaining record(s): %+v", verifyRecords)
 			}
+
+			// Wait for Cloudflare to propagate deletion (retry up to 5 times, 200ms each)
+			for i := 0; i < 5; i++ {
+				time.Sleep(200 * time.Millisecond)
+				verifyRecords, _, verr := c.client.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), verifyParams)
+				if verr != nil {
+					c.logger.Warn("Could not verify deletion of record [type=%s] [name=%s] (retry %d): %v", rec.Type, rec.Name, i+1, verr)
+					break
+				}
+				if len(verifyRecords) == 0 {
+					c.logger.Debug("Verified deletion of record [type=%s] [name=%s] after %d retries", rec.Type, rec.Name, i+1)
+					break
+				}
+				if i == 4 {
+					c.logger.Warn("Record [type=%s] [name=%s] still exists after %d retries!", rec.Type, rec.Name, i+1)
+					c.logger.Trace("Remaining record(s): %+v", verifyRecords)
+				}
+			}
 		}
 	}
 	// --- End robust replace logic ---

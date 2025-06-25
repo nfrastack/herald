@@ -168,7 +168,7 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 	outputManager := output.GetOutputManager()
 	if outputManager != nil {
 		// Use the new method that filters outputs by domain configuration
-		outputErr := outputManager.WriteRecordWithSourceAndDomainFilter(domain, hostname, target, recordType, ttl, state.SourceType, GlobalDomainManager)
+		outputErr := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType, ttl, state.SourceType, GlobalDomainManager)
 		if outputErr != nil {
 			log.Error("[domain/%s/%s] Failed to write to output system: %v", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), outputErr)
 			return outputErr

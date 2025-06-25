@@ -213,7 +213,7 @@ func ProcessRecordWithDomainValidation(inputProviderName, domainName, hostname, 
 	// Send to output profiles with domain validation
 	outputManager := output.GetOutputManager()
 	if outputManager != nil {
-		err := outputManager.WriteRecordWithSourceAndDomainFilter(domainName, hostname, target, recordType, ttl, inputProviderName, GlobalDomainManager)
+		err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainName, hostname, target, recordType, ttl, inputProviderName, GlobalDomainManager)
 		if err != nil {
 			log.Error("[domain/%s] Failed to send record to output profiles: %v", domainName, err)
 			return err
