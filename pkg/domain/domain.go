@@ -1,14 +1,16 @@
 package domain
 
 import (
-	"herald/pkg/config"
-	"herald/pkg/log"
-	"herald/pkg/output"
-
+	"errors"
 	"fmt"
 	"net"
 	"strings"
 	"sync"
+
+	"herald/pkg/common"
+	"herald/pkg/config"
+	"herald/pkg/log"
+	"herald/pkg/output"
 )
 
 type RouterState struct {
@@ -141,14 +143,27 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 			expectedRecordType = "CNAME"
 		}
 
-		// If recordType is empty, auto-detect based on target
-		if recordType == "" {
+		// Track if type was explicitly set in config
+		explicitType := domainConfig.Record.Type != ""
+
+		// If config omits type, always use autodetected type, regardless of input provider
+		if !explicitType {
 			recordType = expectedRecordType
 			log.Debug("[domain/%s/%s] Auto-detected record type: %s (target: %s)", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), recordType, target)
-		} else if recordType != expectedRecordType {
-			// Record type is explicitly set but doesn't match the target - this is a configuration error that needs correction
-			log.Warn("[domain/%s/%s] Record type mismatch: configured as '%s' but target '%s' requires '%s' - correcting to %s", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), recordType, target, expectedRecordType, expectedRecordType)
-			recordType = expectedRecordType
+		} else if recordType == "" {
+			// If config sets type but input provider omits, use config type
+			recordType = domainConfig.Record.Type
+		}
+
+		// If type is set (from config or input), only warn/correct if it's wrong for the target
+		if explicitType && recordType != expectedRecordType {
+			if (expectedRecordType == "A" || expectedRecordType == "AAAA") && (recordType != "A" && recordType != "AAAA") {
+				log.Warn("[domain/%s/%s] Record type mismatch: configured as '%s' but target '%s' requires '%s' - correcting to %s", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), recordType, target, expectedRecordType, expectedRecordType)
+				recordType = expectedRecordType
+			} else if expectedRecordType == "CNAME" && (recordType == "A" || recordType == "AAAA") {
+				log.Warn("[domain/%s/%s] Record type mismatch: configured as '%s' but target '%s' requires '%s' - correcting to %s", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), recordType, target, expectedRecordType, expectedRecordType)
+				recordType = expectedRecordType
+			}
 		}
 	}
 
@@ -398,4 +413,52 @@ func (bp *BatchProcessor) FinalizeBatch() {
 // HasChanges returns whether any changes were processed in this batch
 func (bp *BatchProcessor) HasChanges() bool {
 	return bp.hasChanges
+}
+
+// Domain represents a single domain configuration
+type Domain struct {
+	Name      string
+	ConfigKey string // Unique key for this domain's config
+	// ... other fields ...
+	logger *log.ScopedLogger
+}
+
+// SyncRecords syncs the given records for this domain
+func (d *Domain) SyncRecords(records []common.Record) error {
+	logPrefix := getDomainLogPrefix(d.ConfigKey, d.Name)
+	d.logger.Info("%s Syncing %d records", logPrefix, len(records))
+
+	// define err if used
+	var err error
+
+	// ... existing code ...
+
+	if err != nil {
+		d.logger.Error("%s Failed to sync records: %v", logPrefix, err)
+		return err
+	}
+	d.logger.Info("%s Successfully synced records", logPrefix)
+	return nil
+}
+
+// Validate checks the domain configuration for validity
+func (d *Domain) Validate() error {
+	logPrefix := getDomainLogPrefix(d.ConfigKey, d.Name)
+	if d.Name == "" {
+		d.logger.Error("%s Domain name is empty", logPrefix)
+		return errors.New("domain name is empty")
+	}
+	// ... existing code ...
+	if d.ConfigKey == "" {
+		d.logger.Warn("%s Domain config key is empty", logPrefix)
+	}
+	return nil
+}
+
+// getDomainLogPrefix returns a log prefix in the format [domain/domainKey/domain_name]
+func getDomainLogPrefix(domainConfigKey, domain string) string {
+	if domainConfigKey != "" {
+		return fmt.Sprintf("[domain/%s/%s]", domainConfigKey, domain)
+	}
+	return fmt.Sprintf("[domain/%s]", domain)
 }

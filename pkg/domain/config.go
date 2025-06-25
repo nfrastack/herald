@@ -5,6 +5,7 @@
 package domain
 
 import (
+	"herald/pkg/common"
 	"herald/pkg/log"
 
 	"fmt"
@@ -204,8 +205,9 @@ func (dm *DomainManager) ProcessRecord(inputProviderName, domainName, hostname, 
 		return fmt.Errorf("domain '%s' not configured", domainName)
 	}
 
-	dm.logger.Verbose("Processing record from input provider '%s': %s.%s (%s) -> %s",
-		inputProviderName, hostname, domainName, recordType, target)
+	logPrefix := common.GetDomainLogPrefix(domain.Name, domain.Name)
+	dm.logger.Verbose("%s Processing record from input provider '%s': %s.%s (%s) -> %s",
+		logPrefix, inputProviderName, hostname, domainName, recordType, target)
 
 	// Process DNS provider (if configured)
 	if domain.Provider != "" && domain.Provider != "none" {
@@ -229,4 +231,25 @@ func getMapKeys(m map[string]interface{}) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+// Load loads the domain configuration
+func (c *DomainConfig) Load() error {
+	// c.logger.Info("%s Loading domain config", logPrefix)
+
+	// Simulate loading process
+	err := simulateLoadProcess()
+	if err != nil {
+		// c.logger.Error("%s Failed to load domain config: %v", logPrefix, err)
+		return err
+	}
+
+	// c.logger.Info("%s Domain config loaded successfully", logPrefix)
+	return nil
+}
+
+// simulateLoadProcess simulates the configuration loading process
+func simulateLoadProcess() error {
+	// Simulate some loading logic
+	return nil
 }

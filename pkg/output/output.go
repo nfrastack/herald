@@ -401,6 +401,8 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 		return nil
 	}
 
+	log.Debug("[output/manager] Routing record write: domainConfigKey='%s', domain='%s', hostname='%s', target='%s', recordType='%s', ttl=%d, source='%s', allowedOutputs=%v", domainConfigKey, domain, hostname, target, recordType, ttl, source, allowedOutputs)
+
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
 
