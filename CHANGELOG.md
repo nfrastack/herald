@@ -4,17 +4,19 @@
    - (domain) Log that an Input Provider is overriding an IP Address properly
    - (input) Providers with interval (file, remote, caddy, traefik, zerotier, tailscale) all now perform an initial check upon startup. Previously they waited for the first interval to pass - Now it happens on startup, and depending on value of process_existing - either performs record updates, or takes an inventory and bases the next interval execution on the initial inventory for changes. This is a much saner approach.
    - (input/docker) quiet down some INFO log level output
+   - (input/docker) remove duplication in logging when nfrastack.dns.enable=true
    - (input/zerotier) Cache API type when auto detecting version and try both on intialpoll as opposed to flip-flopping.
    - (input/zerotier) Handle cases where double logprefixes appears
    - (input/zerotier) Set Name feld when calling DNSEntry struct to fix entries without FQDN not to be written
    - (input/zerotier) perform better change detection and quiet log output
    - (output/dns/cloudflare) refine operations
-   - (input/docker) remove duplication in logging when nfrastack.dns.enable=true
+   - (output/dns/cloudflare) change log prefix to [function/pkg/provider/profile_name]
+   - (output/dns/cloudflare) properly accomodate for multiple domains with same name
 
 ## 2.0.1 2025-06-21 <code at nfrastack dot com>
 
    ### Changed
-   - (domain) Fixed issue with domains readinfg old hardcoded profile information throwing warnings
+   - (domain) Fixed issue with domains reading old hardcoded profile information throwing warnings
 
 ## 2.0.0 2025-06-20 <code at nfrastack dot com>
 

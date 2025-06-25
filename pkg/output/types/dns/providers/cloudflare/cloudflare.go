@@ -2,19 +2,18 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
-package providers
+package cloudflare
 
 import (
-	"herald/pkg/log"
-	"herald/pkg/util"
-
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
-
+	"context"
+	"herald/pkg/log"
+	"herald/pkg/util"
 	"github.com/cloudflare/cloudflare-go"
+	dns "herald/pkg/output/types/dns"
 )
 
 // CloudflareProvider implements the DNS provider interface for Cloudflare
@@ -53,7 +52,6 @@ func NewCloudflareProviderWithProfile(profileName string, config map[string]stri
 		return nil, fmt.Errorf("failed to create Cloudflare client: %v", err)
 	}
 
-	// Parse optional configuration
 	retries := 3
 	if retriesStr, ok := config["retries"]; ok && retriesStr != "" {
 		if r, err := strconv.Atoi(retriesStr); err == nil {
@@ -116,47 +114,7 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 		fullName = domain
 	}
 
-	// --- Robust replace logic: check for conflicting records ---
-	conflictingTypes := []string{"A", "AAAA", "CNAME"}
-	for _, t := range conflictingTypes {
-		if t == recordType {
-			continue // skip the type we're about to create
-		}
-		params := cloudflare.ListDNSRecordsParams{
-			Name: fullName,
-			Type: t,
-		}
-		records, _, err := c.client.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), params)
-		if err != nil {
-			c.logger.Error("Error searching for conflicting record: %v", err)
-			return fmt.Errorf("failed to search for conflicting DNS records: %v", err)
-		}
-		for _, rec := range records {
-			c.logger.Warn("Conflicting record exists and will be deleted: [type=%s] [name=%s] [content=%s] [id=%s]", rec.Type, rec.Name, rec.Content, rec.ID)
-			// Always log full record at trace level (Trace() will only output if enabled)
-			c.logger.Trace("Full conflicting record: %+v", rec)
-			err := c.client.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), rec.ID)
-			if err != nil {
-				c.logger.Error("Failed to delete conflicting record [type=%s] [name=%s] [id=%s]: %v", rec.Type, rec.Name, rec.ID, err)
-				return fmt.Errorf("failed to delete conflicting DNS record: %v", err)
-			}
-			c.logger.Info("Deleted conflicting record [type=%s] [name=%s] [id=%s] before creating new record", rec.Type, rec.Name, rec.ID)
-			// Verify deletion
-			verifyParams := cloudflare.ListDNSRecordsParams{Name: rec.Name, Type: rec.Type}
-			verifyRecords, _, verr := c.client.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), verifyParams)
-			if verr != nil {
-				c.logger.Warn("Could not verify deletion of record [type=%s] [name=%s]: %v", rec.Type, rec.Name, verr)
-			} else if len(verifyRecords) == 0 {
-				c.logger.Debug("Verified deletion of record [type=%s] [name=%s]", rec.Type, rec.Name)
-			} else {
-				c.logger.Warn("Record [type=%s] [name=%s] still exists after deletion attempt!", rec.Type, rec.Name)
-				c.logger.Trace("Remaining record(s): %+v", verifyRecords)
-			}
-		}
-	}
-	// --- End robust replace logic ---
-
-	// Look for existing record of the same type
+	// Look for existing record
 	existingRecord, err := c.findExistingRecord(ctx, zoneID, fullName, recordType)
 	if err != nil {
 		c.logger.Error("Failed to search for existing record: %v", err)
@@ -176,6 +134,9 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 		Proxied: &proxied,
 	}
 
+	// Add comment if provided (comments are not supported in CreateDNSRecordParams)
+	// The comment field is only available in some Cloudflare API operations
+
 	// Create resource container for the zone
 	rc := cloudflare.ZoneIdentifier(zoneID)
 
@@ -194,6 +155,7 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 		if comment != "" {
 			updateParams.Comment = &comment
 		}
+		// Set the record ID in the params struct as required by the Cloudflare Go SDK
 		updateParams.ID = existingRecord.ID
 		_, err = c.client.UpdateDNSRecord(ctx, rc, updateParams)
 		if err != nil {
@@ -325,4 +287,11 @@ func (c *CloudflareProvider) Validate() error {
 
 	c.logger.Debug("Cloudflare provider validation successful")
 	return nil
+}
+
+func init() {
+	dns.RegisterProvider("cloudflare", func(config map[string]string) (interface{}, error) {
+		profileName := config["profile_name"]
+		return NewCloudflareProviderWithProfile(profileName, config)
+	})
 }

@@ -48,6 +48,11 @@ func (dc *DomainConfig) GetOutputs() []string {
 	return nil
 }
 
+// GetName returns the name of the domain
+func (dc *DomainConfig) GetName() string {
+	return dc.Name
+}
+
 // DomainManager manages domain configurations and their access controls
 type DomainManager struct {
 	domains map[string]*DomainConfig

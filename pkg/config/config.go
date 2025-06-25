@@ -107,6 +107,11 @@ func (dc *DomainConfig) GetOutputs() []string {
 	return []string{}
 }
 
+// GetName returns the domain's name (implements output.DomainConfig)
+func (dc *DomainConfig) GetName() string {
+	return dc.Name
+}
+
 // DomainProfiles represents the structured profiles configuration
 type DomainProfiles struct {
 	Inputs  []string `yaml:"inputs" json:"inputs"`

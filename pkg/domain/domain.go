@@ -168,7 +168,7 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 	outputManager := output.GetOutputManager()
 	if outputManager != nil {
 		// Use the new method that filters outputs by domain configuration
-		outputErr := outputManager.WriteRecordWithDomainFilter(domain, hostname, target, recordType, ttl, state.SourceType, domainConfigKey, nil)
+		outputErr := outputManager.WriteRecordWithSourceAndDomainFilter(domain, hostname, target, recordType, ttl, state.SourceType, GlobalDomainManager)
 		if outputErr != nil {
 			log.Error("[domain/%s/%s] Failed to write to output system: %v", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), outputErr)
 			return outputErr
@@ -335,7 +335,7 @@ func (bp *BatchProcessor) isInputProviderAllowed(domain, inputProviderName strin
 // extractInputProviderFromLogPrefix extracts the input provider name from log prefix
 // e.g., "[input/docker/main]" -> "main"
 func extractInputProviderFromLogPrefix(logPrefix string) string {
-	// Extract provider name from log prefix like "[input/docker/main]"
+	// Extract provider name from log prefix like "[input/ docker/ main]"
 	if strings.HasPrefix(logPrefix, "[input/") && strings.HasSuffix(logPrefix, "]") {
 		parts := strings.Split(logPrefix[7:len(logPrefix)-1], "/")
 		if len(parts) >= 2 {
