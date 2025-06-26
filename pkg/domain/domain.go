@@ -6,11 +6,8 @@ import (
 	"net"
 	"strings"
 	"sync"
-
 	"herald/pkg/common"
-	"herald/pkg/config"
 	"herald/pkg/log"
-	"herald/pkg/output"
 )
 
 type RouterState struct {
@@ -36,11 +33,11 @@ func getDomainLogger(domain string, domainConfig map[string]string) *log.ScopedL
 
 // EnsureDNSForRouterState merges config, validates, and performs DNS add/update for a router event
 func EnsureDNSForRouterState(domain, fqdn string, state RouterState) error {
-	return EnsureDNSForRouterStateWithProvider(domain, fqdn, state, "")
+	return EnsureDNSForRouterStateWithProvider(domain, fqdn, state, "", nil)
 }
 
-// EnsureDNSForRouterStateWithProvider merges config, validates, and performs DNS add/update for a router event with input provider filtering
-func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState, inputProviderName string) error {
+// EnsureDNSForRouterStateWithProvider merges config, validates, and performs DNS add/update for a router event with input provider filtering and an OutputWriter.
+func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState, inputProviderName string, outputWriter OutputWriter) error {
 	// Use the new domain system
 	if GlobalDomainManager == nil {
 		return fmt.Errorf("domain manager not initialized")
@@ -179,38 +176,35 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 
 	log.Debug("[domain/%s/%s] Output params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), domain, recordType, hostname, target, ttl)
 
-	// Send to ONLY the configured outputs for this domain
-	outputManager := output.GetOutputManager()
-	if outputManager != nil {
-		// Use the new method that filters outputs by domain configuration
-		outputErr := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType, ttl, state.SourceType, GlobalDomainManager)
-		if outputErr != nil {
-			log.Error("[domain/%s/%s] Failed to write to output system: %v", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), outputErr)
-			return outputErr
-		} else {
-			log.Debug("[domain/%s/%s] Successfully wrote to output system", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
-		}
-	} else {
-		log.Error("[domain/%s/%s] No output manager available", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
-		return fmt.Errorf("no output manager available")
+	if outputWriter == nil {
+		log.Error("[domain/%s/%s] Output writer not provided", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
+		return fmt.Errorf("output writer not provided")
 	}
 
+	outputErr := outputWriter.WriteRecordToOutputs(domainConfig.GetOutputs(), domain, hostname, target, recordType, ttl, state.SourceType)
+	if outputErr != nil {
+		log.Error("[domain/%s/%s] Failed to write to output system: %v", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), outputErr)
+		return outputErr
+	} else {
+		log.Debug("[domain/%s/%s] Successfully wrote to output system", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
+	}
 	return nil
 }
 
 // EnsureDNSRemoveForRouterState removes DNS records for a router event
-func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState) error {
-	return EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn, state, "")
+func EnsureDNSRemoveForRouterState(domain, fqdn string, state RouterState, outputWriter OutputWriter) error {
+	return EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn, state, "", outputWriter)
 }
 
-// EnsureDNSRemoveForRouterStateWithProvider removes DNS records for a router event with input provider filtering
-func EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn string, state RouterState, inputProviderName string) error {
+// EnsureDNSRemoveForRouterStateWithProvider removes DNS records for a router event with input provider filtering and an OutputWriter.
+func EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn string, state RouterState, inputProviderName string, outputWriter OutputWriter) error {
 	// Use the new domain system
 	if GlobalDomainManager == nil {
 		return fmt.Errorf("domain manager not initialized")
 	}
 
 	// Find the domain config by actual domain name AND input provider compatibility
+	var domainConfig *DomainConfig
 	var domainConfigKey string
 	found := false
 
@@ -223,6 +217,7 @@ func EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn string, state Router
 
 			// Check if this domain config allows the input provider
 			if GlobalDomainManager.ValidateInputProviderAccess(key, inputProviderName) {
+				domainConfig = config
 				domainConfigKey = key
 				found = true
 				log.Debug("[domain/%s] Found domain config '%s' for input provider '%s' (removal)", domain, key, inputProviderName)
@@ -284,40 +279,65 @@ func EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn string, state Router
 
 	domainLogger.Debug("Output removal params: domain=%s, recordType=%s, hostname=%s", domain, recordType, hostname)
 
-	// Remove from output system
-	outputManager := output.GetOutputManager()
-	if outputManager != nil {
-		outputErr := outputManager.RemoveRecord(domain, hostname, recordType)
-		if outputErr != nil {
-			domainLogger.Error("Failed to remove from output system: %v", outputErr)
-			return outputErr
-		} else {
-			domainLogger.Debug("Successfully removed from output system")
-		}
-	} else {
-		domainLogger.Error("No output manager available")
-		return fmt.Errorf("no output manager available")
+	if outputWriter == nil {
+		domainLogger.Error("Output writer not provided")
+		return fmt.Errorf("output writer not provided")
 	}
 
+	outputErr := outputWriter.RemoveRecordFromOutputs(domainConfig.GetOutputs(), domain, hostname, recordType, state.SourceType)
+	if outputErr != nil {
+		domainLogger.Error("Failed to remove from output system: %v", outputErr)
+		return outputErr
+	} else {
+		domainLogger.Debug("Successfully removed from output system")
+	}
 	return nil
+}
+
+// FinalizeBatch triggers a sync of changes to the output manager if any changes were processed in this batch.
+func (bp *BatchProcessor) FinalizeBatch() {
+	if !bp.hasChanges {
+		bp.logger.Debug("%s No changes in batch, skipping output sync", bp.logPrefix)
+		return
+	}
+
+	bp.logger.Debug("%s Finalizing batch and syncing output files", bp.logPrefix) // This log is fine
+	if bp.outputSyncer != nil {
+		// Use source-specific sync to avoid syncing other providers' changes
+		err := bp.outputSyncer.SyncAllFromSource(bp.inputProvider)
+		if err != nil {
+			bp.logger.Error("%s Failed to sync output files: %v", bp.logPrefix, err)
+		} else {
+			bp.logger.Debug("%s Successfully synced output files for batch", bp.logPrefix)
+		}
+	} else {
+		bp.logger.Error("%s Output syncer not provided, cannot sync batch", bp.logPrefix)
+	}
+
+	// Reset hasChanges after finalizing
+	bp.hasChanges = false
 }
 
 // BatchProcessor helps input providers efficiently batch DNS record operations
 type BatchProcessor struct {
 	hasChanges    bool
 	logPrefix     string
-	inputProvider string // Track which input provider is using this batch
+	inputProvider string   // Track which input provider is using this batch
 	logger        *log.ScopedLogger
 	syncMutex     sync.Mutex // Prevent concurrent syncs from same provider
+	outputWriter  OutputWriter // Dependency for writing/removing records
+	outputSyncer  OutputSyncer // Dependency for triggering syncs
 }
 
 // NewBatchProcessor creates a new batch processor for an input provider
-func NewBatchProcessor(logPrefix string) *BatchProcessor {
+func NewBatchProcessor(logPrefix string, writer OutputWriter, syncer OutputSyncer) *BatchProcessor {
 	return &BatchProcessor{
 		hasChanges:    false,
 		logPrefix:     logPrefix,
 		inputProvider: extractInputProviderFromLogPrefix(logPrefix),
 		logger:        log.NewScopedLogger(logPrefix, ""),
+		outputWriter:  writer,
+		outputSyncer:  syncer,
 	}
 }
 
@@ -325,7 +345,7 @@ func NewBatchProcessor(logPrefix string) *BatchProcessor {
 func (bp *BatchProcessor) isInputProviderAllowed(domain, inputProviderName string) bool {
 	// Look through all domain configurations to find one that matches the domain name
 	// and allows this input provider
-	for domainKey, domainConfig := range config.GlobalConfig.Domains {
+	for domainKey, domainConfig := range GlobalDomainManager.GetAllDomains() {
 		// Check if this domain config matches the domain name
 		if domainConfig.Name == domain {
 			// Use the new helper method to get effective input profiles
@@ -368,7 +388,7 @@ func (bp *BatchProcessor) ProcessRecord(domain, fqdn string, state RouterState) 
 		return nil // Not an error, just filtered out
 	}
 
-	err := EnsureDNSForRouterStateWithProvider(domain, fqdn, state, bp.inputProvider)
+	err := EnsureDNSForRouterStateWithProvider(domain, fqdn, state, bp.inputProvider, bp.outputWriter)
 	if err == nil {
 		bp.hasChanges = true
 	}
@@ -383,32 +403,13 @@ func (bp *BatchProcessor) ProcessRecordRemoval(domain, fqdn string, state Router
 		return nil // Not an error, just filtered out
 	}
 
-	err := EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn, state, bp.inputProvider)
+	err := EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn, state, bp.inputProvider, bp.outputWriter)
 	if err == nil {
 		bp.hasChanges = true
 	}
 	return err
 }
 
-// FinalizeBatch completes the batch operation and syncs output files if there were changes
-func (bp *BatchProcessor) FinalizeBatch() {
-	// Prevent concurrent syncs from the same provider
-	bp.syncMutex.Lock()
-	defer bp.syncMutex.Unlock()
-
-	if bp.hasChanges {
-		log.Debug("%s Syncing output files after processing changes", bp.logPrefix)
-		outputManager := output.GetOutputManager()
-		if outputManager != nil {
-			err := outputManager.SyncAll()
-			if err != nil {
-				log.Error("%s Failed to sync outputs: %v", bp.logPrefix, err)
-			}
-		}
-	} else {
-		log.Trace("%s No changes detected, skipping output sync", bp.logPrefix)
-	}
-}
 
 // HasChanges returns whether any changes were processed in this batch
 func (bp *BatchProcessor) HasChanges() bool {

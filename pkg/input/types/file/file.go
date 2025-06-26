@@ -5,7 +5,6 @@
 package file
 
 import (
-	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/input/types/file/parsers"
@@ -68,10 +67,12 @@ type FileProvider struct {
 	logPrefix          string
 	isInitialLoad      bool
 	logger             *log.ScopedLogger // provider-specific logger
-	name               string
+	name               string // Profile name
+	outputWriter       domain.OutputWriter // Injected dependency
+	outputSyncer       domain.OutputSyncer // Injected dependency
 }
 
-func NewProvider(options map[string]string) (Provider, error) {
+func NewProvider(options map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	parsed := common.ParsePollProviderOptions(options, common.PollProviderOptions{
 		Interval:           60 * time.Second,
 		ProcessExisting:    false,
@@ -162,6 +163,8 @@ func NewProvider(options map[string]string) (Provider, error) {
 		isInitialLoad:      true,
 		logger:             scopedLogger,
 		name:               parsed.Name, // Store the parsed name
+		outputWriter:       outputWriter,
+		outputSyncer:       outputSyncer,
 	}, nil
 }
 
@@ -286,9 +289,9 @@ func (p *FileProvider) processFile() {
 		return
 	}
 	p.logger.Debug("%s Processing %d DNS entries from file", p.logPrefix, len(entries))
-	p.logger.Trace("%s Available domains in config: %v", p.logPrefix, keys(config.GlobalConfig.Domains))
+	// p.logger.Trace("%s Available domains in config: %v", p.logPrefix, keys(config.GlobalConfig.Domains)) // Removed direct access
 
-	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
+	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
 	current := make(map[string]DNSEntry)
 
 	for _, e := range entries {
@@ -305,20 +308,20 @@ func (p *FileProvider) processFile() {
 			}
 			p.logger.Trace("%s New or changed record detected: fqdn='%s', type='%s'", p.logPrefix, fqdnNoDot, recordType)
 
-			// Extract domain and subdomain like Docker/Traefik
-			domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot)
-			p.logger.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", p.logPrefix, domainKey, subdomain, fqdnNoDot)
-			if domainKey == "" {
-				p.logger.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
-				continue
-			}
-			domainCfg, ok := config.GlobalConfig.Domains[domainKey]
-			if !ok {
-				p.logger.Error("%s Domain '%s' not found in config for fqdn='%s'", p.logPrefix, domainKey, fqdnNoDot)
-				continue
-			}
-			realDomain := domainCfg.Name
-			p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
+			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
+			// and input provider validation.
+			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
+			// This is consistent with how other input providers pass the FQDN.
+			// The domain.EnsureDNSForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
+
+			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
+			// and input provider validation.
+			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
+			realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
+
+			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
+			// and input provider validation.
+			p.logger.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
 			state := domain.RouterState{
 				SourceType: "file",
 				Name:       p.name, // Use the actual provider name
@@ -326,7 +329,7 @@ func (p *FileProvider) processFile() {
 				RecordType: recordType, // Set the actual DNS record type
 			}
 			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
+			err := batchProcessor.ProcessRecord(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
 			if err != nil {
 				p.logger.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
 			}
@@ -338,20 +341,21 @@ func (p *FileProvider) processFile() {
 				fqdn := old.GetFQDN()
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				recordType := old.GetRecordType()
-				p.logger.Info("%s Record removed: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
-				domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot)
-				p.logger.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", p.logPrefix, domainKey, subdomain, fqdnNoDot)
-				if domainKey == "" {
-					p.logger.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
-					continue
-				}
-				domainCfg, ok := config.GlobalConfig.Domains[domainKey]
-				if !ok {
-					p.logger.Error("%s Domain '%s' not found in config for fqdn='%s' (removal)", p.logPrefix, domainKey, fqdnNoDot)
-					continue
-				}
-				realDomain := domainCfg.Name
-				p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", p.logPrefix, realDomain, domainKey)
+				p.logger.Info("%s Record removed: %s (%s)", p.logPrefix, fqdnNoDot, recordType) // This log is fine
+
+				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
+				// and input provider validation.
+				// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
+				// This is consistent with how other input providers pass the FQDN.
+				// The domain.EnsureDNSRemoveForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
+
+				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
+				// and input provider validation.
+				// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
+				realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
+
+				p.logger.Trace("%s Using real domain name '%s' for DNS provider (removal)", p.logPrefix, realDomain)
+
 				state := domain.RouterState{
 					SourceType: "file",
 					Name:       p.name, // Use the actual provider name
@@ -359,7 +363,7 @@ func (p *FileProvider) processFile() {
 					RecordType: recordType,
 				}
 				p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
+				err := batchProcessor.ProcessRecordRemoval(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
 				if err != nil {
 					p.logger.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
 				}
@@ -373,15 +377,6 @@ func (p *FileProvider) processFile() {
 
 	// Finalize the batch - this will sync output files only if there were changes
 	batchProcessor.FinalizeBatch()
-}
-
-// keys returns the keys of a map as a slice
-func keys(m map[string]config.DomainConfig) []string {
-	var out []string
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }
 
 func (p *FileProvider) readFile() ([]DNSEntry, error) {

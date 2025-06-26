@@ -9,6 +9,7 @@ import (
 	"herald/pkg/input/types/docker"
 	"herald/pkg/input/types/file"
 	"herald/pkg/input/types/remote"
+	"herald/pkg/domain" // Import domain to access OutputWriter and OutputSyncer interfaces
 	"herald/pkg/input/types/tailscale"
 	"herald/pkg/input/types/traefik"
 	"herald/pkg/input/types/zerotier"
@@ -65,7 +66,7 @@ func (d DNSEntry) GetRecordType() string {
 }
 
 // NewInputProvider creates a new input provider instance using factory pattern
-func NewInputProvider(inputProviderType string, providerOptions map[string]string) (Provider, error) {
+func NewInputProvider(inputProviderType string, providerOptions map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	log.Debug("[input] Creating input provider type: '%s'", inputProviderType)
 
 	profileName := providerOptions["name"]
@@ -81,24 +82,24 @@ func NewInputProvider(inputProviderType string, providerOptions map[string]strin
 		for k, v := range providerOptions {
 			config[k] = v
 		}
-		return caddy.NewProvider(profileName, config)
+		return caddy.NewProvider(profileName, config, outputWriter, outputSyncer)
 	case "docker":
 		// Convert to interface{} map for providers that need it
 		config := make(map[string]interface{})
 		for k, v := range providerOptions {
 			config[k] = v
 		}
-		return docker.NewProvider(profileName, config)
+		return docker.NewProvider(profileName, config, outputWriter, outputSyncer)
 	case "file":
-		return file.NewProvider(providerOptions)
+		return file.NewProvider(providerOptions, outputWriter, outputSyncer)
 	case "remote":
-		return remote.NewProvider(providerOptions)
+		return remote.NewProvider(providerOptions, outputWriter, outputSyncer)
 	case "tailscale":
-		return tailscale.NewProvider(providerOptions)
+		return tailscale.NewProvider(providerOptions, outputWriter, outputSyncer)
 	case "traefik":
-		return traefik.NewProvider(providerOptions)
+		return traefik.NewProvider(providerOptions, outputWriter, outputSyncer)
 	case "zerotier":
-		return zerotier.NewProvider(providerOptions)
+		return zerotier.NewProvider(providerOptions, outputWriter, outputSyncer)
 	default:
 		availableTypes := []string{"caddy", "docker", "file", "remote", "tailscale", "traefik", "zerotier"}
 		return nil, fmt.Errorf("unknown input provider type '%s'. Available types: %v", inputProviderType, availableTypes)
@@ -111,7 +112,7 @@ func GetAvailableTypes() []string {
 }
 
 // CreateAndStartProvider creates and starts an input provider with minimal main.go coupling
-func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig, domains map[string]config.DomainConfig) (Provider, error) {
+func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig, domains map[string]config.DomainConfig, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	log.Verbose("[input] Initializing input provider: '%s' (type: %s)", name, inputConfig.Type)
 
 	// Create options map for the provider
@@ -161,7 +162,7 @@ func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig,
 	log.Trace("[input] Provider %s options: %v", name, maskSensitiveOptions(providerOptions))
 
 	// Create the input provider
-	inputProvider, err := NewInputProvider(inputConfig.Type, providerOptions)
+	inputProvider, err := NewInputProvider(inputConfig.Type, providerOptions, outputWriter, outputSyncer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize input provider '%s': %v", name, err)
 	}

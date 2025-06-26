@@ -5,11 +5,10 @@
 package docker
 
 import (
-	"herald/pkg/config"
+	"herald/pkg/config" // This import is needed for config.GlobalConfig
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
-	"herald/pkg/log"
-	"herald/pkg/output"
+	"herald/pkg/log" // Re-import the log package
 
 	"context"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"sync"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
@@ -82,6 +82,10 @@ type DockerProvider struct {
 	opts               common.PollProviderOptions
 	logger             *log.ScopedLogger
 	sharedConnection   *SharedConnection
+	removalCache       map[string]time.Time
+	removalCacheMutex  sync.Mutex
+	outputWriter       domain.OutputWriter // Injected dependency
+	outputSyncer       domain.OutputSyncer // Injected dependency
 }
 
 // Config defines configuration for the Docker provider
@@ -327,7 +331,7 @@ func evaluateDockerStatusFilter(filter common.Filter, container types.ContainerJ
 }
 
 // NewProvider creates a new Docker poll provider
-func NewProvider(profileName string, config map[string]interface{}) (Provider, error) {
+func NewProvider(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	// Convert interface{} config to string map for compatibility
 	options := make(map[string]string)
 	for k, v := range config {
@@ -339,11 +343,11 @@ func NewProvider(profileName string, config map[string]interface{}) (Provider, e
 		structuredOptions[key] = value
 	}
 
-	return NewProviderFromStructured(structuredOptions)
+	return NewProviderFromStructured(structuredOptions, outputWriter, outputSyncer)
 }
 
-// NewProviderFromStructured creates a new Docker poll provider from structured options
-func NewProviderFromStructured(options map[string]interface{}) (Provider, error) {
+// NewProviderFromStructured creates a new Docker poll provider from structured options with injected dependencies
+func NewProviderFromStructured(options map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	// Parse the filter configuration BEFORE converting to strings to preserve structured data
 	filterConfig, err := common.NewFilterFromStructuredOptions(options)
 	if err != nil {
@@ -460,6 +464,9 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		apiAuthPass:      apiAuthPass,
 		opts:             parsed,
 		logger:           scopedLogger,
+		removalCache:     make(map[string]time.Time),
+		outputWriter:     outputWriter,
+		outputSyncer:     outputSyncer,
 	}
 
 	// Parse configuration
@@ -660,20 +667,18 @@ func (p *DockerProvider) handleContainerEventFiltered(ctx context.Context, event
 		containerName = containerName[1:]
 	}
 
-	// For proper filtering, we need to inspect the container to get full details
-	// Only do this for 'start' events to avoid unnecessary API calls
-	if event.Action == "start" {
-		container, err := p.client.ContainerInspect(ctx, event.Actor.ID)
-		if err != nil {
-			p.logger.Debug("Failed to inspect container '%s' for filtering: %v", containerName, err)
-			return
-		}
+	// For proper filtering, we need to inspect the container to get full details for all relevant events.
+	// This ensures filters are applied consistently for both additions and removals.
+	container, err := p.client.ContainerInspect(ctx, event.Actor.ID)
+	if err != nil {
+		p.logger.Debug("Failed to inspect container '%s' for filtering: %v", containerName, err)
+		return
+	}
 
-		// Apply filtering to determine if this provider should handle this container
-		if !p.shouldProcessContainer(container) {
-			p.logger.Debug("Container '%s' filtered out by provider '%s'", containerName, p.profileName)
+	// Apply filtering to determine if this provider should handle this container
+	if !p.shouldProcessContainer(container) {
+		p.logger.Debug("Container '%s' filtered out by provider '%s'", containerName, p.profileName)
 			return
-		}
 	}
 
 	// Pass to the original handler
@@ -768,13 +773,24 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 		// Container started - process only this specific container
 		p.logger.Info("Container started: %s (%s), processing DNS records for this container only", containerName, event.Actor.ID[:12])
 		p.processSpecificContainer(event.Actor.ID)
-	case "stop", "pause", "die", "kill":
+	case "stop", "pause", "die", "kill", "destroy":
+		// Debounce removal events to handle stop/die pairs gracefully
+		p.removalCacheMutex.Lock()
+		// Use a short debounce window (e.g., 5 seconds)
+		if lastRemoval, found := p.removalCache[containerID]; found && time.Since(lastRemoval) < 5*time.Second {
+			p.logger.Trace("Ignoring duplicate removal event for container %s (%s)", containerName, event.Actor.ID[:12])
+			p.removalCacheMutex.Unlock()
+			return
+		}
+		p.removalCache[containerID] = time.Now()
+		p.removalCacheMutex.Unlock()
+
 		// Container stopped - remove its DNS records only
-		p.logger.Info("Container stopped: %s (%s), removing DNS records for this container only", containerName, event.Actor.ID[:12])
-		p.removeContainerRecords(event.Actor.ID)
-	case "destroy":
-		// Container destroyed - clean up any remaining records
-		p.logger.Debug("Container destroyed: %s (%s)", containerName, event.Actor.ID[:12])
+		if event.Action == "destroy" {
+			p.logger.Debug("Container destroyed: %s (%s), removing DNS records", containerName, event.Actor.ID[:12])
+		} else {
+			p.logger.Info("Container stopped: %s (%s), removing DNS records for this container only", containerName, event.Actor.ID[:12])
+		}
 		p.removeContainerRecords(event.Actor.ID)
 	default:
 		p.logger.Trace("Ignoring event %s for container %s (%s)", event.Action, containerName, event.Actor.ID[:12])
@@ -1057,8 +1073,7 @@ func (p *DockerProvider) processService(ctx context.Context, serviceID string) {
 // processDNSEntries sends DNS entries to the DNS provider using batch processing
 // If remove is true, perform DNS removal, otherwise always create/update
 func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) error {
-	// Create batch processor for efficient sync handling
-	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
+	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
 
 	for _, entry := range entries {
 		// Construct FQDN from the entry
@@ -1101,10 +1116,10 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 
 		var err error
 		if remove {
-			p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnForBatch, state)
+			p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v, outputWriter)", p.logPrefix, realDomain, fqdnForBatch, state)
 			err = batchProcessor.ProcessRecordRemoval(realDomain, fqdnForBatch, state)
 		} else {
-			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnForBatch, state)
+			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v, outputWriter)", p.logPrefix, realDomain, fqdnForBatch, state)
 			err = batchProcessor.ProcessRecord(realDomain, fqdnForBatch, state)
 		}
 
@@ -1117,19 +1132,7 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 		}
 	}
 
-	// Use source-specific syncing to avoid syncing other providers' changes
-	p.logger.Debug("Syncing output files after processing changes")
-	outputManager := output.GetOutputManager()
-	if outputManager != nil {
-		// Use source-specific sync to avoid syncing other providers' changes
-		err := outputManager.SyncAllFromSource(p.profileName)
-		if err != nil {
-			p.logger.Error("Failed to sync output files: %v", err)
-		}
-	}
-
 	// Finalize the batch - this will sync output files only if there were changes
-	batchProcessor.FinalizeBatch()
 	return nil
 }
 
