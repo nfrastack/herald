@@ -206,9 +206,10 @@ func (sc *SharedConnection) StartEventStreaming() error {
 	return nil
 }
 
-// distributeEvent sends an event to all subscribers, but each subscriber filters it
+// distributeEvent sends an event to all subscribers, which then filter it themselves.
 func (sc *SharedConnection) distributeEvent(event events.Message) {
 	sc.mutex.RLock()
+	// Create a snapshot of subscribers to avoid holding the lock during event processing
 	subscribers := make([]*DockerProvider, 0, len(sc.subscribers))
 	for _, provider := range sc.subscribers {
 		subscribers = append(subscribers, provider)
@@ -222,61 +223,21 @@ func (sc *SharedConnection) distributeEvent(event events.Message) {
 	log.Verbose("[docker/shared] Container event: '%s' - name: '%s' - id: '%s'",
 		event.Action, containerName, event.Actor.ID[:12])
 
-	// For container events, check which providers should handle this container
-	var relevantProviders []*DockerProvider
-	if event.Type == "container" {
-		for _, provider := range subscribers {
-			// For start events, check container filtering
-			if event.Action == "start" {
-				container, err := sc.client.ContainerInspect(context.Background(), event.Actor.ID)
-				if err == nil && provider.shouldProcessContainer(container) {
-					relevantProviders = append(relevantProviders, provider)
-				}
-			} else {
-				// For stop/die events, we need to check if the provider would have handled this container
-				// Since we don't want to inspect every stopping container, we'll be more conservative
-				// Only send to providers that would potentially handle it based on their config
-				if provider.exposeContainers {
-					// If expose_containers=true, this provider handles all containers
-					relevantProviders = append(relevantProviders, provider)
-				} else {
-					// If expose_containers=false, we'd need to check labels, but that requires inspection
-					// For now, be conservative and send to all providers for stop/die events
-					relevantProviders = append(relevantProviders, provider)
-				}
-			}
-		}
-	} else if event.Type == "service" {
-		// For service events, only send to swarm-enabled providers
-		for _, provider := range subscribers {
-			if provider.swarmMode {
-				relevantProviders = append(relevantProviders, provider)
-			}
-		}
-	}
-
-	// Show which provider(s) are handling this event
-	if len(relevantProviders) > 0 {
-		var handlerNames []string
-		for _, provider := range relevantProviders {
-			handlerNames = append(handlerNames, provider.profileName)
-		}
-		log.Debug("[docker/shared] Event handled by: [%s]", strings.Join(handlerNames, ", "))
-	} else {
-		log.Debug("[docker/shared] Event not handled by any provider (filtered out)")
-	}
-
-	// Send events to relevant providers
-	for _, provider := range relevantProviders {
+	// Distribute the event to all subscribers. Each provider is responsible for its own filtering.
+	for _, provider := range subscribers {
 		go func(p *DockerProvider) {
+			ctx := context.Background()
 			if event.Type == "container" {
-				p.handleContainerEvent(context.Background(), event)
-			} else if event.Type == "service" {
-				p.handleServiceEvent(context.Background(), event)
+				// Use the filtered handler, which will decide if the event is relevant
+				p.handleContainerEventFiltered(ctx, event)
+			} else if event.Type == "service" && p.swarmMode {
+				// For services, only swarm-enabled providers should process
+				p.handleServiceEventFiltered(ctx, event)
 			}
 		}(provider)
 	}
 }
+
 
 // Stop stops the shared connection
 func (sc *SharedConnection) Stop() {

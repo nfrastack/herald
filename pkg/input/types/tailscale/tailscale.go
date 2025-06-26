@@ -5,7 +5,6 @@
 package tailscale
 
 import (
-	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/log"
@@ -131,6 +130,8 @@ type TailscaleProvider struct {
 	logger             *log.ScopedLogger
 	lastKnownRecords   map[string]string // hostname:recordType -> target, to track changes
 	lastEntries        []DNSEntry        // Track last poll entries like ZeroTier
+	outputWriter       domain.OutputWriter // Injected dependency
+	outputSyncer       domain.OutputSyncer // Injected dependency
 
 	// Token management
 	tokenMutex   sync.RWMutex
@@ -246,7 +247,7 @@ func (t *TailscaleProvider) getValidAccessToken() (string, error) {
 	return currentToken, nil
 }
 
-func NewProvider(options map[string]string) (Provider, error) {
+func NewProvider(options map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	parsed := common.ParsePollProviderOptions(options, common.PollProviderOptions{
 		Interval:           120 * time.Second,
 		ProcessExisting:    false,
@@ -406,6 +407,8 @@ func NewProvider(options map[string]string) (Provider, error) {
 		lastKnownRecords:   make(map[string]string),
 		lastEntries:        make([]DNSEntry, 0),
 		tlsConfig:          tlsConfig,
+		outputWriter:       outputWriter,
+		outputSyncer:       outputSyncer,
 		clientID:           clientID,
 		clientSecret:       clientSecret,
 	}
@@ -889,7 +892,7 @@ func (p *TailscaleProvider) processDevices() {
 	p.logger.Trace("%s Processing devices and building current records map", p.logPrefix)
 
 	// Create batch processor for efficient sync handling
-	batchProcessor := domain.NewBatchProcessor(p.logPrefix)
+	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
 	current := make(map[string]string) // hostname:recordType -> target
 
 	p.logger.Trace("%s Processing %d devices from Tailscale", p.logPrefix, len(devices))
@@ -952,23 +955,21 @@ func (p *TailscaleProvider) processDevices() {
 					p.logMemberChanged(fqdn, lastTarget, cleanIP)
 				}
 
-				// Extract domain and subdomain
-				domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdn)
-				p.logger.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", p.logPrefix, domainKey, subdomain, fqdn)
+				// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
+				// and input provider validation.
+				// We pass the fqdn as the domain for now, and the domain package will resolve it to the correct domain config.
+				// This is consistent with how other input providers pass the FQDN.
+				// The domain.EnsureDNSForRouterStateWithProvider will extract the domain and subdomain from fqdn.
 
-				if domainKey == "" {
-					p.logger.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", p.logPrefix, fqdn)
-					continue
-				}
+				// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
+				// and input provider validation.
+				// We pass the fqdn as the domain for now, and the domain package will resolve it to the correct domain config.
+				realDomain, _ := common.ExtractDomainAndSubdomain(fqdn) // This is just for logging, actual domain resolution is in domain package
 
-				domainCfg, ok := config.GlobalConfig.Domains[domainKey]
-				if !ok {
-					p.logger.Error("%s Domain '%s' not found in config for fqdn='%s'", p.logPrefix, domainKey, fqdn)
-					continue
-				}
+				// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
+				// and input provider validation.
 
-				realDomain := domainCfg.Name
-				p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
+				p.logger.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
 
 				state := domain.RouterState{
 					SourceType:           "tailscale",
@@ -1010,25 +1011,11 @@ func (p *TailscaleProvider) processDevices() {
 				hostname, recordType := parts[0], parts[1]
 				fqdn := hostname + "." + p.domain
 
-				p.logMemberRemoved(fqdn)
-
-				// Extract domain and subdomain
-				domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdn)
-				p.logger.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", p.logPrefix, domainKey, subdomain, fqdn)
-
-				if domainKey == "" {
-					p.logger.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", p.logPrefix, fqdn)
-					continue
-				}
-
-				domainCfg, ok := config.GlobalConfig.Domains[domainKey]
-				if !ok {
-					p.logger.Error("%s Domain '%s' not found in config for fqdn='%s' (removal)", p.logPrefix, domainKey, fqdn)
-					continue
-				}
-
-				realDomain := domainCfg.Name
-				p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", p.logPrefix, realDomain, domainKey)
+				p.logMemberRemoved(fqdn) // This log is fine
+				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup and input provider validation.
+				// We pass the fqdn as the domain for now, and the domain package will resolve it to the correct domain config.
+				realDomain, _ := common.ExtractDomainAndSubdomain(fqdn) // This is just for logging, actual domain resolution is in domain package
+				p.logger.Trace("%s Using real domain name '%s' for DNS provider (removal)", p.logPrefix, realDomain)
 
 				state := domain.RouterState{
 					SourceType:           "tailscale",

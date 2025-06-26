@@ -5,7 +5,6 @@
 package traefik
 
 import (
-	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/log"
@@ -70,6 +69,8 @@ type TraefikProvider struct {
 	initialPollDone bool // Track if initial poll is complete
 
 	opts common.PollProviderOptions // Add parsed options struct
+	outputWriter domain.OutputWriter // Injected dependency
+	outputSyncer domain.OutputSyncer // Injected dependency
 
 	logger *log.ScopedLogger // provider-specific logger
 }
@@ -344,6 +345,8 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		initialPollDone: false,
 		opts:            parsed,
 		logger:          scopedLogger,
+		outputWriter:    nil, // Will be set by SetDomainConfigs
+		outputSyncer:    nil, // Will be set by SetDomainConfigs
 	}
 
 	// Log the actual filterConfig.Filters slice for diagnosis
@@ -367,8 +370,8 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 	return provider, nil
 }
 
-// NewProvider creates a new Traefik poll provider
-func NewProvider(options map[string]string) (Provider, error) {
+// NewProvider creates a new Traefik poll provider with injected dependencies
+func NewProvider(options map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	// Convert string options to interface{} for structured parsing
 	structuredOptions := make(map[string]interface{})
 	for key, value := range options {
@@ -540,6 +543,8 @@ func NewProvider(options map[string]string) (Provider, error) {
 		initialPollDone: false,
 		opts:            parsed,
 		logger:          scopedLogger,
+		outputWriter:    outputWriter,
+		outputSyncer:    outputSyncer,
 	}
 
 	log.Info("%s Successfully created new Traefik provider", logPrefix)
@@ -922,30 +927,18 @@ func (p *TraefikProvider) pollRouters() error {
 // processRouterAdd processes a router add event and triggers DNS actions
 func (t *TraefikProvider) processRouterAdd(state domain.RouterState) {
 	// Create batch processor for efficient sync handling
-	batchProcessor := domain.NewBatchProcessor(t.logPrefix)
+	batchProcessor := domain.NewBatchProcessor(t.logPrefix, t.outputWriter, t.outputSyncer)
 
 	hostnames := util.ExtractHostsFromRule(state.Rule)
 	for _, hostname := range hostnames {
 		fqdnNoDot := strings.TrimSuffix(hostname, ".")
-		domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot)
-		log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", t.logPrefix, domainKey, subdomain, fqdnNoDot)
-
-		if domainKey == "" {
-			log.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", t.logPrefix, fqdnNoDot)
-			continue
-		}
-
-		domainCfg, ok := config.GlobalConfig.Domains[domainKey]
-		if !ok {
-			log.Error("%s Domain '%s' not found in config for fqdn='%s'", t.logPrefix, domainKey, fqdnNoDot)
-			continue
-		}
-
-		realDomain := domainCfg.Name
-		log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", t.logPrefix, realDomain, domainKey)
+		realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
+		// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup and input provider validation.
+		// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
+		log.Trace("%s Using real domain name '%s' for DNS provider", realDomain)
 
 		log.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", t.logPrefix, realDomain, fqdnNoDot, state)
-		err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
+		err := batchProcessor.ProcessRecord(fqdnNoDot, fqdnNoDot, state)
 		if err != nil {
 			log.Error("%s Failed to ensure DNS for '%s': %v", t.logPrefix, fqdnNoDot, err)
 		}
@@ -962,30 +955,20 @@ func (t *TraefikProvider) processRouterUpdate(state domain.RouterState) {
 
 func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
 	// Create batch processor for efficient sync handling
-	batchProcessor := domain.NewBatchProcessor(t.logPrefix)
+	batchProcessor := domain.NewBatchProcessor(t.logPrefix, t.outputWriter, t.outputSyncer)
+
 
 	hostnames := util.ExtractHostsFromRule(state.Rule)
 	for _, hostname := range hostnames {
 		fqdnNoDot := strings.TrimSuffix(hostname, ".")
-		domainKey, subdomain := common.ExtractDomainAndSubdomain(fqdnNoDot)
-		log.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s' (removal)", t.logPrefix, domainKey, subdomain, fqdnNoDot)
-
-		if domainKey == "" {
-			log.Error("%s No domain config found for '%s' (removal, tried to match domain from FQDN)", t.logPrefix, fqdnNoDot)
-			continue
-		}
-
-		domainCfg, ok := config.GlobalConfig.Domains[domainKey]
-		if !ok {
-			log.Error("%s Domain '%s' not found in config for fqdn='%s' (removal)", t.logPrefix, domainKey, fqdnNoDot)
-			continue
-		}
-
-		realDomain := domainCfg.Name
-		log.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s') (removal)", t.logPrefix, realDomain, domainKey)
+		realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
+		// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup and input provider validation.
+		// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
+		log.Trace("%s Using real domain name '%s' for DNS provider (removal)", realDomain)
 
 		log.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", t.logPrefix, realDomain, fqdnNoDot, state)
-		err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
+		err := batchProcessor.ProcessRecordRemoval(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
+
 		if err != nil {
 			log.Error("%s Failed to remove DNS for '%s': %v", t.logPrefix, fqdnNoDot, err)
 		}

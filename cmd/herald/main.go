@@ -386,7 +386,8 @@ func main() {
 				// delete(providerOptions, "filter")
 			}
 
-			inputProvider, err := input.NewInputProvider(inputProviderType, providerOptions)
+			inputProvider, err := input.NewInputProvider(inputProviderType, providerOptions, output.GetOutputManager(), output.GetOutputManager())
+
 			if err != nil {
 				log.Fatal("[input] Failed to initialize input provider '%s': %v", inputProviderName, err)
 			}
