@@ -182,14 +182,18 @@ func (z *ZoneFormat) generateZoneFileContent(export *common.ExportData) string {
 			return domain.Records[i].Hostname < domain.Records[j].Hostname
 		})
 
+		// Column headers for clarity
+		// content.WriteString("; Hostname             TTL    Class Type  Target\n")
+
 		for _, record := range domain.Records {
 			name := record.Hostname
 			if name == "" || name == "@" {
 				name = domainName + "."
 			}
 
-			content.WriteString(fmt.Sprintf("%-20s %-5d IN    %-5s %s\n",
-				name, record.TTL, record.Type, record.Target))
+			// Use fixed-width columns for alignment
+			content.WriteString(fmt.Sprintf("%-20s %-6d %-4s %-5s %s\n",
+				name, record.TTL, "IN", record.Type, record.Target))
 		}
 	} else {
 		content.WriteString("; No records\n")
