@@ -1546,30 +1546,22 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	}
 
 	// Domain config fallback
-	if p.domainConfigs != nil {
-		for _, domainCfg := range p.domainConfigs {
-			if domainCfg.Name == domain {
-				if target == "" && domainCfg.Record.Target != "" {
-					log.Trace("%s Using domain config for '%s': value: 'target=%s'", p.logPrefix, domain, domainCfg.Record.Target)
-					target = domainCfg.Record.Target
-				}
-				if recordType == "" && domainCfg.Record.Type != "" {
-					log.Trace("%s Using domain config for '%s': value: 'record_type=%s'", p.logPrefix, domain, domainCfg.Record.Type)
-					recordType = domainCfg.Record.Type
-				}
-				if ttl == 0 && domainCfg.Record.TTL > 0 {
-					log.Trace("%s Using domain config for '%s': value: 'ttl=%d'", p.logPrefix, domain, domainCfg.Record.TTL)
-					ttl = domainCfg.Record.TTL
-				}
-				if !overwrite && domainCfg.Record.UpdateExisting {
-					log.Trace("%s Using domain config for '%s': value: 'record_update_existing=true'", p.logPrefix, domain)
-					overwrite = true
-				}
-				break
-			}
-		}
-	} else {
-		log.Trace("%s No domain configs available for fallback", p.logPrefix)
+	// Use the correctly identified domain configuration for fallbacks, not the whole list.
+	if target == "" && domainCfg.Record.Target != "" {
+		log.Trace("%s Using domain config for '%s': value: 'target=%s'", p.logPrefix, domain, domainCfg.Record.Target)
+		target = domainCfg.Record.Target
+	}
+	if recordType == "" && domainCfg.Record.Type != "" {
+		log.Trace("%s Using domain config for '%s': value: 'record_type=%s'", p.logPrefix, domain, domainCfg.Record.Type)
+		recordType = domainCfg.Record.Type
+	}
+	if ttl == 0 && domainCfg.Record.TTL > 0 {
+		log.Trace("%s Using domain config for '%s': value: 'ttl=%d'", p.logPrefix, domain, domainCfg.Record.TTL)
+		ttl = domainCfg.Record.TTL
+	}
+	if !overwrite && domainCfg.Record.UpdateExisting {
+		log.Trace("%s Using domain config for '%s': value: 'record_update_existing=true'", p.logPrefix, domain)
+		overwrite = true
 	}
 
 	// Global config fallback (if still unset)
