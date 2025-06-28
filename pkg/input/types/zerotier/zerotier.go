@@ -5,6 +5,7 @@
 package zerotier
 
 import (
+	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/log"
@@ -71,6 +72,7 @@ type ZerotierProvider struct {
 	addressFallbackMembers map[string]bool   // Track which members are using address fallback (for output context)
 	name                   string
 	lastEntries            []DNSEntry
+	domainConfigs          map[string]config.DomainConfig
 	outputWriter           domain.OutputWriter // Injected dependency
 	outputSyncer           domain.OutputSyncer // Injected dependency
 }
@@ -318,7 +320,9 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 		last[key] = entry
 	}
 
-	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
+	// Use a domain-specific log prefix for batch processor logs
+	batchLogPrefix := fmt.Sprintf("[domain/%s/%s]", p.domain, p.profileName)
+	batchProcessor := domain.NewBatchProcessorWithProvider(batchLogPrefix, p.profileName, p.outputWriter, p.outputSyncer)
 
 	// Process additions and changes
 	for key, entry := range current {
@@ -328,23 +332,23 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 			fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 			p.logMemberAdded(fqdn)
 
-			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-			// This is consistent with how other input providers pass the FQDN.
-			// The domain.EnsureDNSForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
-
-			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-			realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-
-			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
+			// Resolve real domain name from config key
+			realDomain := p.domain
+			domainConfig := config.GetDomainConfig(p.domain)
+			p.logger.Debug("domainConfig for key '%s': %+v", p.domain, domainConfig)
+			if domainConfig != nil {
+				if d, ok := domainConfig["domain"]; ok {
+					realDomain = d
+					p.logger.Trace("Resolved domain config key '%s' to real domain name '%s'", p.domain, realDomain)
+				} else {
+					p.logger.Warn("Domain config for key '%s' does not contain a 'domain' field, using as-is", p.domain)
+				}
+			} else {
+				p.logger.Warn("Could not resolve domain config key '%s' to a real domain name, using as-is", p.domain)
+			}
 
 			state := domain.RouterState{
-				SourceType:           "zerotier",
+				SourceType:           p.profileName, // Use the provider/profile name as source
 				Name:                 p.profileName,
 				Service:              entry.Target,
 				RecordType:           entry.RecordType,
@@ -352,7 +356,7 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 			}
 
 			p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
-			err := batchProcessor.ProcessRecord(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
+			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state) // Pass resolved domain
 			if err != nil {
 				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
 			}
@@ -363,23 +367,23 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				p.logger.Info("Member changed: %s (target: %s -> %s, ttl: %d -> %d, type: %s -> %s)", fqdn, lastEntry.Target, entry.Target, lastEntry.TTL, entry.TTL, lastEntry.RecordType, entry.RecordType)
 
-				// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
-				// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-				// This is consistent with how other input providers pass the FQDN.
-				// The domain.EnsureDNSForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
-
-				// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
-				// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-				realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-
-				// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
-				p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
+				// Resolve real domain name from config key
+				realDomain := p.domain
+				domainConfig := config.GetDomainConfig(p.domain)
+				p.logger.Debug("domainConfig for key '%s': %+v", p.domain, domainConfig)
+				if domainConfig != nil {
+					if d, ok := domainConfig["domain"]; ok {
+						realDomain = d
+						p.logger.Trace("Resolved domain config key '%s' to real domain name '%s'", p.domain, realDomain)
+					} else {
+						p.logger.Warn("Domain config for key '%s' does not contain a 'domain' field, using as-is", p.domain)
+					}
+				} else {
+					p.logger.Warn("Could not resolve domain config key '%s' to a real domain name, using as-is", p.domain)
+				}
 
 				state := domain.RouterState{
-					SourceType:           "zerotier",
+					SourceType:           p.profileName, // Use the provider/profile name as source
 					Name:                 p.profileName,
 					Service:              entry.Target,
 					RecordType:           entry.RecordType,
@@ -387,7 +391,7 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 				}
 
 				p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
-				err := batchProcessor.ProcessRecord(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
+				err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state) // Pass resolved domain
 				if err != nil {
 					p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
 				}
@@ -402,23 +406,22 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 			fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 			p.logMemberRemoved(fqdn)
 
-			// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-			// This is consistent with how other input providers pass the FQDN.
-			// The domain.EnsureDNSRemoveForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
-
-			// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-			realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-
-			// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			p.logger.Trace("Using real domain name '%s' for DNS provider (removal)", realDomain)
+			// Resolve real domain name from config key
+			realDomain := p.domain
+			domainConfig := config.GetDomainConfig(p.domain)
+			if domainConfig != nil {
+				if d, ok := domainConfig["domain"]; ok {
+					realDomain = d
+					p.logger.Trace("Resolved domain config key '%s' to real domain name '%s' (removal)", p.domain, realDomain)
+				} else {
+					p.logger.Warn("Domain config for key '%s' does not contain a 'domain' field, using as-is (removal)", p.domain)
+				}
+			} else {
+				p.logger.Warn("Could not resolve domain config key '%s' to a real domain name, using as-is (removal)", p.domain)
+			}
 
 			state := domain.RouterState{
-				SourceType:           "zerotier",
+				SourceType:           p.profileName, // Use the provider/profile name as source
 				Name:                 p.profileName,
 				Service:              entry.Target,
 				RecordType:           entry.RecordType,
@@ -426,7 +429,7 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 			}
 
 			p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
-			err := batchProcessor.ProcessRecordRemoval(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
+			err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state) // Pass resolved domain
 			if err != nil {
 				p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
 			}
@@ -497,8 +500,14 @@ func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
 
 func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 	p.logger.Debug("Fetching Zerotier members from %s", p.apiURL)
-	url := strings.TrimRight(p.apiURL, "/") + "/api/network/" + p.networkID + "/member"
-	netconfURL := strings.TrimRight(p.apiURL, "/") + "/api/network/" + p.networkID
+
+	// Parse network_id to handle ZT-Net format gracefully if fallback occurs
+	networkid := p.networkID
+	parts := strings.Split(networkid, ":")
+	if len(parts) >= 2 { // It can be 2 or 3 parts for ZT-Net format
+		networkid = parts[len(parts)-1] // The actual network ID is always the last part
+	}
+	url := strings.TrimRight(p.apiURL, "/") + "/api/network/" + networkid + "/member"
 	p.logger.Trace("Member API URL: %s", url)
 
 	// Use shared HTTP function with Bearer token header
@@ -526,26 +535,10 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 	}
 
 	domain := p.domain
+	// Always use the configured domain. Remove autodetect from network config.
 	if domain == "" {
-		p.logger.Trace("No domain configured, attempting autodetect from network config")
-		// Try to autodetect domain from network config using shared HTTP function
-		netconfBody, err := common.FetchRemoteResourceWithHeaders(netconfURL, "", "", headers, p.logPrefix)
-		if err == nil {
-			p.logger.Trace("Zerotier network config response: %s", string(netconfBody))
-			var netconf struct {
-				DNS struct {
-					Domain string `json:"domain"`
-				} `json:"dns"`
-			}
-			if err := json.Unmarshal(netconfBody, &netconf); err == nil && netconf.DNS.Domain != "" {
-				domain = netconf.DNS.Domain
-				p.logger.Info("Autodetected domain from Zerotier network config: %s", domain)
-			}
-		}
-		if domain == "" {
-			p.logger.Warn("Could not autodetect domain from Zerotier network config, skipping DNS entry creation")
-			return nil, nil
-		}
+		p.logger.Warn("No domain configured for Zerotier, skipping DNS entry creation")
+		return nil, nil
 	}
 
 	p.logger.Debug("Filtering members using filter system")
@@ -609,14 +602,15 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 			if strings.Contains(ip, ":") {
 				recordType = "AAAA"
 			}
-			// Create DNS entry
+			// Always use the configured domain for DNS entry creation
 			entry := DNSEntry{
 				Hostname:   hostname,
-				Domain:     domain,
+				Domain:     p.domain, // Force use of configured domain
 				RecordType: recordType,
 				Target:     ip,
 				TTL:        120,
 			}
+			entry.Name = entry.Hostname + "." + entry.Domain
 			entries = append(entries, entry)
 		}
 	}
@@ -628,15 +622,12 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	p.logger.Debug("Fetching ZT-Net members from %s", p.apiURL)
 	// Parse network_id for org, dnsname, networkid
 	org := ""
-	dnsname := ""
 	networkid := p.networkID
 	parts := strings.Split(networkid, ":")
 	if len(parts) == 3 {
 		org = parts[0]
-		dnsname = parts[1]
 		networkid = parts[2]
 	} else if len(parts) == 2 {
-		dnsname = parts[0]
 		networkid = parts[1]
 	}
 
@@ -674,12 +665,9 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	}
 
 	domain := p.domain
-	if domain == "" && dnsname != "" {
-		domain = dnsname
-		p.logger.Info("Using DNS name from network_id: %s", domain)
-	}
+	// Always use the configured domain. Remove fallback to dnsname.
 	if domain == "" {
-		p.logger.Warn("No domain configured or detected for ZT-Net, skipping DNS entry creation")
+		p.logger.Warn("No domain configured for ZT-Net, skipping DNS entry creation")
 		return nil, nil
 	}
 

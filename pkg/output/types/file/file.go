@@ -5,10 +5,24 @@
 package file
 
 import (
-	"herald/pkg/log"
-
 	"fmt"
+	"herald/pkg/log"
+	"strings"
+	"time"
 )
+
+// expandTags replaces template tags in s with values from domain, profile, etc.
+func expandTags(s, domain, profile string) string {
+	domainUnderscore := strings.ReplaceAll(domain, ".", "_")
+	now := time.Now().Format("20060102-150405") // yyyymmdd-hhmmss
+	replacer := strings.NewReplacer(
+		"%domain%", domain,
+		"%domain_underscore%", domainUnderscore,
+		"%date%", now,
+		"%profile%", profile,
+	)
+	return replacer.Replace(s)
+}
 
 // OutputFormat defines the interface to avoid import cycle
 type OutputFormat interface {
@@ -44,9 +58,18 @@ func NewFileOutput(profileName string, config map[string]interface{}) (OutputFor
 	case "yaml":
 		return NewYAMLFormat(profileName, config)
 	case "zone":
-		return NewZoneFormat(profileName, config)
+		if domain, ok := config["domain"].(string); ok && domain != "" {
+			return NewZoneFormat(profileName, domain, config)
+		} else {
+			return nil, fmt.Errorf("zone output requires 'domain' field in config")
+		}
 	case "hosts":
-		return NewHostsFormat(profileName, config)
+		// For hosts, pass both domain and profileName
+		if domain, ok := config["domain"].(string); ok && domain != "" {
+			return NewHostsFormat(domain, profileName, config)
+		} else {
+			return nil, fmt.Errorf("hosts output requires 'domain' field in config")
+		}
 	default:
 		return nil, fmt.Errorf("unsupported file format '%s', must be one of: json, yaml, zone, hosts", format)
 	}

@@ -56,7 +56,7 @@ type RemoteProvider struct {
 	options      map[string]string
 	filterConfig common.FilterConfig
 	logger       *log.ScopedLogger
-	name         string // Profile name
+	name         string              // Profile name
 	outputWriter domain.OutputWriter // Injected dependency
 	outputSyncer domain.OutputSyncer // Injected dependency
 }
@@ -214,9 +214,10 @@ func (p *RemoteProvider) processRemote() {
 
 			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
 			// and input provider validation.
+			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
 			log.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
 
-			var providerName string // Declare providerName locally
+			var providerName string          // Declare providerName locally
 			providerName = p.options["name"] // Assign value
 			if providerName == "" {
 				providerName = "remote_profile"
@@ -260,7 +261,7 @@ func (p *RemoteProvider) processRemote() {
 				// and input provider validation.
 				log.Trace("%s Using real domain name '%s' for DNS provider (removal)", p.logPrefix, realDomain)
 
-				var providerName string // Declare providerName locally
+				var providerName string          // Declare providerName locally
 				providerName = p.options["name"] // Assign value
 				if providerName == "" {
 					providerName = "remote_profile"

@@ -5,21 +5,18 @@
 package output
 
 import (
+	"encoding/json"
 	"herald/pkg/log"
 	"herald/pkg/output/types/dns"
+	fileoutput "herald/pkg/output/types/file"
 	"herald/pkg/util"
 
-	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
-
-	miekgdns "github.com/miekg/dns"
 )
 
 // DomainConfig represents a minimal domain config for output filtering
@@ -68,12 +65,12 @@ func init() {
 
 // registerAllCoreFormats registers all built-in output formats
 func registerAllCoreFormats() {
-	// Register file formats with actual implementations
-	RegisterFormat("file", createFileOutputDirect)
-	RegisterFormat("file/json", createJSONOutputDirect)
-	RegisterFormat("file/yaml", createYAMLOutputDirect)
-	RegisterFormat("file/hosts", createHostsOutputDirect)
-	RegisterFormat("file/zone", createZoneOutputDirect)
+	// Register only the canonical file output factory for all file-based formats
+	RegisterFormat("file", fileoutput.NewFileOutput)
+	RegisterFormat("file/json", fileoutput.NewFileOutput)
+	RegisterFormat("file/yaml", fileoutput.NewFileOutput)
+	RegisterFormat("file/zone", fileoutput.NewFileOutput)
+	RegisterFormat("file/hosts", fileoutput.NewFileOutput)
 
 	// Register remote format
 	RegisterFormat("remote", createRemoteOutputDirect)
@@ -84,131 +81,9 @@ func registerAllCoreFormats() {
 	log.Debug("[output] Registered core formats: file, remote, dns")
 }
 
-// createFileOutputDirect creates file outputs with dynamic loading
-func createFileOutputDirect(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	format, ok := config["format"].(string)
-	if !ok || format == "" {
-		return nil, fmt.Errorf("file output requires 'format' field")
-	}
-
-	// Check if we have built-in support for this format
-	switch format {
-	case "json", "yaml", "hosts", "zone":
-		// These are built-in formats implemented directly in this package
-		return createBuiltinFileFormat(profileName, format, config)
-	default:
-		// Try to load external format dynamically
-		return nil, fmt.Errorf("file format '%s' not supported. Built-in formats: json, yaml, hosts, zone. For external formats, import the appropriate package", format)
-	}
-}
-
-// createBuiltinFileFormat creates built-in file formats without external dependencies
-func createBuiltinFileFormat(profileName, format string, config map[string]interface{}) (OutputFormat, error) {
-	switch format {
-	case "json":
-		return createJSONOutputDirect(profileName, config)
-	case "yaml":
-		return createYAMLOutputDirect(profileName, config)
-	case "zone":
-		return createZoneOutputDirect(profileName, config)
-	case "hosts":
-		return createHostsOutputDirect(profileName, config)
-	default:
-		return nil, fmt.Errorf("unsupported built-in file format: %s", format)
-	}
-}
-
 // createRemoteOutputDirect creates remote outputs directly
 func createRemoteOutputDirect(profileName string, config map[string]interface{}) (OutputFormat, error) {
 	return createRemoteFormat(profileName, config)
-}
-
-// createJSONOutputDirect creates JSON file outputs directly
-func createJSONOutputDirect(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	pathRaw, ok := config["path"]
-	if !ok || pathRaw == nil {
-		return nil, fmt.Errorf("JSON format requires 'path' field")
-	}
-
-	path := pathRaw.(string)
-	path = util.ReadSecretValue(path)
-
-	if path == "" {
-		return nil, fmt.Errorf("JSON format path cannot be empty after processing")
-	}
-
-	return &jsonFormat{
-		profileName: profileName,
-		config:      config,
-		path:        path,
-		records:     make(map[string]*jsonRecord),
-	}, nil
-}
-
-// createYAMLOutputDirect creates YAML file outputs directly
-func createYAMLOutputDirect(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	pathRaw, ok := config["path"]
-	if !ok || pathRaw == nil {
-		return nil, fmt.Errorf("YAML format requires 'path' field")
-	}
-
-	path := pathRaw.(string)
-	path = util.ReadSecretValue(path)
-
-	if path == "" {
-		return nil, fmt.Errorf("YAML format path cannot be empty after processing")
-	}
-
-	return &yamlFormat{
-		profileName: profileName,
-		config:      config,
-		path:        path,
-		records:     make(map[string]*yamlRecord),
-	}, nil
-}
-
-// createHostsOutputDirect creates hosts file outputs directly
-func createHostsOutputDirect(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	pathRaw, ok := config["path"]
-	if !ok || pathRaw == nil {
-		return nil, fmt.Errorf("hosts format requires 'path' field")
-	}
-
-	path := pathRaw.(string)
-	path = util.ReadSecretValue(path)
-
-	if path == "" {
-		return nil, fmt.Errorf("hosts format path cannot be empty after processing")
-	}
-
-	return &hostsFormat{
-		profileName: profileName,
-		config:      config,
-		path:        path,
-		records:     make(map[string]*hostsRecord),
-	}, nil
-}
-
-// createZoneOutputDirect creates zone file outputs directly
-func createZoneOutputDirect(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	pathRaw, ok := config["path"]
-	if !ok || pathRaw == nil {
-		return nil, fmt.Errorf("zone format requires 'path' field")
-	}
-
-	path := pathRaw.(string)
-	path = util.ReadSecretValue(path)
-
-	if path == "" {
-		return nil, fmt.Errorf("zone format path cannot be empty after processing")
-	}
-
-	return &zoneFormat{
-		profileName: profileName,
-		config:      config,
-		path:        path,
-		records:     make(map[string]*zoneRecord),
-	}, nil
 }
 
 // createDNSOutput creates a DNS output instance without import cycle
@@ -310,13 +185,8 @@ func GetOutputManager() *OutputManager {
 }
 
 // OutputFormat defines the interface that all output formats must implement
-type OutputFormat interface {
-	GetName() string
-	WriteRecord(domain, hostname, target, recordType string, ttl int) error
-	WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error
-	RemoveRecord(domain, hostname, recordType string) error
-	Sync() error
-}
+// Use the canonical interface from fileoutput to avoid duplication and type mismatch
+type OutputFormat = fileoutput.OutputFormat
 
 // OutputManager manages multiple output formats
 type OutputManager struct {
@@ -333,7 +203,7 @@ type OutputManager struct {
 func NewOutputManager() *OutputManager {
 	return &OutputManager{
 		profiles:        make(map[string]OutputFormat),
-		syncCooldown:    2 * time.Second, // Minimum 2 seconds between syncs
+		syncCooldown:    0, // Disable cooldown for debugging
 		changedProfiles: make(map[string]map[string]bool),
 	}
 }
@@ -423,6 +293,8 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 					om.changedProfiles[source] = make(map[string]bool)
 				}
 				om.changedProfiles[source][outputProfile] = true
+				// Debug: print changedProfiles for this source
+				log.Debug("[output/manager] changedProfiles[%s] after WriteRecordWithSourceAndDomainFilter: %v", source, om.changedProfiles[source])
 				om.changesMutex.Unlock()
 			}
 		} else {
@@ -493,12 +365,33 @@ func (om *OutputManager) AddProfile(profileName, format, path string, domains []
 		}
 	}
 
-	switch format {
-	case "remote":
+	// Patch: For file/hosts outputs, ensure the real DNS domain is passed as the first argument
+	// and is also set in the config map for downstream constructors.
+	if format == "file" || format == "json" || format == "yaml" || format == "hosts" || format == "zone" {
+		domainArg := profileName // fallback
+		if domainFromConfig, ok := config["domain"].(string); ok && domainFromConfig != "" {
+			domainArg = domainFromConfig
+		} else {
+			// Try to infer from domains config if available
+			globalConfig := getGlobalConfigForOutput()
+			if globalConfig != nil {
+				for _, domainConfig := range globalConfig.GetDomains() {
+					for _, output := range domainConfig.GetOutputs() {
+						if output == profileName {
+							domainArg = domainConfig.GetName()
+							break
+						}
+					}
+				}
+			}
+		}
+		// Always set the domain in the config for downstream constructors (hosts/zone need it)
+		config["domain"] = domainArg
+		// FIX: Pass the output profile name as the first argument, not the domain
+		outputFormat, err = fileoutput.NewFileOutput(profileName, config)
+	} else if format == "remote" {
 		outputFormat, err = createRemoteFormat(profileName, config)
-	case "file":
-		outputFormat, err = createFileFormat(profileName, config)
-	case "dns":
+	} else if format == "dns" {
 		// Use the DNS provider registry to instantiate the provider
 		providerName, ok := config["provider"].(string)
 		if !ok || providerName == "" {
@@ -521,9 +414,7 @@ func (om *OutputManager) AddProfile(profileName, format, path string, domains []
 			Provider:    provider,
 			Config:      config,
 		}
-	case "json", "yaml", "hosts", "zone":
-		outputFormat, err = createFileFormat(profileName, config)
-	default:
+	} else {
 		return fmt.Errorf("unsupported output format: %s", format)
 	}
 
@@ -560,6 +451,8 @@ func (om *OutputManager) WriteRecordWithSource(domain, hostname, target, recordT
 			om.changedProfiles[source] = make(map[string]bool)
 		}
 		om.changedProfiles[source][profileName] = true
+		// Debug: print changedProfiles for this source
+		log.Debug("[output/manager] changedProfiles[%s] after WriteRecordWithSource: %v", source, om.changedProfiles[source])
 		om.changesMutex.Unlock()
 	}
 	return nil
@@ -593,6 +486,8 @@ func (om *OutputManager) SyncAll() error {
 		return nil
 	}
 
+	log.Debug("[output/manager] SyncAll called. lastSync=%v, syncCooldown=%v", om.lastSync, om.syncCooldown)
+
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
 
@@ -608,8 +503,10 @@ func (om *OutputManager) SyncAll() error {
 	}
 	om.changesMutex.RUnlock()
 
+	log.Debug("[output/manager] changedProfiles map at sync: %+v", om.changedProfiles)
+
 	if len(changedProfilesSet) == 0 {
-		log.Debug("[output/manager] No changed profiles to sync")
+		log.Debug("[output/manager] No changed profiles to sync (changedProfilesSet empty)")
 		return nil
 	}
 
@@ -663,6 +560,8 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 	// Get list of changed profiles for this specific source
 	om.changesMutex.RLock()
 	sourceChanges, exists := om.changedProfiles[source]
+	// Debug: print changedProfiles for this source at start of sync
+	log.Debug("[output/manager] changedProfiles[%s] at start of SyncAllFromSource: %v", source, sourceChanges)
 	if !exists || len(sourceChanges) == 0 {
 		om.changesMutex.RUnlock()
 		log.Debug("[output/manager] No changed profiles to sync for source '%s'", source)
@@ -833,272 +732,6 @@ func (p *placeholderFormat) Sync() error {
 	return nil
 }
 
-// jsonRecord represents a single DNS record for JSON output
-type jsonRecord struct {
-	Domain     string `json:"domain"`
-	Hostname   string `json:"hostname"`
-	Target     string `json:"target"`
-	RecordType string `json:"type"`
-	TTL        int    `json:"ttl"`
-	Source     string `json:"source,omitempty"`
-}
-
-// jsonFormat implements JSON file output
-type jsonFormat struct {
-	profileName string
-	config      map[string]interface{}
-	path        string
-	records     map[string]*jsonRecord
-	mutex       sync.RWMutex
-}
-
-func (j *jsonFormat) GetName() string { return "json" }
-
-func (j *jsonFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
-	return j.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
-}
-
-func (j *jsonFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	j.mutex.Lock()
-	defer j.mutex.Unlock()
-
-	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	j.records[key] = &jsonRecord{
-		Domain:     domain,
-		Hostname:   hostname,
-		Target:     target,
-		RecordType: recordType,
-		TTL:        ttl,
-		Source:     source,
-	}
-
-	log.Debug("[output/json/%s] Added record: %s %s -> %s (TTL: %d)", j.profileName, hostname, recordType, target, ttl)
-	return nil
-}
-
-func (j *jsonFormat) RemoveRecord(domain, hostname, recordType string) error {
-	j.mutex.Lock()
-	defer j.mutex.Unlock()
-
-	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	delete(j.records, key)
-	return nil
-}
-
-func (j *jsonFormat) Sync() error {
-	j.mutex.RLock()
-	defer j.mutex.RUnlock()
-
-	if len(j.records) == 0 {
-		log.Debug("[output/json] No records to write")
-		return nil
-	}
-
-	// Build the structured format with metadata and domains
-	output := struct {
-		Metadata map[string]string `json:"metadata"`
-		Domains  map[string]struct {
-			Comment string `json:"comment"`
-			Records []struct {
-				Hostname  string `json:"hostname"`
-				Type      string `json:"type"`
-				Target    string `json:"target"`
-				TTL       int    `json:"ttl"`
-				CreatedAt string `json:"created_at"`
-				Source    string `json:"source"`
-			} `json:"records"`
-		} `json:"domains"`
-	}{
-		Metadata: map[string]string{
-			"generator":    "herald",
-			"generated_at": time.Now().Format(time.RFC3339),
-			"last_updated": time.Now().Format(time.RFC3339),
-		},
-		Domains: make(map[string]struct {
-			Comment string `json:"comment"`
-			Records []struct {
-				Hostname  string `json:"hostname"`
-				Type      string `json:"type"`
-				Target    string `json:"target"`
-				TTL       int    `json:"ttl"`
-				CreatedAt string `json:"created_at"`
-				Source    string `json:"source"`
-			} `json:"records"`
-		}),
-	}
-
-	// Group records by domain
-	for _, record := range j.records {
-		domain := record.Domain
-		if _, exists := output.Domains[domain]; !exists {
-			output.Domains[domain] = struct {
-				Comment string `json:"comment"`
-				Records []struct {
-					Hostname  string `json:"hostname"`
-					Type      string `json:"type"`
-					Target    string `json:"target"`
-					TTL       int    `json:"ttl"`
-					CreatedAt string `json:"created_at"`
-					Source    string `json:"source"`
-				} `json:"records"`
-			}{
-				Comment: "Domain: " + domain,
-				Records: []struct {
-					Hostname  string `json:"hostname"`
-					Type      string `json:"type"`
-					Target    string `json:"target"`
-					TTL       int    `json:"ttl"`
-					CreatedAt string `json:"created_at"`
-					Source    string `json:"source"`
-				}{},
-			}
-		}
-
-		// Add record to domain
-		domainData := output.Domains[domain]
-		domainData.Records = append(domainData.Records, struct {
-			Hostname  string `json:"hostname"`
-			Type      string `json:"type"`
-			Target    string `json:"target"`
-			TTL       int    `json:"ttl"`
-			CreatedAt string `json:"created_at"`
-			Source    string `json:"source"`
-		}{
-			Hostname:  record.Hostname,
-			Type:      record.RecordType,
-			Target:    record.Target,
-			TTL:       record.TTL,
-			CreatedAt: time.Now().Format(time.RFC3339),
-			Source:    record.Source,
-		})
-		output.Domains[domain] = domainData
-	}
-
-	// Marshal to JSON
-	jsonBytes, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %v", err)
-	}
-
-	// Write to file
-	err = writeFileWithBackup(j.path, jsonBytes)
-	if err != nil {
-		return fmt.Errorf("failed to write JSON file %s: %v", j.path, err)
-	}
-
-	log.Info("[output/json] Successfully wrote %d records to %s", len(j.records), j.path)
-	return nil
-}
-
-// writeFileWithBackup writes data to a file with atomic operation
-func writeFileWithBackup(path string, data []byte) error {
-	// For now, just write directly - can add atomic writes later
-	return os.WriteFile(path, data, 0644)
-}
-
-// yamlRecord represents a single DNS record for YAML output
-type yamlRecord struct {
-	Domain     string `yaml:"domain"`
-	Hostname   string `yaml:"hostname"`
-	Target     string `yaml:"target"`
-	RecordType string `yaml:"type"`
-	TTL        int    `yaml:"ttl"`
-	Source     string `yaml:"source,omitempty"`
-}
-
-// yamlFormat implements YAML file output
-type yamlFormat struct {
-	profileName string
-	config      map[string]interface{}
-	path        string
-	records     map[string]*yamlRecord
-	mutex       sync.RWMutex
-}
-
-func (y *yamlFormat) GetName() string { return "yaml" }
-
-func (y *yamlFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
-	return y.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
-}
-
-func (y *yamlFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	y.mutex.Lock()
-	defer y.mutex.Unlock()
-
-	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	y.records[key] = &yamlRecord{
-		Domain:     domain,
-		Hostname:   hostname,
-		Target:     target,
-		RecordType: recordType,
-		TTL:        ttl,
-		Source:     source,
-	}
-
-	log.Debug("[output/yaml/%s] Added record: %s %s -> %s (TTL: %d)", y.profileName, hostname, recordType, target, ttl)
-	return nil
-}
-
-func (y *yamlFormat) RemoveRecord(domain, hostname, recordType string) error {
-	y.mutex.Lock()
-	defer y.mutex.Unlock()
-
-	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	delete(y.records, key)
-	return nil
-}
-
-func (y *yamlFormat) Sync() error {
-	y.mutex.RLock()
-	defer y.mutex.RUnlock()
-
-	if len(y.records) == 0 {
-		log.Debug("[output/yaml] No records to write")
-		return nil
-	}
-
-	// Build YAML content with metadata and domains structure
-	content := "metadata:\n"
-	content += "  generator: herald\n"
-	content += fmt.Sprintf("  generated_at: \"%s\"\n", time.Now().Format(time.RFC3339))
-	content += fmt.Sprintf("  last_updated: \"%s\"\n", time.Now().Format(time.RFC3339))
-	content += "\n"
-	content += "domains:\n"
-
-	// Group records by domain
-	domainRecords := make(map[string][]*yamlRecord)
-	for _, record := range y.records {
-		domain := record.Domain
-		domainRecords[domain] = append(domainRecords[domain], record)
-	}
-
-	// Write each domain
-	for domain, records := range domainRecords {
-		content += fmt.Sprintf("  %s:\n", domain)
-		content += fmt.Sprintf("    comment: \"Domain: %s\"\n", domain)
-		content += "    records:\n"
-
-		for _, record := range records {
-			content += fmt.Sprintf("      - hostname: %s\n", record.Hostname)
-			content += fmt.Sprintf("        type: %s\n", record.RecordType)
-			content += fmt.Sprintf("        target: %s\n", record.Target)
-			content += fmt.Sprintf("        ttl: %d\n", record.TTL)
-			content += fmt.Sprintf("        created_at: \"%s\"\n", time.Now().Format(time.RFC3339))
-			content += fmt.Sprintf("        source: %s\n", record.Source)
-			content += "\n"
-		}
-	}
-
-	// Write to file
-	err := writeFileWithBackup(y.path, []byte(content))
-	if err != nil {
-		return fmt.Errorf("failed to write YAML file %s: %v", y.path, err)
-	}
-
-	log.Info("[output/yaml/%s] Successfully wrote %d records to %s", y.profileName, len(y.records), y.path)
-	return nil
-}
-
 // remoteRecord represents a single DNS record for remote output
 type remoteRecord struct {
 	Domain     string `json:"domain"`
@@ -1198,12 +831,6 @@ func (r *remoteFormat) Sync() error {
 		payload.Domains[domain] = domainData
 	}
 
-	// Marshal to JSON
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %v", err)
-	}
-
 	// Get auth config from remote config
 	var clientID, token string
 	if val, exists := r.config["client_id"]; exists {
@@ -1215,6 +842,12 @@ func (r *remoteFormat) Sync() error {
 		if strVal, ok := val.(string); ok {
 			token = util.ReadSecretValue(strVal)
 		}
+	}
+
+	// Marshal payload to JSON
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload to JSON: %v", err)
 	}
 
 	// Send HTTP POST request with authentication
@@ -1254,385 +887,5 @@ func (r *remoteFormat) Sync() error {
 
 	// Clear records after successful sync
 	r.records = make(map[string]*remoteRecord)
-	return nil
-}
-
-// hostsRecord represents a single DNS record for hosts file output
-type hostsRecord struct {
-	Domain     string
-	Hostname   string
-	Target     string
-	RecordType string
-	TTL        int
-	Source     string
-	ResolvedIP string // For hosts file, we need the actual IP
-}
-
-// hostsFormat implements hosts file output
-type hostsFormat struct {
-	profileName string
-	config      map[string]interface{}
-	path        string
-	records     map[string]*hostsRecord
-	mutex       sync.RWMutex
-}
-
-func (h *hostsFormat) GetName() string { return "hosts" }
-
-func (h *hostsFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
-	return h.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
-}
-
-func (h *hostsFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
-	key := fmt.Sprintf("%s:%s", domain, hostname)
-	fqdn := hostname + "." + domain
-	if hostname == "@" || hostname == "" {
-		fqdn = domain
-	}
-
-	// Handle CNAME flattening and external resolution based on configuration
-	resolvedIP := target
-	if recordType == "CNAME" {
-		// Check if ip_override is configured first
-		if ipOverride, exists := h.config["ip_override"]; exists {
-			if ipOverrideStr, ok := ipOverride.(string); ok && ipOverrideStr != "" {
-				resolvedIP = ipOverrideStr
-				recordType = "A" // Change to A record since we're overriding
-				log.Debug("[output/hosts/%s] Using IP override %s for CNAME %s -> %s", strings.ReplaceAll(domain, ".", "_"), ipOverrideStr, fqdn, target)
-			}
-		} else if flattenCNAMEs, exists := h.config["flatten_cnames"]; exists && flattenCNAMEs == true {
-			// Check if resolve_external is enabled
-			if resolveExternal, exists := h.config["resolve_external"]; exists && resolveExternal == true {
-				if resolved := h.resolveCNAME(target); resolved != "" {
-					resolvedIP = resolved
-					recordType = "A" // Change to A record since we resolved it
-					log.Debug("[output/hosts/%s] Flattened CNAME %s -> %s to IP %s", strings.ReplaceAll(domain, ".", "_"), fqdn, target, resolvedIP)
-				} else {
-					log.Warn("[output/hosts/%s] Failed to resolve CNAME target %s for %s", strings.ReplaceAll(domain, ".", "_"), target, fqdn)
-				}
-			} else {
-				log.Debug("[output/hosts/%s] CNAME flattening enabled but resolve_external disabled for %s", strings.ReplaceAll(domain, ".", "_"), fqdn)
-			}
-		} else {
-			log.Debug("[output/hosts/%s] CNAME flattening disabled for %s", strings.ReplaceAll(domain, ".", "_"), fqdn)
-		}
-	}
-
-	h.records[key] = &hostsRecord{
-		Domain:     domain,
-		Hostname:   hostname,
-		Target:     target,
-		RecordType: recordType,
-		TTL:        ttl,
-		Source:     source,
-		ResolvedIP: resolvedIP,
-	}
-
-	log.Debug("[output/hosts/%s] Added record: %s -> %s (TTL: %d)", strings.ReplaceAll(domain, ".", "_"), fqdn, resolvedIP, ttl)
-	return nil
-}
-
-func (h *hostsFormat) RemoveRecord(domain, hostname, recordType string) error {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
-	key := fmt.Sprintf("%s:%s", domain, hostname)
-	delete(h.records, key)
-	return nil
-}
-
-func (h *hostsFormat) Sync() error {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
-
-	if len(h.records) == 0 {
-		log.Debug("[output/hosts] No records to write")
-		return nil
-	}
-
-	// Get header comment from config
-	headerComment := "Managed by Herald"
-	if comment, exists := h.config["header_comment"]; exists {
-		if commentStr, ok := comment.(string); ok {
-			headerComment = commentStr
-		}
-	}
-
-	// Build hosts file content
-	content := fmt.Sprintf("# %s\n", headerComment)
-	content += "# Generated: " + time.Now().Format(time.RFC3339) + "\n"
-	content += fmt.Sprintf("# Records: %d unique hostnames\n", len(h.records))
-	content += "\n"
-
-	for _, record := range h.records {
-		fqdn := record.Hostname + "." + record.Domain
-		if record.Hostname == "@" || record.Hostname == "" {
-			fqdn = record.Domain
-		}
-
-		// Use resolved IP if available, otherwise use target
-		ipAddress := record.ResolvedIP
-		if ipAddress == "" {
-			ipAddress = record.Target
-		}
-
-		// For hosts file format: IP hostname
-		if record.RecordType == "A" || record.RecordType == "AAAA" {
-			content += fmt.Sprintf("%s\t%s\n", ipAddress, fqdn)
-		} else if record.RecordType == "CNAME" {
-			// Check if we have a resolved IP
-			if record.ResolvedIP != "" && record.ResolvedIP != record.Target {
-				// CNAME was successfully flattened to IP
-				content += fmt.Sprintf("%s\t%s\n", record.ResolvedIP, fqdn)
-			} else {
-				// CNAME not resolved - comment it out
-				content += fmt.Sprintf("# %s\t%s  # CNAME -> %s (unresolved)\n", "0.0.0.0", fqdn, record.Target)
-			}
-		} else {
-			// Other record types - try to use as IP or comment out
-			if ip := net.ParseIP(ipAddress); ip != nil {
-				content += fmt.Sprintf("%s\t%s\n", ipAddress, fqdn)
-			} else {
-				content += fmt.Sprintf("# %s\t%s  # %s -> %s (not an IP)\n", "0.0.0.0", fqdn, record.RecordType, record.Target)
-			}
-		}
-	}
-
-	// Write to file
-	err := writeFileWithBackup(h.path, []byte(content))
-	if err != nil {
-		return fmt.Errorf("failed to write hosts file %s: %v", h.path, err)
-	}
-
-	log.Info("[output/hosts/%s] Successfully wrote %d records to %s", h.profileName, len(h.records), h.path)
-	return nil
-}
-
-// resolveCNAME resolves a CNAME target to an IP address using configured DNS server
-func (h *hostsFormat) resolveCNAME(target string) string {
-	// Get DNS server from config, default to system resolver
-	dnsServer := "system"
-	if server, exists := h.config["dns_server"]; exists {
-		if serverStr, ok := server.(string); ok {
-			dnsServer = serverStr
-		}
-	}
-
-	// Use custom DNS server if specified
-	if dnsServer != "system" && dnsServer != "" {
-		// Use custom resolver with specified DNS server
-		return h.resolveWithCustomDNS(target, dnsServer)
-	}
-
-	// Use system resolver
-	ips, err := net.LookupIP(target)
-	if err != nil {
-		log.Debug("[output/hosts] Failed to resolve %s using system resolver: %v", target, err)
-		return ""
-	}
-
-	log.Debug("[output/hosts] Found %d IP addresses for %s:", len(ips), target)
-	for i, ip := range ips {
-		log.Debug("[output/hosts]   [%d] %s (IPv4: %v)", i, ip.String(), ip.To4() != nil)
-	}
-
-	// Check if IPv4 is enabled
-	enableIPv4 := true
-	if enable, exists := h.config["enable_ipv4"]; exists {
-		if enableBool, ok := enable.(bool); ok {
-			enableIPv4 = enableBool
-		}
-	}
-
-	// Check if IPv6 is enabled
-	enableIPv6 := false
-	if enable, exists := h.config["enable_ipv6"]; exists {
-		if enableBool, ok := enable.(bool); ok {
-			enableIPv6 = enableBool
-		}
-	}
-
-	// Return the first matching IP address based on preferences
-	for _, ip := range ips {
-		if ip.To4() != nil && enableIPv4 {
-			log.Debug("[output/hosts] Resolved %s to IPv4 %s", target, ip.String())
-			return ip.String()
-		} else if ip.To4() == nil && enableIPv6 {
-			log.Debug("[output/hosts] Resolved %s to IPv6 %s", target, ip.String())
-			return ip.String()
-		}
-	}
-
-	log.Debug("[output/hosts] No suitable IP address found for %s (IPv4=%v, IPv6=%v)", target, enableIPv4, enableIPv6)
-	return ""
-}
-
-// resolveWithCustomDNS resolves using a specific DNS server
-func (h *hostsFormat) resolveWithCustomDNS(target, dnsServer string) string {
-	log.Debug("[output/hosts] Resolving %s using external DNS server %s", target, dnsServer)
-
-	// Use the miekg/dns library for external DNS resolution
-	c := miekgdns.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	m := miekgdns.Msg{}
-	m.SetQuestion(miekgdns.Fqdn(target), miekgdns.TypeA)
-	m.RecursionDesired = true
-
-	// Query the external DNS server
-	r, _, err := c.Exchange(&m, dnsServer+":53")
-	if err != nil {
-		log.Debug("[output/hosts] DNS query failed for %s using server %s: %v", target, dnsServer, err)
-		return ""
-	}
-
-	if r.Rcode != miekgdns.RcodeSuccess {
-		log.Debug("[output/hosts] DNS query returned error code %d for %s using server %s", r.Rcode, target, dnsServer)
-		return ""
-	}
-
-	// Extract A records from the response
-	for _, ans := range r.Answer {
-		if a, ok := ans.(*miekgdns.A); ok {
-			ip := a.A.String()
-			log.Debug("[output/hosts] External DNS resolution: %s -> %s (via %s)", target, ip, dnsServer)
-			return ip
-		}
-	}
-
-	log.Debug("[output/hosts] No A records found for %s using DNS server %s", target, dnsServer)
-	return ""
-}
-
-// zoneRecord represents a single DNS record for zone file output
-type zoneRecord struct {
-	Domain     string
-	Hostname   string
-	Target     string
-	RecordType string
-	TTL        int
-	Source     string
-}
-
-// zoneFormat implements DNS zone file output
-type zoneFormat struct {
-	profileName string
-	config      map[string]interface{}
-	path        string
-	records     map[string]*zoneRecord
-	mutex       sync.RWMutex
-}
-
-func (z *zoneFormat) GetName() string { return "zone" }
-
-func (z *zoneFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
-	return z.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
-}
-
-func (z *zoneFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	z.mutex.Lock()
-	defer z.mutex.Unlock()
-
-	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	z.records[key] = &zoneRecord{
-		Domain:     domain,
-		Hostname:   hostname,
-		Target:     target,
-		RecordType: recordType,
-		TTL:        ttl,
-		Source:     source,
-	}
-
-	log.Debug("[output/zone/%s] Added record: %s %s -> %s (TTL: %d)", strings.ReplaceAll(domain, ".", "_"), hostname, recordType, target, ttl)
-	return nil
-}
-
-func (z *zoneFormat) RemoveRecord(domain, hostname, recordType string) error {
-	z.mutex.Lock()
-	defer z.mutex.Unlock()
-
-	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	delete(z.records, key)
-	return nil
-}
-
-func (z *zoneFormat) Sync() error {
-	z.mutex.RLock()
-	defer z.mutex.RUnlock()
-
-	if len(z.records) == 0 {
-		log.Debug("[output/zone] No records to write")
-		return nil
-	}
-
-	// Get the first domain to use for path substitution
-	firstDomain := ""
-	for _, record := range z.records {
-		if firstDomain == "" {
-			firstDomain = record.Domain
-			break
-		}
-	}
-
-	// Substitute %domain% placeholder in the path
-	actualPath := z.path
-	if firstDomain != "" {
-		// Replace dots with underscores for filename
-		domainForFilename := strings.ReplaceAll(firstDomain, ".", "_")
-		actualPath = strings.ReplaceAll(actualPath, "%domain%", domainForFilename)
-	}
-
-	// Build zone file content
-	content := "; Managed by Herald\n"
-	content += "; Generated: " + time.Now().Format(time.RFC3339) + "\n"
-	content += fmt.Sprintf("; Records: %d entries\n", len(z.records))
-	content += "\n"
-
-	// Add SOA record (basic one)
-	if firstDomain != "" {
-		content += fmt.Sprintf("$ORIGIN %s.\n", firstDomain)
-		content += fmt.Sprintf("@\tIN\tSOA\tns1.%s. admin.%s. (\n", firstDomain, firstDomain)
-		content += fmt.Sprintf("\t\t\t%d\t; serial (timestamp)\n", time.Now().Unix())
-		content += "\t\t\t3600\t; refresh\n"
-		content += "\t\t\t1800\t; retry\n"
-		content += "\t\t\t604800\t; expire\n"
-		content += "\t\t\t86400\t; minimum TTL\n"
-		content += "\t\t\t)\n\n"
-	}
-
-	// Add DNS records
-	for _, record := range z.records {
-		hostname := record.Hostname
-		if hostname == "@" || hostname == "" {
-			hostname = "@"
-		}
-
-		// Zone file format: NAME TTL CLASS TYPE RDATA
-		if record.RecordType == "CNAME" && hostname != "@" {
-			// CNAME records need the dot at the end
-			target := record.Target
-			if !strings.HasSuffix(target, ".") {
-				target += "."
-			}
-			content += fmt.Sprintf("%s\t%d\tIN\t%s\t%s\n", hostname, record.TTL, record.RecordType, target)
-		} else if record.RecordType == "A" || record.RecordType == "AAAA" {
-			content += fmt.Sprintf("%s\t%d\tIN\t%s\t%s\n", hostname, record.TTL, record.RecordType, record.Target)
-		} else {
-			// Generic record
-			content += fmt.Sprintf("%s\t%d\tIN\t%s\t%s\n", hostname, record.TTL, record.RecordType, record.Target)
-		}
-	}
-
-	// Write to file
-	err := writeFileWithBackup(actualPath, []byte(content))
-	if err != nil {
-		return fmt.Errorf("failed to write zone file %s: %v", actualPath, err)
-	}
-
-	log.Info("[output/zone/%s] Successfully wrote %d records to %s", z.profileName, len(z.records), actualPath)
 	return nil
 }

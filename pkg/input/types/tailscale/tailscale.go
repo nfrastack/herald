@@ -128,8 +128,8 @@ type TailscaleProvider struct {
 	logPrefix          string
 	profileName        string
 	logger             *log.ScopedLogger
-	lastKnownRecords   map[string]string // hostname:recordType -> target, to track changes
-	lastEntries        []DNSEntry        // Track last poll entries like ZeroTier
+	lastKnownRecords   map[string]string   // hostname:recordType -> target, to track changes
+	lastEntries        []DNSEntry          // Track last poll entries like ZeroTier
 	outputWriter       domain.OutputWriter // Injected dependency
 	outputSyncer       domain.OutputSyncer // Injected dependency
 

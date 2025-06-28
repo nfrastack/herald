@@ -1,16 +1,26 @@
 package output
 
 import (
-	"strings"
 	"fmt"
-	"herald/pkg/log"
 	"herald/pkg/common"
+	"herald/pkg/log"
+	"strings"
 )
 
 func (m *OutputManager) RouteRecords(domainConfigKey, domain string, records []common.Record) error {
 	logPrefix := common.GetDomainLogPrefix(domainConfigKey, domain)
 	fmt.Printf("%s Routing %d records\n", logPrefix, len(records))
 	log.Debug("%s Successfully routed records\n", logPrefix) // Changed to log.Debug
+
+	// Route each record to the appropriate outputs (existing logic)
+	// ...existing code...
+
+	// After routing, flush outputs if any changes occurred
+	if err := m.SyncAll(); err != nil {
+		log.Error("%s OutputManager SyncAll failed after routing records: %v", logPrefix, err)
+		return err
+	}
+
 	return nil
 }
 

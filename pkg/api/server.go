@@ -394,8 +394,8 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 
 // aggregateAndWrite combines all client data and writes to the specified output profile
 func (s *APIServer) aggregateAndWrite(connID string) {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	s.logger.Trace("[%s] Starting data aggregation and write process", connID)
 
@@ -576,20 +576,20 @@ func (s *APIServer) initializeAPIOutputProfiles(outputConfigs map[string]interfa
 			profilesNeeded[profile.OutputProfile] = true
 		}
 	}
-	
+
 	if len(profilesNeeded) == 0 {
 		s.logger.Debug("No API output profiles needed")
 		return nil
 	}
-	
+
 	// Convert to slice for InitializeOutputManagerWithProfiles
 	enabledProfiles := make([]string, 0, len(profilesNeeded))
 	for profileName := range profilesNeeded {
 		enabledProfiles = append(enabledProfiles, profileName)
 	}
-	
+
 	s.logger.Debug("Initializing API output profiles: %v", enabledProfiles)
-	
+
 	// Debug: check if the profile exists in config
 	for _, profileName := range enabledProfiles {
 		if _, exists := outputConfigs[profileName]; exists {
@@ -598,14 +598,14 @@ func (s *APIServer) initializeAPIOutputProfiles(outputConfigs map[string]interfa
 			s.logger.Error("API output profile '%s' not found in config", profileName)
 		}
 	}
-	
+
 	// Initialize output manager with only the profiles the API needs
 	err := output.InitializeOutputManagerWithProfiles(outputConfigs, enabledProfiles)
 	if err != nil {
 		s.logger.Error("Failed to initialize API output manager: %v", err)
 		return err
 	}
-	
+
 	// Store reference to the API server's output manager
 	s.outputManager = output.GetOutputManager()
 	s.logger.Debug("Successfully initialized API output manager")
@@ -657,7 +657,7 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		}
 
 		server.LoadClientProfiles(resolvedProfiles)
-		
+
 		// Initialize API server's output manager after loading client profiles
 		server.logger.Debug("About to initialize API output profiles...")
 		if err := server.initializeAPIOutputProfiles(globalConfig.Outputs); err != nil {

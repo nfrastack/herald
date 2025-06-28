@@ -1,4 +1,4 @@
-## 2.0.2beta3 2025-06-26 <code at nfrastack dot com>
+## 2.0.2beta8 2025-06-26 <code at nfrastack dot com>
 
    ### Changed
    - (domain) Log that an Input Provider is overriding an IP Address properly

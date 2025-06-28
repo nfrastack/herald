@@ -66,8 +66,8 @@ type FileProvider struct {
 	cancel             context.CancelFunc
 	logPrefix          string
 	isInitialLoad      bool
-	logger             *log.ScopedLogger // provider-specific logger
-	name               string // Profile name
+	logger             *log.ScopedLogger   // provider-specific logger
+	name               string              // Profile name
 	outputWriter       domain.OutputWriter // Injected dependency
 	outputSyncer       domain.OutputSyncer // Injected dependency
 }
