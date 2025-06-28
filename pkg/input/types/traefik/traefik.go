@@ -68,9 +68,9 @@ type TraefikProvider struct {
 
 	initialPollDone bool // Track if initial poll is complete
 
-	opts common.PollProviderOptions // Add parsed options struct
-	outputWriter domain.OutputWriter // Injected dependency
-	outputSyncer domain.OutputSyncer // Injected dependency
+	opts         common.PollProviderOptions // Add parsed options struct
+	outputWriter domain.OutputWriter        // Injected dependency
+	outputSyncer domain.OutputSyncer        // Injected dependency
 
 	logger *log.ScopedLogger // provider-specific logger
 }
@@ -956,7 +956,6 @@ func (t *TraefikProvider) processRouterUpdate(state domain.RouterState) {
 func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
 	// Create batch processor for efficient sync handling
 	batchProcessor := domain.NewBatchProcessor(t.logPrefix, t.outputWriter, t.outputSyncer)
-
 
 	hostnames := util.ExtractHostsFromRule(state.Rule)
 	for _, hostname := range hostnames {

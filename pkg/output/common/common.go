@@ -7,6 +7,7 @@ package common
 import (
 	"herald/pkg/log"
 
+	"bytes"
 	"fmt"
 	"os"
 	"os/user"
@@ -16,7 +17,34 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"runtime"
 )
+
+// expandTags replaces template tags in s with values from domain, profile, etc.
+func expandTags(s, domain, profile string) string {
+	domainUnderscore := strings.ReplaceAll(domain, ".", "_")
+	now := time.Now().Format("20060102-150405") // yyyymmdd-hhmmss
+	replacer := strings.NewReplacer(
+		"%domain%", domain,
+		"%domain_underscore%", domainUnderscore,
+		"%date%", now,
+		"%profile%", profile,
+	)
+	return replacer.Replace(s)
+}
+
+// Like expandTags, but always replaces %domain% with underscores for filenames
+func expandTagsWithUnderscore(s, domain, profile string) string {
+	domainUnderscore := strings.ReplaceAll(domain, ".", "_")
+	now := time.Now().Format("20060102-150405")
+	replacer := strings.NewReplacer(
+		"%domain%", domainUnderscore, // always use underscores for %domain%
+		"%domain_underscore%", domainUnderscore,
+		"%date%", now,
+		"%profile%", profile,
+	)
+	return replacer.Replace(s)
+}
 
 // setFileOwnership is a common helper function to set file ownership and permissions
 func setFileOwnership(filePath string, config map[string]interface{}, logger *log.ScopedLogger) error {
@@ -112,11 +140,33 @@ type CommonFormat struct {
 	formatName  string            // Track the actual format name
 	logger      *log.ScopedLogger // provider-specific logger
 	mutex       sync.RWMutex      // Add mutex for thread safety
+	realDomain  string            // the real DNS domain for file naming/tag expansion
 }
 
-// GetFilePath returns the file path
+// GetConfig returns the config map
+func (c *CommonFormat) GetConfig() map[string]interface{} {
+	return c.config
+}
+
+// GetDomain returns the domain (profileName)
+func (c *CommonFormat) GetDomain() string {
+	return c.profileName
+}
+
+// GetProfile returns the profile name (same as domain for file outputs)
+func (c *CommonFormat) GetProfile() string {
+	return c.profileName
+}
+
+// GetFilePath returns the expanded file path for this output
 func (c *CommonFormat) GetFilePath() string {
-	return c.path
+	path := c.path
+	if c.config != nil {
+		if p, ok := c.config["path"].(string); ok && p != "" {
+			path = p
+		}
+	}
+	return expandTags(path, c.GetDomain(), c.GetProfile())
 }
 
 // GetUser returns the user
@@ -137,6 +187,11 @@ func (c *CommonFormat) GetMode() os.FileMode {
 // GetLogPrefix returns the log prefix
 func (c *CommonFormat) GetLogPrefix() string {
 	return c.logPrefix
+}
+
+// GetLogger returns the scoped logger for this output
+func (c *CommonFormat) GetLogger() *log.ScopedLogger {
+	return c.logger
 }
 
 // Lock acquires the mutex
@@ -236,6 +291,12 @@ func NewCommonFormat(domain, formatName string, config map[string]interface{}) (
 		scopedLogger.Info("Output format log_level set to: '%s'", logLevel)
 	}
 
+	// Set realDomain from config if available
+	realDomain := domain
+	if d, ok := config["domain"].(string); ok && d != "" {
+		realDomain = d
+	}
+
 	format := &CommonFormat{
 		profileName: domain,
 		config:      config,
@@ -249,6 +310,7 @@ func NewCommonFormat(domain, formatName string, config map[string]interface{}) (
 		metadata:    &BaseMetadata{Generator: "herald"},
 		formatName:  formatName,
 		logger:      scopedLogger,
+		realDomain:  realDomain,
 	}
 
 	format.logger.Debug("Initialized %s format: %s", formatName, format.path)
@@ -433,9 +495,15 @@ func (c *CommonFormat) LoadExistingData(unmarshalFunc func([]byte, interface{}) 
 }
 
 // SyncWithSerializer writes data using the provided serialization function
-func (c *CommonFormat) SyncWithSerializer(serializeFunc func(*ExportData) ([]byte, error)) error {
+func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, export *ExportData) ([]byte, error), fallbackDomain ...string) error {
+	gid := getGID()
 	c.Lock()
-	defer c.Unlock()
+	defer func() {
+		c.Unlock()
+		log.Debug("%s [SyncWithSerializer] [GID=%d] Released lock", c.GetLogPrefix(), gid)
+	}()
+
+	log.Debug("%s [SyncWithSerializer] [GID=%d] Starting file sync", c.GetLogPrefix(), gid)
 
 	// Create directory if it doesn't exist
 	if err := c.EnsureDirectory(); err != nil {
@@ -443,38 +511,102 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(*ExportData) ([]byt
 		return err
 	}
 
-	// Get export data
 	export := c.GetExportData()
-
-	// Serialize data
-	data, err := serializeFunc(export)
-	if err != nil {
-		log.Error("%s Failed to serialize data: %v", c.GetLogPrefix(), err)
-		return fmt.Errorf("failed to serialize data: %v", err)
+	if export.Domains == nil || len(export.Domains) == 0 {
+		log.Warn("%s [SyncWithSerializer] No domains to export, calling serializer with empty export", c.GetLogPrefix())
+		// Use fallbackDomain for tag expansion and serializer domain argument
+		var domain string
+		if len(fallbackDomain) > 0 && fallbackDomain[0] != "" {
+			domain = fallbackDomain[0]
+		} else {
+			domain = c.GetDomain()
+		}
+		data, err := serializeFunc(domain, export)
+		if err != nil {
+			log.Error("%s Failed to serialize empty export: %v", c.GetLogPrefix(), err)
+			return fmt.Errorf("failed to serialize empty export: %v", err)
+		}
+		path := c.path
+		if c.config != nil {
+			if p, ok := c.config["path"].(string); ok && p != "" {
+				path = p
+			}
+		}
+		// PATCH: Use expandTagsWithUnderscore for all file outputs to normalize %domain% in filenames
+		filename := path
+		if strings.Contains(path, "%domain%") || strings.Contains(path, "%domain_underscore%") {
+			filename = expandTagsWithUnderscore(path, domain, c.GetProfile())
+		}
+		if err := os.WriteFile(filename, data, 0644); err != nil {
+			log.Error("%s Failed to write file for empty export: %v", c.GetLogPrefix(), err)
+			return fmt.Errorf("failed to write file for empty export: %v", err)
+		}
+		c.logger.Debug("fsnotify event: Name='%s', Op=WRITE", filename)
+		if err := setFileOwnership(filename, c.config, c.logger); err != nil {
+			log.Warn("%s Failed to set file ownership for %s: %v", c.GetLogPrefix(), filename, err)
+		}
+		log.Debug("%s [SyncWithSerializer] Empty export file written successfully", c.GetLogPrefix())
+		return nil
 	}
 
-	// Write to file
-	if err := os.WriteFile(c.GetFilePath(), data, 0644); err != nil {
-		log.Error("%s Failed to write file: %v", c.GetLogPrefix(), err)
-		return fmt.Errorf("failed to write file: %v", err)
-	}
-	c.logger.Trace("fsnotify event: Name='%s', Op=WRITE", c.GetFilePath())
+	for domain := range export.Domains {
+		// Tag expansion for filename uses domain with underscores ONLY
+		path := c.path
+		if c.config != nil {
+			if p, ok := c.config["path"].(string); ok && p != "" {
+				path = p
+			}
+		}
+		// Enforce: replace any %domain% in the path with %domain_underscore%
+		path = strings.ReplaceAll(path, "%domain%", "%domain_underscore%")
+		filename := expandTags(path, domain, c.GetProfile())
 
-	// Set file ownership if specified
-	if err := c.SetFileOwnership(); err != nil {
-		log.Warn("%s Failed to set file ownership: %v", c.GetLogPrefix(), err)
-	}
+		// Serialize data for this domain only
+		perDomainExport := &ExportData{
+			Metadata: export.Metadata,
+			Domains:  map[string]*BaseDomain{domain: export.Domains[domain]},
+		}
+		data, err := serializeFunc(domain, perDomainExport)
+		if err != nil {
+			log.Error("%s Failed to serialize data for domain %s: %v", c.GetLogPrefix(), domain, err)
+			return fmt.Errorf("failed to serialize data for domain %s: %v", domain, err)
+		}
 
-	// Remove old verbose logging - let individual formats handle their own logging
+		if err := os.WriteFile(filename, data, 0644); err != nil {
+			log.Error("%s Failed to write file for domain %s: %v", c.GetLogPrefix(), domain, err)
+			return fmt.Errorf("failed to write file for domain %s: %v", domain, err)
+		}
+		c.logger.Debug("fsnotify event: Name='%s', Op=WRITE", filename)
+
+		if err := setFileOwnership(filename, c.config, c.logger); err != nil {
+			log.Warn("%s Failed to set file ownership for %s: %v", c.GetLogPrefix(), filename, err)
+		}
+	}
+	log.Debug("%s [SyncWithSerializer] All files written successfully", c.GetLogPrefix())
 	return nil
 }
 
-// GetName returns the format name
-func (c *CommonFormat) GetName() string {
-	return c.formatName
+// --- Aggressive logging helpers ---
+func nowMillis() int64 {
+	return time.Now().UnixNano() / 1e6
 }
 
-// GetRecordCount returns the number of records currently stored
-func (c *CommonFormat) GetRecordCount() int {
-	return len(c.records)
+func getGID() int64 {
+	b := make([]byte, 64)
+	b = b[:runtime.Stack(b, false)]
+	b = bytes.TrimPrefix(b, []byte("goroutine "))
+	b = b[:bytes.IndexByte(b, ' ')]
+	gid, _ := parseIntBytes(b)
+	return gid
+}
+
+func parseIntBytes(b []byte) (int64, error) {
+	var n int64
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			break
+		}
+		n = n*10 + int64(c-'0')
+	}
+	return n, nil
 }

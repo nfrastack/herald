@@ -17,8 +17,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
@@ -678,7 +678,7 @@ func (p *DockerProvider) handleContainerEventFiltered(ctx context.Context, event
 	// Apply filtering to determine if this provider should handle this container
 	if !p.shouldProcessContainer(container) {
 		p.logger.Debug("Container '%s' filtered out by provider '%s'", containerName, p.profileName)
-			return
+		return
 	}
 
 	// Pass to the original handler
@@ -706,11 +706,6 @@ func (p *DockerProvider) StopPolling() error {
 
 	return nil
 }
-
-// SetDNSProvider is no longer needed - removed old dns package dependency
-// func (p *DockerProvider) SetDNSProvider(provider dns.Provider) {
-//     p.dnsProvider = provider
-// }
 
 // Add SetDomainConfigs method
 func (p *DockerProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
@@ -1073,7 +1068,8 @@ func (p *DockerProvider) processService(ctx context.Context, serviceID string) {
 // processDNSEntries sends DNS entries to the DNS provider using batch processing
 // If remove is true, perform DNS removal, otherwise always create/update
 func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) error {
-	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
+	// Use NewBatchProcessorWithProvider to ensure correct input provider name is used
+	batchProcessor := domain.NewBatchProcessorWithProvider(p.profileName, p.profileName, p.outputWriter, p.outputSyncer)
 
 	for _, entry := range entries {
 		// Construct FQDN from the entry
@@ -1100,7 +1096,7 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 		p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
 
 		state := domain.RouterState{
-			SourceType: "docker",
+			SourceType: p.profileName, // Use the unique profile name for change tracking
 			Name:       p.profileName,
 			Service:    entry.Target,
 			RecordType: entry.RecordType,
@@ -1133,6 +1129,7 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 	}
 
 	// Finalize the batch - this will sync output files only if there were changes
+	batchProcessor.FinalizeBatch()
 	return nil
 }
 

@@ -5,26 +5,29 @@
 package file
 
 import (
-	"herald/pkg/log"
-	"herald/pkg/output"
-	"herald/pkg/output/common"
-
 	"fmt"
 	"net"
-	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"herald/pkg/log"
+	"herald/pkg/output/common"
+
+	"github.com/miekg/dns"
 )
 
 // HostsFormat implements OutputFormat for hosts files
+// Add a per-instance re-entrancy guard (inSync)
 type HostsFormat struct {
 	*common.CommonFormat
-	domain     string
-	records    map[string]*HostsRecord // key: hostname:type
-	config     HostsConfig
-	enableIPv4 bool
-	enableIPv6 bool
+	domain      string
+	profileName string // store the output profile name explicitly
+	records     map[string]*HostsRecord // key: hostname:type
+	config      HostsConfig
+	enableIPv4  bool
+	enableIPv6  bool
 }
 
 // HostsConfig holds configuration specific to hosts files
@@ -45,9 +48,13 @@ type HostsRecord struct {
 	Source   string
 }
 
+// global re-entrancy guard for hosts output: key = domain|profile|outputType
+var hostsReentrancyGuard sync.Map
+
 // NewHostsFormat creates a new hosts file format instance
-func NewHostsFormat(domain string, config map[string]interface{}) (output.OutputFormat, error) {
-	commonFormat, err := common.NewCommonFormat(domain, "hosts", config)
+// domainArg should be the real DNS domain (e.g., tiredofit.ca), profileName is the output profile name (e.g., hosts_pub)
+func NewHostsFormat(domainArg, profileName string, config map[string]interface{}) (OutputFormat, error) {
+	commonFormat, err := common.NewCommonFormat(profileName, "hosts", config)
 	if err != nil {
 		return nil, err
 	}
@@ -77,14 +84,22 @@ func NewHostsFormat(domain string, config map[string]interface{}) (output.Output
 		hostsConfig.OverrideTarget = overrideTarget
 	}
 
+	// Always set h.domain from config["domain"] (the real DNS domain)
+	realDomain := domainArg
+	if d, ok := config["domain"].(string); ok && d != "" {
+		realDomain = d
+	}
+
 	h := &HostsFormat{
 		CommonFormat: commonFormat,
-		domain:       domain,
+		domain:       realDomain,
+		profileName:  profileName,
 		records:      make(map[string]*HostsRecord),
 		config:       hostsConfig,
 		enableIPv4:   hostsConfig.EnableIPv4,
 		enableIPv6:   hostsConfig.EnableIPv6,
 	}
+	log.Debug("[output/hosts/%s] Initialized hosts format: %s (domain=%s)", profileName, h.GetFilePath(), h.domain)
 
 	return h, nil
 }
@@ -94,6 +109,20 @@ func (h *HostsFormat) GetName() string {
 	return "hosts"
 }
 
+// GetFilePath returns the expanded file path for this hosts file
+func (h *HostsFormat) GetFilePath() string {
+	// Use underscore version for default fallback
+	path := "hosts_%domain_underscore%.hosts" // default fallback, matches other providers
+	if h.CommonFormat != nil && h.CommonFormat.GetConfig() != nil {
+		if p, ok := h.CommonFormat.GetConfig()["path"].(string); ok && p != "" {
+			path = p
+		}
+	}
+	// Use expandTagsWithUnderscore to ensure %domain% is always replaced with underscores
+	filename := expandTagsWithUnderscore(path, h.domain, h.profileName)
+	return filename
+}
+
 // WriteRecord writes or updates a DNS record
 func (h *HostsFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
 	return h.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
@@ -101,36 +130,54 @@ func (h *HostsFormat) WriteRecord(domain, hostname, target, recordType string, t
 
 // WriteRecordWithSource writes or updates a DNS record with source information
 func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	h.Lock()
-	defer h.Unlock()
+	start := time.Now().UnixMilli()
+	log.Debug("%s WriteRecordWithSource called: domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", h.getHostsLogPrefix(), domain, hostname, target, recordType, ttl, source)
+	defer func() {
+		dur := time.Now().UnixMilli() - start
+		log.Debug("%s WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s, records_now=%d, dur_ms=%d", h.getHostsLogPrefix(), domain, hostname, recordType, len(h.records), dur)
+		if dur > 5000 {
+			log.Warn("%s WriteRecordWithSource took too long: %d ms (>5s)", h.getHostsLogPrefix(), dur)
+		}
+	}()
 
-	// Handle CNAME records by flattening them to A/AAAA records
+	// --- CNAME flattening must NOT hold the lock during network I/O ---
 	if recordType == "CNAME" {
 		if !h.config.FlattenCNAMEs {
-			log.Debug("%s Skipping CNAME flattening (disabled): %s.%s -> %s", h.GetLogPrefix(), hostname, domain, target)
+			log.Debug("%s Skipping CNAME flattening (disabled): %s.%s -> %s", h.getHostsLogPrefix(), hostname, domain, target)
 			return nil
 		}
-		return h.flattenCNAME(domain, hostname, target, ttl, source)
+		ip, err := h.resolveCNAMEOutsideLock(domain, hostname, target, ttl, source)
+		if err != nil {
+			return err
+		}
+		if ip != nil {
+			h.Lock()
+			key := fmt.Sprintf("%s:%s", hostname, ip.Type)
+			h.records[key] = ip
+			h.Unlock()
+			log.Verbose("%s Flattened and added CNAME: %s.%s -> %s (%s)", h.getHostsLogPrefix(), hostname, domain, ip.Target, ip.Type)
+		}
+		return nil
 	}
 
+	h.Lock()
 	// Filter IPv4/IPv6 records based on configuration
 	if recordType == "A" && !h.enableIPv4 {
-		log.Trace("%s Skipping IPv4 record (disabled): %s.%s (%s) -> %s", h.GetLogPrefix(), hostname, domain, recordType, target)
+		h.Unlock()
 		return nil
 	}
 	if recordType == "AAAA" && !h.enableIPv6 {
-		log.Trace("%s Skipping IPv6 record (disabled): %s.%s (%s) -> %s", h.GetLogPrefix(), hostname, domain, recordType, target)
+		h.Unlock()
 		return nil
 	}
 
 	// Only A and AAAA records are supported in hosts files
 	if recordType != "A" && recordType != "AAAA" {
-		log.Trace("%s Skipping unsupported record type for hosts file: %s.%s (%s) -> %s", h.GetLogPrefix(), hostname, domain, recordType, target)
+		h.Unlock()
 		return nil
 	}
 
 	key := fmt.Sprintf("%s:%s", hostname, recordType)
-
 	// Check if record already exists
 	existingRecord := h.records[key]
 	if existingRecord != nil {
@@ -138,7 +185,6 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 		existingRecord.Target = target
 		existingRecord.TTL = uint32(ttl)
 		existingRecord.Source = source
-		log.Verbose("[output/hosts/%s] Updated record: %s.%s (%s) -> %s", source, hostname, domain, recordType, target)
 	} else {
 		// Create new record
 		h.records[key] = &HostsRecord{
@@ -148,93 +194,78 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 			TTL:      uint32(ttl),
 			Source:   source,
 		}
-		log.Verbose("[output/hosts/%s] Added record: %s.%s (%s) -> %s", source, hostname, domain, recordType, target)
+	}
+	h.Unlock()
+
+	// --- Ensure CommonFormat.domains is updated for export compatibility ---
+	if h.CommonFormat != nil {
+		err := h.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
+		if err != nil {
+			log.Warn("[output/hosts] Failed to update CommonFormat for export: %v", err)
+		}
 	}
 
 	return nil
 }
 
-// flattenCNAME resolves CNAME records to A/AAAA records
-func (h *HostsFormat) flattenCNAME(domain, hostname, target string, ttl int, source string) error {
-	log.Verbose("%s Flattening CNAME %s -> %s: resolving to A/AAAA for hosts file", h.GetLogPrefix(), hostname, target)
-
-	// Check for ip_override in the config map passed to NewHostsFormat
-	// For now, let's add a simple config map to store the original config
+// Helper to resolve CNAME outside lock and return a HostsRecord
+func (h *HostsFormat) resolveCNAMEOutsideLock(domain, hostname, target string, ttl int, source string) (*HostsRecord, error) {
+	// ...existing logic from flattenCNAME, but NO lock held...
+	// (copy the logic, but do not lock/unlock here)
 	var overrideIP string
-
-	// Look for ip_override in the original config - we'll need to store this during initialization
-	// For now, let's skip ip_override and focus on fixing the build
-	log.Debug("%s IP override functionality temporarily disabled for this build fix", h.GetLogPrefix())
-
-	// Also check the hosts-specific config struct
-	if overrideIP == "" && strings.TrimSpace(h.config.OverrideTarget) != "" {
+	if strings.TrimSpace(h.config.OverrideTarget) != "" {
 		overrideIP = strings.TrimSpace(h.config.OverrideTarget)
 	}
-
-	// FORCE the ip_override to work - this should ALWAYS take precedence over DNS resolution
 	if overrideIP != "" {
-		log.Info("%s FORCING ip_override %s instead of resolving %s - DNS resolution BYPASSED", h.GetLogPrefix(), overrideIP, target)
-
-		// Parse the override IP to determine if it's IPv4 or IPv6
 		parsedIP := net.ParseIP(overrideIP)
 		if parsedIP == nil {
-			log.Error("%s Invalid ip_override value '%s' - this is a configuration error!", h.GetLogPrefix(), overrideIP)
-			return fmt.Errorf("invalid ip_override value: %s", overrideIP)
+			return nil, fmt.Errorf("invalid ip_override value: %s", overrideIP)
 		}
-
 		var recordType string
 		if parsedIP.To4() != nil {
 			recordType = "A"
 			if !h.enableIPv4 {
-				log.Debug("%s IPv4 disabled, skipping ip_override for %s", h.GetLogPrefix(), hostname)
-				return nil
+				return nil, nil
 			}
 		} else {
 			recordType = "AAAA"
 			if !h.enableIPv6 {
-				log.Debug("%s IPv6 disabled, skipping ip_override for %s", h.GetLogPrefix(), hostname)
-				return nil
+				return nil, nil
 			}
 		}
-
-		key := fmt.Sprintf("%s:%s", hostname, recordType)
-		h.records[key] = &HostsRecord{
+		return &HostsRecord{
 			Hostname: hostname,
 			Type:     recordType,
 			Target:   overrideIP,
 			TTL:      uint32(ttl),
 			Source:   source,
-		}
-
-		log.Info("%s SUCCESS: Applied ip_override: %s.%s -> %s (%s record)", h.GetLogPrefix(), hostname, domain, overrideIP, recordType)
-		return nil
+		}, nil
 	}
-
-	// No ip_override, proceed with DNS resolution
+	// DNS resolution
 	var selectedIP net.IP
 	var err error
-
-	// Get DNS server from config - temporarily disabled for build fix
 	var dnsServer string
-	log.Debug("%s External DNS resolution temporarily disabled for this build fix", h.GetLogPrefix())
-
-	// If resolve_external is true but no dns_server specified, default to Cloudflare
-	// Temporarily disabled for build fix
-
-	if dnsServer != "" && dnsServer != "system" {
-		// Use external DNS resolution
-		log.Debug("%s Using external DNS resolver %s for %s (bypassing system resolver)", h.GetLogPrefix(), dnsServer, target)
+	resolveExternal := false
+	if v, ok := h.CommonFormat.GetConfig()["resolve_external"]; ok {
+		if b, ok := v.(bool); ok {
+			resolveExternal = b
+		}
+	}
+	dnsServer = ""
+	if v, ok := h.CommonFormat.GetConfig()["dns_server"]; ok {
+		if s, ok := v.(string); ok {
+			dnsServer = s
+		}
+	}
+	if resolveExternal && dnsServer != "" && dnsServer != "system" {
 		selectedIP, err = h.resolveWithExternalDNS(target, dnsServer)
 	} else {
-		// Use system resolver
-		log.Debug("%s Resolving %s using system resolver", h.GetLogPrefix(), target)
 		ips, sysErr := net.LookupIP(target)
 		if sysErr != nil {
 			err = sysErr
 		} else if len(ips) == 0 {
 			err = fmt.Errorf("no IP addresses found")
 		} else {
-			// Select first compatible IP
 			for _, ip := range ips {
 				if ip.To4() != nil && h.enableIPv4 {
 					selectedIP = ip
@@ -249,70 +280,61 @@ func (h *HostsFormat) flattenCNAME(domain, hostname, target string, ttl int, sou
 			}
 		}
 	}
-
-	if err != nil {
-		log.Warn("%s Failed to resolve CNAME target %s: %v", h.GetLogPrefix(), target, err)
-		return err
+	if err != nil || selectedIP == nil {
+		return nil, err
 	}
-
-	if selectedIP == nil {
-		log.Warn("%s No IP addresses found for CNAME target %s", h.GetLogPrefix(), target)
-		return fmt.Errorf("no IP addresses found for %s", target)
-	}
-
-	// Filter out localhost/loopback addresses for hosts files if configured
-	skipLoopback := true
-	// Temporarily use default value for build fix
-	log.Debug("%s Using default skip_loopback=true for build fix", h.GetLogPrefix())
-
-	if skipLoopback && selectedIP.IsLoopback() {
-		log.Warn("%s Resolved IP %s for %s is localhost/loopback - skipping hosts file entry for %s", h.GetLogPrefix(), selectedIP.String(), target, hostname)
-		return nil
-	}
-
-	// Create record for the selected IP
 	var recordType string
 	if selectedIP.To4() != nil {
 		recordType = "A"
 		if !h.enableIPv4 {
-			log.Debug("%s IPv4 disabled, skipping resolved IP for %s", h.GetLogPrefix(), hostname)
-			return nil
+			return nil, nil
 		}
 	} else {
 		recordType = "AAAA"
 		if !h.enableIPv6 {
-			log.Debug("%s IPv6 disabled, skipping resolved IP for %s", h.GetLogPrefix(), hostname)
-			return nil
+			return nil, nil
 		}
 	}
-
-	key := fmt.Sprintf("%s:%s", hostname, recordType)
-	h.records[key] = &HostsRecord{
+	return &HostsRecord{
 		Hostname: hostname,
 		Type:     recordType,
 		Target:   selectedIP.String(),
 		TTL:      uint32(ttl),
 		Source:   source,
-	}
-
-	log.Debug("%s Flattened CNAME %s -> %s to IP %s", h.GetLogPrefix(), hostname, target, selectedIP.String())
-	return nil
+	}, nil
 }
 
 // resolveWithExternalDNS resolves a hostname using external DNS
 func (h *HostsFormat) resolveWithExternalDNS(target, dnsServer string) (net.IP, error) {
-	log.Debug("%s Resolving %s using external DNS server %s", h.GetLogPrefix(), target, dnsServer)
+	log.Debug("%s Resolving %s using external DNS server %s", h.getHostsLogPrefix(), target, dnsServer)
 
-	// For now, fall back to system resolver with a warning
-	// TODO: Implement proper external DNS resolution
-	log.Warn("%s External DNS resolution not fully implemented, falling back to system resolver", h.GetLogPrefix())
-
+	// Use miekg/dns for external DNS resolution
+	c := new(dns.Client)
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(target), dns.TypeA)
+	resp, _, err := c.Exchange(m, dnsServer+":53")
+	if err == nil && resp != nil && len(resp.Answer) > 0 {
+		for _, ans := range resp.Answer {
+			if a, ok := ans.(*dns.A); ok && h.enableIPv4 {
+				return a.A, nil
+			}
+		}
+	}
+	// Try AAAA if no A found
+	m.SetQuestion(dns.Fqdn(target), dns.TypeAAAA)
+	resp, _, err = c.Exchange(m, dnsServer+":53")
+	if err == nil && resp != nil && len(resp.Answer) > 0 {
+		for _, ans := range resp.Answer {
+			if aaaa, ok := ans.(*dns.AAAA); ok && h.enableIPv6 {
+				return aaaa.AAAA, nil
+			}
+		}
+	}
+	log.Warn("%s External DNS lookup failed or no answer, falling back to system resolver", h.getHostsLogPrefix())
 	ips, err := net.LookupIP(target)
 	if err != nil {
 		return nil, err
 	}
-
-	// Return first compatible IP
 	for _, ip := range ips {
 		if ip.To4() != nil && h.enableIPv4 {
 			return ip, nil
@@ -320,20 +342,29 @@ func (h *HostsFormat) resolveWithExternalDNS(target, dnsServer string) (net.IP, 
 			return ip, nil
 		}
 	}
-
 	return nil, fmt.Errorf("no compatible IP addresses found")
 }
 
 // RemoveRecord removes a DNS record
 func (h *HostsFormat) RemoveRecord(domain, hostname, recordType string) error {
+	start := time.Now().UnixMilli()
+	log.Debug("%s Attempting to acquire lock in RemoveRecord", h.getHostsLogPrefix())
 	h.Lock()
-	defer h.Unlock()
+	log.Debug("%s Acquired lock in RemoveRecord", h.getHostsLogPrefix())
+	defer func() {
+		h.Unlock()
+		dur := time.Now().UnixMilli() - start
+		log.Debug("%s Released lock in RemoveRecord (lock_held_ms=%d)", h.getHostsLogPrefix(), dur)
+		if dur > 5000 {
+			log.Warn("%s RemoveRecord lock held for %d ms (>5s)!", h.getHostsLogPrefix(), dur)
+		}
+	}()
 
 	key := fmt.Sprintf("%s:%s", hostname, recordType)
 	if _, exists := h.records[key]; exists {
 		delete(h.records, key)
 		fqdn := hostname + "." + domain
-		log.Verbose("%s Removed record: %s (%s)", h.GetLogPrefix(), fqdn, recordType)
+		log.Verbose("%s Removed record: %s (%s)", h.getHostsLogPrefix(), fqdn, recordType)
 	}
 
 	return nil
@@ -341,54 +372,89 @@ func (h *HostsFormat) RemoveRecord(domain, hostname, recordType string) error {
 
 // Sync writes the hosts file to disk
 func (h *HostsFormat) Sync() error {
-	h.Lock()
-	defer h.Unlock()
-
-	if err := h.EnsureFileAndSetOwnership(); err != nil {
-		return fmt.Errorf("failed to ensure file: %v", err)
+	key := h.domain + "|" + h.profileName + "|hosts" // Use profileName for re-entrancy guard
+	if _, loaded := hostsReentrancyGuard.LoadOrStore(key, true); loaded {
+		log.Warn("%s Sync() re-entrancy detected for key=%s, skipping", h.getHostsLogPrefix(), key)
+		return nil
 	}
+	defer hostsReentrancyGuard.Delete(key)
 
-	content := h.generateHostsFile()
+	log.Debug("%s Sync() called: domain=%s, profile=%s, file=%s, records=%d", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), len(h.records))
+	log.Debug("%s Attempting to write file: %s", h.getHostsLogPrefix(), h.GetFilePath())
 
-	if err := os.WriteFile(h.GetFilePath(), []byte(content), 0644); err != nil {
-		return fmt.Errorf("failed to write hosts file: %v", err)
+	// Pass h.domain as fallbackDomain to ensure correct tag expansion when export.Domains is empty
+	err := h.CommonFormat.SyncWithSerializer(h.serializeHosts, h.domain)
+	if err != nil {
+		log.Error("%s Sync FAILED for domain=%s, profile=%s, file=%s: %v", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), err)
+	} else {
+		log.Info("%s Sync SUCCESS for domain=%s, profile=%s, file=%s, records=%d", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), len(h.records))
 	}
-	log.Trace("%s fsnotify event: Name='%s', Op=WRITE", h.GetLogPrefix(), h.GetFilePath())
+	return err
+}
 
-	log.Debug("%s Generated export for 1 domain with %d records: %s", h.GetLogPrefix(), len(h.records), h.GetFilePath())
-	return nil
+// serializeHosts handles hosts-specific serialization
+func (h *HostsFormat) serializeHosts(domain string, export *common.ExportData) ([]byte, error) {
+	// Always allow file to be written, even if export.Domains is empty
+	content := h.generateHostsFile(domain, export)
+	return []byte(content), nil
 }
 
 // generateHostsFile creates the hosts file content
-func (h *HostsFormat) generateHostsFile() string {
+func (h *HostsFormat) generateHostsFile(domain string, export *common.ExportData) string {
+	recordsLen := 0
+	if h.records != nil {
+		recordsLen = len(h.records)
+	}
+	domainsLen := 0
+	if export != nil && export.Domains != nil {
+		domainsLen = len(export.Domains)
+	}
+	log.Debug("[output/hosts] generateHostsFile called for domain=%s, export.Domains.len=%d, h.records.len=%d", domain, domainsLen, recordsLen)
 	var content strings.Builder
 	// Pre-allocate capacity to reduce reallocations
 	estimatedSize := len(h.records)*80 + 500 // Rough estimate
 	content.Grow(estimatedSize)
 
-	// Write header comment
-	content.WriteString(fmt.Sprintf("# Hosts file generated by herald\n"))
-	content.WriteString(fmt.Sprintf("# Generated at: %s\n", time.Now().UTC().Format(time.RFC3339)))
-	content.WriteString(fmt.Sprintf("# Domain: %s\n", h.domain))
-	if !h.enableIPv4 {
-		content.WriteString("# IPv4 records: disabled\n")
-	}
-	if !h.enableIPv6 {
-		content.WriteString("# IPv6 records: disabled\n")
-	}
-	content.WriteString("\n")
+	// Write header comment with tag expansion
+	header := expandTags("# Hosts file for %domain%\n# Generated by herald at %date%\n", h.CommonFormat.GetDomain(), h.CommonFormat.GetProfile())
+	content.WriteString(header)
 
-	if len(h.records) == 0 {
+	// Use export.Domains if provided and non-empty, otherwise fallback to h.records
+	var recordsToWrite []*HostsRecord
+	if export != nil && export.Domains != nil && len(export.Domains) > 0 {
+		for _, baseDomain := range export.Domains {
+			for _, rec := range baseDomain.Records {
+				if rec == nil { continue }
+				// Only handle A and AAAA records for hosts
+				if rec.Type == "A" || rec.Type == "AAAA" {
+					recordsToWrite = append(recordsToWrite, &HostsRecord{
+						Hostname: rec.Hostname,
+						Type:     rec.Type,
+						Target:   rec.Target,
+						TTL:      rec.TTL,
+						Source:   rec.Source,
+					})
+				}
+			}
+		}
+	} else {
+		// Fallback: if export is nil or export.Domains is nil or empty, use h.records
+		for _, rec := range h.records {
+			recordsToWrite = append(recordsToWrite, rec)
+		}
+	}
+
+	if len(recordsToWrite) == 0 {
 		content.WriteString("# No records to write\n")
 		return content.String()
 	}
 
 	// Group records by hostname and calculate maximum widths for alignment
-	hostnameMap := make(map[string][]*HostsRecord, len(h.records))
+	hostnameMap := make(map[string][]*HostsRecord, len(recordsToWrite))
 	maxIPWidth := 0
 	maxHostnameWidth := 0
 
-	for _, record := range h.records {
+	for _, record := range recordsToWrite {
 		fullHostname := record.Hostname
 		if record.Hostname != "@" && record.Hostname != h.domain {
 			fullHostname = record.Hostname + "." + h.domain
@@ -445,4 +511,23 @@ func (h *HostsFormat) generateHostsFile() string {
 	}
 
 	return content.String()
+}
+
+// New helper to get log prefix with profile name for hosts output
+func (h *HostsFormat) getHostsLogPrefix() string {
+	return fmt.Sprintf("[output/hosts/%s]", h.profileName)
+}
+
+// --- PATCH: expandTagsWithUnderscore ---
+// Like expandTags, but always replaces %domain% with underscores for filenames
+func expandTagsWithUnderscore(s, domain, profile string) string {
+	domainUnderscore := strings.ReplaceAll(domain, ".", "_")
+	now := time.Now().Format("20060102-150405")
+	replacer := strings.NewReplacer(
+		"%domain%", domainUnderscore, // PATCH: always use underscores for %domain%
+		"%domain_underscore%", domainUnderscore,
+		"%date%", now,
+		"%profile%", profile,
+	)
+	return replacer.Replace(s)
 }

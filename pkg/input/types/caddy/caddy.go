@@ -31,7 +31,7 @@ type CaddyProvider struct {
 	options      map[string]string
 	logger       *log.ScopedLogger
 	filterConfig common.FilterConfig
-	name         string // Profile name
+	name         string              // Profile name
 	outputWriter domain.OutputWriter // Injected dependency
 	outputSyncer domain.OutputSyncer // Injected dependency
 }
@@ -202,11 +202,11 @@ func (p *CaddyProvider) processCaddy() {
 			if _, ok := current[key]; !ok {
 				fqdn := old.Name
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
-				p.logger.Info("Record removed: %s (A)", fqdnNoDot) // This log is fine
+				p.logger.Info("Record removed: %s (A)", fqdnNoDot)           // This log is fine
 				realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
 				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup and input provider validation.
 				// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-			p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
+				p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
 				state := domain.RouterState{
 					SourceType: "caddy",
 					Name:       p.opts.Name, // Use the actual provider name

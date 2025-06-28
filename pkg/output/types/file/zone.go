@@ -5,10 +5,8 @@
 package file
 
 import (
-	"herald/pkg/output"
-	"herald/pkg/output/common"
-
 	"fmt"
+	"herald/pkg/output/common"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,11 +16,11 @@ import (
 // ZoneFormat implements OutputFormat for DNS zone files
 type ZoneFormat struct {
 	*common.CommonFormat
-	soa       SOARecord
-	nsRecords []string
+	soaRaw map[string]interface{} // store raw SOA config for per-domain expansion
+	nsRaw  []string               // store raw NS config for per-domain expansion
 }
 
-// SOARecord represents an SOA record configuration
+// SOARecord represents anSOA record configuration
 type SOARecord struct {
 	PrimaryNS  string
 	AdminEmail string
@@ -34,8 +32,8 @@ type SOARecord struct {
 }
 
 // NewZoneFormat creates a new zone format instance
-func NewZoneFormat(domain string, config map[string]interface{}) (output.OutputFormat, error) {
-	commonFormat, err := common.NewCommonFormat(domain, "zone", config)
+func NewZoneFormat(profileName, domain string, config map[string]interface{}) (OutputFormat, error) {
+	commonFormat, err := common.NewCommonFormat(profileName, "zone", config)
 	if err != nil {
 		return nil, err
 	}
@@ -44,12 +42,10 @@ func NewZoneFormat(domain string, config map[string]interface{}) (output.OutputF
 		CommonFormat: commonFormat,
 	}
 
-	// Parse SOA configuration
 	if err := format.parseSOAConfig(config); err != nil {
 		return nil, fmt.Errorf("failed to parse SOA config: %v", err)
 	}
 
-	// Parse NS records
 	if err := format.parseNSConfig(config); err != nil {
 		return nil, fmt.Errorf("failed to parse NS config: %v", err)
 	}
@@ -57,37 +53,17 @@ func NewZoneFormat(domain string, config map[string]interface{}) (output.OutputF
 	return format, nil
 }
 
-// parseSOAConfig parses SOA record configuration
+// parseSOAConfig parses SOA record configuration and stores raw values
 func (z *ZoneFormat) parseSOAConfig(config map[string]interface{}) error {
 	soaConfig, ok := config["soa"].(map[string]interface{})
 	if !ok {
 		return fmt.Errorf("soa configuration is required")
 	}
-
-	primaryNS, ok := soaConfig["primary_ns"].(string)
-	if !ok {
-		return fmt.Errorf("soa.primary_ns is required")
-	}
-
-	adminEmail, ok := soaConfig["admin_email"].(string)
-	if !ok {
-		return fmt.Errorf("soa.admin_email is required")
-	}
-
-	z.soa = SOARecord{
-		PrimaryNS:  primaryNS,
-		AdminEmail: strings.ReplaceAll(adminEmail, "@", "."),
-		Serial:     getStringConfigWithDefault(soaConfig, "serial", "auto"),
-		Refresh:    getIntConfigWithDefault(soaConfig, "refresh", 3600),
-		Retry:      getIntConfigWithDefault(soaConfig, "retry", 900),
-		Expire:     getIntConfigWithDefault(soaConfig, "expire", 604800),
-		Minimum:    getIntConfigWithDefault(soaConfig, "minimum", 300),
-	}
-
+	z.soaRaw = soaConfig
 	return nil
 }
 
-// parseNSConfig parses NS record configuration
+// parseNSConfig parses NS record configuration and stores raw values
 func (z *ZoneFormat) parseNSConfig(config map[string]interface{}) error {
 	nsRecordsInterface, ok := config["ns_records"]
 	if !ok {
@@ -99,15 +75,14 @@ func (z *ZoneFormat) parseNSConfig(config map[string]interface{}) error {
 		return fmt.Errorf("ns_records must be a list")
 	}
 
-	z.nsRecords = make([]string, 0, len(nsRecordsSlice))
+	z.nsRaw = make([]string, 0, len(nsRecordsSlice))
 	for _, ns := range nsRecordsSlice {
 		nsString, ok := ns.(string)
 		if !ok {
 			return fmt.Errorf("ns_records entries must be strings")
 		}
-		z.nsRecords = append(z.nsRecords, nsString)
+		z.nsRaw = append(z.nsRaw, nsString)
 	}
-
 	return nil
 }
 
@@ -116,56 +91,111 @@ func (z *ZoneFormat) GetName() string {
 	return "zone"
 }
 
-// Sync writes the zone format to disk
+// GetFilePath returns the expanded file path for this zone file
+func (z *ZoneFormat) GetFilePath() string {
+	path := "zone_%domain_underscore%.zone" // default fallback
+	if z.CommonFormat != nil && z.CommonFormat.GetConfig() != nil {
+		if p, ok := z.CommonFormat.GetConfig()["path"].(string); ok && p != "" {
+			path = p
+		}
+	}
+	return expandTags(path, z.CommonFormat.GetDomain(), z.CommonFormat.GetProfile())
+}
+
+// Sync writes the zone file to disk
 func (z *ZoneFormat) Sync() error {
-	return z.SyncWithSerializer(z.serializeZone)
+	z.GetLogger().Debug("[output/zone] Sync called for domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
+	z.GetLogger().Debug("[output/zone] Sync: domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
+	z.GetLogger().Debug("[output/zone] Attempting to write file: %s", z.GetFilePath())
+	err := z.CommonFormat.SyncWithSerializer(z.serializeZone)
+	if err != nil {
+		z.GetLogger().Error("[output/zone] Sync FAILED for domain=%s, profile=%s, file=%s: %v", z.GetDomain(), z.GetProfile(), z.GetFilePath(), err)
+	} else {
+		z.GetLogger().Info("[output/zone] Sync SUCCESS for domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
+	}
+	return err
 }
 
 // serializeZone handles zone-specific serialization
-func (z *ZoneFormat) serializeZone(export *common.ExportData) ([]byte, error) {
-	content := z.generateZoneFileContent(export)
+func (z *ZoneFormat) serializeZone(domain string, export *common.ExportData) ([]byte, error) {
+	content := z.generateZoneFileContent(domain, export)
 	return []byte(content), nil
 }
 
 // generateZoneFileContent creates the zone file content
-func (z *ZoneFormat) generateZoneFileContent(export *common.ExportData) string {
+func (z *ZoneFormat) generateZoneFileContent(domainName string, export *common.ExportData) string {
 	var content strings.Builder
 
-	// Get the first domain (zone files are single-domain)
-	var domainName string
-	var domain *common.BaseDomain
-	for name, dom := range export.Domains {
-		domainName = name
-		domain = dom
-		break
+	// Get the domain data for this domain
+	domain, ok := export.Domains[domainName]
+	if !ok {
+		return "; No records for domain " + domainName + "\n"
 	}
 
-	// Header comment
-	content.WriteString(fmt.Sprintf("; Zone file for %s\n", domainName))
-	content.WriteString(fmt.Sprintf("; Generated by %s at %s\n\n",
-		export.Metadata.Generator, export.Metadata.GeneratedAt.Format(time.RFC3339)))
+	profile := z.CommonFormat.GetProfile()
 
-	// Origin
-	content.WriteString(fmt.Sprintf("$ORIGIN %s.\n\n", domainName))
-
-	// Generate serial if auto
-	serial := z.soa.Serial
+	// Expand SOA config for this domain
+	soaRaw := z.soaRaw
+	primaryNS := "ns1." + domainName
+	adminEmail := "admin@" + domainName
+	serial := "auto"
+	refresh := 3600
+	retry := 900
+	expire := 604800
+	minimum := 300
+	if soaRaw != nil {
+		if v, ok := soaRaw["primary_ns"].(string); ok {
+			primaryNS = expandTags(v, domainName, profile)
+		}
+		if v, ok := soaRaw["admin_email"].(string); ok {
+			adminEmail = expandTags(v, domainName, profile)
+		}
+		if v, ok := soaRaw["serial"].(string); ok {
+			serial = v
+		}
+		if v, ok := soaRaw["refresh"].(int); ok {
+			refresh = v
+		}
+		if v, ok := soaRaw["retry"].(int); ok {
+			retry = v
+		}
+		if v, ok := soaRaw["expire"].(int); ok {
+			expire = v
+		}
+		if v, ok := soaRaw["minimum"].(int); ok {
+			minimum = v
+		}
+	}
+	adminEmail = strings.ReplaceAll(adminEmail, "@", ".")
 	if serial == "auto" {
 		serial = generateSerial()
 	}
 
+	// Expand NS records for this domain
+	nsRecords := make([]string, 0, len(z.nsRaw))
+	for _, ns := range z.nsRaw {
+		nsRecords = append(nsRecords, expandTags(ns, domainName, profile))
+	}
+
+	// Header comment with tag expansion
+	header := expandTags("; Zone file for %domain%\n; Generated by herald at %date%\n\n", domainName, profile)
+	content.WriteString(header)
+
+	// Origin
+	content.WriteString(fmt.Sprintf("$ORIGIN %s.\n\n", domainName))
+
 	// SOA Record
-	content.WriteString(fmt.Sprintf("%-20s IN    SOA    %s. %s. (\n", domainName+".", z.soa.PrimaryNS, z.soa.AdminEmail))
+	content.WriteString(fmt.Sprintf("%-20s IN    SOA    %s. %s. (\n", domainName+".", primaryNS, adminEmail))
 	content.WriteString(fmt.Sprintf("                              %-12s ; Serial\n", serial))
-	content.WriteString(fmt.Sprintf("                              %-12d ; Refresh\n", z.soa.Refresh))
-	content.WriteString(fmt.Sprintf("                              %-12d ; Retry\n", z.soa.Retry))
-	content.WriteString(fmt.Sprintf("                              %-12d ; Expire\n", z.soa.Expire))
-	content.WriteString(fmt.Sprintf("                              %-12d ; Minimum\n", z.soa.Minimum))
+	content.WriteString(fmt.Sprintf("                              %-12d ; Refresh\n", refresh))
+	content.WriteString(fmt.Sprintf("                              %-12d ; Retry\n", retry))
+	content.WriteString(fmt.Sprintf("                              %-12d ; Expire\n", expire))
+	content.WriteString(fmt.Sprintf("                              %-12d ; Minimum\n", minimum))
 	content.WriteString("                              )\n\n")
 
 	// NS Records
 	content.WriteString("; NS Records\n")
-	for _, ns := range z.nsRecords {
+	for _, ns := range nsRecords {
 		content.WriteString(fmt.Sprintf("%-20s IN    NS     %s.\n", domainName+".", ns))
 	}
 	content.WriteString("\n")
@@ -182,16 +212,11 @@ func (z *ZoneFormat) generateZoneFileContent(export *common.ExportData) string {
 			return domain.Records[i].Hostname < domain.Records[j].Hostname
 		})
 
-		// Column headers for clarity
-		// content.WriteString("; Hostname             TTL    Class Type  Target\n")
-
 		for _, record := range domain.Records {
 			name := record.Hostname
 			if name == "" || name == "@" {
 				name = domainName + "."
 			}
-
-			// Use fixed-width columns for alignment
 			content.WriteString(fmt.Sprintf("%-20s %-6d %-4s %-5s %s\n",
 				name, record.TTL, "IN", record.Type, record.Target))
 		}
@@ -229,4 +254,25 @@ func getIntConfigWithDefault(config map[string]interface{}, key string, defaultV
 		}
 	}
 	return defaultValue
+}
+
+// WriteRecordWithSource writes or updates a DNS record with source information
+func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
+	z.GetLogger().Debug("[output/zone] WriteRecordWithSource called: domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
+	defer func() {
+		z.GetLogger().Debug("[output/zone] WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
+	}()
+	return z.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
+}
+
+func (z *ZoneFormat) Records() int {
+	export := z.GetExportData()
+	if export.Domains == nil {
+		return 0
+	}
+	n := 0
+	for _, d := range export.Domains {
+		n += len(d.Records)
+	}
+	return n
 }

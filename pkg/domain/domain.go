@@ -3,11 +3,11 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"herald/pkg/common"
+	"herald/pkg/log"
 	"net"
 	"strings"
 	"sync"
-	"herald/pkg/common"
-	"herald/pkg/log"
 )
 
 type RouterState struct {
@@ -322,19 +322,30 @@ func (bp *BatchProcessor) FinalizeBatch() {
 type BatchProcessor struct {
 	hasChanges    bool
 	logPrefix     string
-	inputProvider string   // Track which input provider is using this batch
+	inputProvider string // Track which input provider is using this batch
 	logger        *log.ScopedLogger
-	syncMutex     sync.Mutex // Prevent concurrent syncs from same provider
+	syncMutex     sync.Mutex   // Prevent concurrent syncs from same provider
 	outputWriter  OutputWriter // Dependency for writing/removing records
 	outputSyncer  OutputSyncer // Dependency for triggering syncs
 }
 
-// NewBatchProcessor creates a new batch processor for an input provider
+// NewBatchProcessor creates a new batch processor for an input provider (backward compatible)
 func NewBatchProcessor(logPrefix string, writer OutputWriter, syncer OutputSyncer) *BatchProcessor {
+	provider := extractInputProviderFromLogPrefix(logPrefix)
+	return newBatchProcessorInternal(logPrefix, provider, writer, syncer)
+}
+
+// NewBatchProcessorWithProvider creates a new batch processor with explicit provider name
+func NewBatchProcessorWithProvider(logPrefix string, inputProviderName string, writer OutputWriter, syncer OutputSyncer) *BatchProcessor {
+	return newBatchProcessorInternal(logPrefix, inputProviderName, writer, syncer)
+}
+
+// Internal shared initializer
+func newBatchProcessorInternal(logPrefix string, inputProviderName string, writer OutputWriter, syncer OutputSyncer) *BatchProcessor {
 	return &BatchProcessor{
 		hasChanges:    false,
 		logPrefix:     logPrefix,
-		inputProvider: extractInputProviderFromLogPrefix(logPrefix),
+		inputProvider: inputProviderName,
 		logger:        log.NewScopedLogger(logPrefix, ""),
 		outputWriter:  writer,
 		outputSyncer:  syncer,
@@ -409,7 +420,6 @@ func (bp *BatchProcessor) ProcessRecordRemoval(domain, fqdn string, state Router
 	}
 	return err
 }
-
 
 // HasChanges returns whether any changes were processed in this batch
 func (bp *BatchProcessor) HasChanges() bool {

@@ -6,7 +6,6 @@ package file
 
 import (
 	"herald/pkg/log"
-	"herald/pkg/output"
 	"herald/pkg/output/common"
 
 	"strings"
@@ -20,7 +19,7 @@ type YAMLFormat struct {
 }
 
 // NewYAMLFormat creates a new YAML format instance
-func NewYAMLFormat(profileName string, config map[string]interface{}) (output.OutputFormat, error) {
+func NewYAMLFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
 	commonFormat, err := common.NewCommonFormat(profileName, "yaml", config)
 	if err != nil {
 		return nil, err
@@ -45,18 +44,20 @@ func (y *YAMLFormat) GetName() string {
 
 // Sync writes the YAML export to disk
 func (y *YAMLFormat) Sync() error {
-	err := y.SyncWithSerializer(y.serializeYAML)
-	if err == nil {
-		y.Lock()
-		recordCount := y.GetRecordCount()
-		y.Unlock()
-		log.Debug("%s Generated export for 1 domain with %d records: %s", y.GetLogPrefix(), recordCount, y.GetFilePath())
+	log.Debug("[output/yaml] Sync called for domain=%s, profile=%s, file=%s, records=%d", y.GetDomain(), y.GetProfile(), y.GetFilePath(), y.Records())
+	log.Debug("[output/yaml] Sync: domain=%s, profile=%s, file=%s, records=%d", y.GetDomain(), y.GetProfile(), y.GetFilePath(), y.Records())
+	log.Debug("[output/yaml] Attempting to write file: %s", y.GetFilePath())
+	err := y.CommonFormat.SyncWithSerializer(y.serializeYAML)
+	if err != nil {
+		log.Error("[output/yaml] Sync FAILED for domain=%s, profile=%s, file=%s: %v", y.GetDomain(), y.GetProfile(), y.GetFilePath(), err)
+	} else {
+		log.Info("[output/yaml] Sync SUCCESS for domain=%s, profile=%s, file=%s, records=%d", y.GetDomain(), y.GetProfile(), y.GetFilePath(), y.Records())
 	}
 	return err
 }
 
 // serializeYAML handles YAML-specific serialization
-func (y *YAMLFormat) serializeYAML(export *common.ExportData) ([]byte, error) {
+func (y *YAMLFormat) serializeYAML(domain string, export *common.ExportData) ([]byte, error) {
 	var buf strings.Builder
 	encoder := yaml.NewEncoder(&buf)
 	encoder.SetIndent(2)
@@ -68,4 +69,37 @@ func (y *YAMLFormat) serializeYAML(export *common.ExportData) ([]byte, error) {
 	}
 
 	return []byte(buf.String()), nil
+}
+
+// GetFilePath returns the expanded file path for this YAML file
+func (y *YAMLFormat) GetFilePath() string {
+	path := "export_%domain_underscore%.yaml" // default fallback
+	if y.CommonFormat != nil && y.CommonFormat.GetConfig() != nil {
+		if p, ok := y.CommonFormat.GetConfig()["path"].(string); ok && p != "" {
+			path = p
+		}
+	}
+	return expandTags(path, y.CommonFormat.GetDomain(), y.CommonFormat.GetProfile())
+}
+
+// WriteRecordWithSource writes or updates a DNS record with source information
+func (y *YAMLFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
+	log.Debug("[output/yaml] WriteRecordWithSource called: domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
+	defer func() {
+		log.Debug("[output/yaml] WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
+	}()
+	return y.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
+}
+
+// Records returns the total number of records for logging
+func (y *YAMLFormat) Records() int {
+	export := y.GetExportData()
+	if export.Domains == nil {
+		return 0
+	}
+	n := 0
+	for _, d := range export.Domains {
+		n += len(d.Records)
+	}
+	return n
 }
