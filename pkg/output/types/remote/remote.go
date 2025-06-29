@@ -21,6 +21,7 @@ type RemoteFormat struct {
 	clientID string
 	token    string
 	records  map[string]*RemoteRecord
+	removals map[string]*RemoteRecord // PATCH: track removals for explicit API delete
 	logger   *log.ScopedLogger
 }
 
@@ -64,6 +65,7 @@ func NewRemoteFormat(profileName string, config map[string]interface{}) (output.
 		clientID: clientID,
 		token:    token,
 		records:  make(map[string]*RemoteRecord),
+		removals: make(map[string]*RemoteRecord), // PATCH: initialize removals
 		logger:   scopedLogger,
 	}, nil
 }
@@ -100,17 +102,26 @@ func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 // RemoveRecord removes a DNS record from the remote endpoint
 func (r *RemoteFormat) RemoveRecord(domain, hostname, recordType string) error {
 	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	if _, exists := r.records[key]; exists {
+	if rec, exists := r.records[key]; exists {
 		delete(r.records, key)
-		r.logger.Debug("Removed record: %s.%s (%s)", hostname, domain, recordType)
+		r.removals[key] = rec // PATCH: queue for removal
+		r.logger.Debug("Removed record: %s.%s (%s) [queued for API removal]", hostname, domain, recordType)
+	} else {
+		// PATCH: If not in records, still queue a removal stub
+		r.removals[key] = &RemoteRecord{
+			Domain:     domain,
+			Hostname:   hostname,
+			RecordType: recordType,
+		}
+		r.logger.Debug("Queued removal for missing record: %s.%s (%s)", hostname, domain, recordType)
 	}
 	return nil
 }
 
 // Sync sends all records to the remote endpoint
 func (r *RemoteFormat) Sync() error {
-	if len(r.records) == 0 {
-		r.logger.Debug("No records to sync")
+	if len(r.records) == 0 && len(r.removals) == 0 {
+		r.logger.Debug("No records or removals to sync")
 		return nil
 	}
 
@@ -119,11 +130,17 @@ func (r *RemoteFormat) Sync() error {
 	for _, record := range r.records {
 		recordsArray = append(recordsArray, record)
 	}
+	// PATCH: Convert removals to array for API
+	removalsArray := make([]*RemoteRecord, 0, len(r.removals))
+	for _, record := range r.removals {
+		removalsArray = append(removalsArray, record)
+	}
 
-	// Prepare API payload
+	// PATCH: Add removals to payload
 	payload := map[string]interface{}{
 		"client_id": r.clientID,
 		"records":   recordsArray,
+		"removals":  removalsArray,
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -152,9 +169,10 @@ func (r *RemoteFormat) Sync() error {
 		return fmt.Errorf("remote API returned status %d", resp.StatusCode)
 	}
 
-	r.logger.Info("Successfully synced %d records to remote endpoint", len(r.records))
-	// Clear records after successful sync
+	r.logger.Info("Successfully synced %d records and %d removals to remote endpoint", len(r.records), len(r.removals))
+	// Clear records and removals after successful sync
 	r.records = make(map[string]*RemoteRecord)
+	r.removals = make(map[string]*RemoteRecord)
 	return nil
 }
 
