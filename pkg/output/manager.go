@@ -104,6 +104,14 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 		} else {
 			log.Debug("Successfully removed record from profile '%s'", profileName)
 			removedCount++
+
+			// PATCH: Mark this profile as changed for this source (so sync will reflect removals)
+			om.changesMutex.Lock()
+			if om.changedProfiles[source] == nil {
+				om.changedProfiles[source] = make(map[string]bool)
+			}
+			om.changedProfiles[source][profileName] = true
+			om.changesMutex.Unlock()
 		}
 	}
 
