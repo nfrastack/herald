@@ -402,7 +402,7 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 					}
 				}
 
-				err := outputManager.AddProfile(profileName, format, path, domains, profileConfigCopy)
+				err := outputManager.AddProfile(profileName, path, domains, profileConfigCopy)
 				if err != nil {
 					log.Error("[output] Failed to add output profile '%s': %v", profileName, err)
 					return err

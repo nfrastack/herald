@@ -5,15 +5,11 @@
 package output
 
 import (
-	"encoding/json"
+	"fmt"
 	"herald/pkg/log"
+	"herald/pkg/output/types/common"
 	"herald/pkg/output/types/dns"
 	fileoutput "herald/pkg/output/types/file"
-	"herald/pkg/util"
-
-	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -47,14 +43,6 @@ func getGlobalConfigForOutput() GlobalConfigForOutput {
 	return nil
 }
 
-// min returns the smaller of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // init automatically registers all output types when the package is imported
 func init() {
 	log.Debug("[output] Auto-registering core output types")
@@ -72,18 +60,10 @@ func registerAllCoreFormats() {
 	RegisterFormat("file/zone", fileoutput.NewFileOutput)
 	RegisterFormat("file/hosts", fileoutput.NewFileOutput)
 
-	// Register remote format
-	RegisterFormat("remote", createRemoteOutputDirect)
-
 	// Register DNS format
 	RegisterFormat("dns", createDNSOutput)
 
-	log.Debug("[output] Registered core formats: file, remote, dns")
-}
-
-// createRemoteOutputDirect creates remote outputs directly
-func createRemoteOutputDirect(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	return createRemoteFormat(profileName, config)
+	log.Debug("[output] Registered core formats: file, dns")
 }
 
 // createDNSOutput creates a DNS output instance without import cycle
@@ -121,63 +101,63 @@ func RegisterFormat(formatName string, createFunc func(string, map[string]interf
 }
 
 // createFileFormat creates a file output format using dynamic loading to avoid import cycles
-func createFileFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	// Try to dynamically load the file output package
-	format, _ := config["format"].(string)
-	if format == "" {
-		format = "unknown"
-	}
+// func createFileFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
+// 	// Try to dynamically load the file output package
+// 	format, _ := config["format"].(string)
+// 	if format == "" {
+// 		format = "unknown"
+// 	}
 
-	log.Debug("[output] Attempting to create file format '%s' for profile '%s'", format, profileName)
+// 	log.Debug("[output] Attempting to create file format '%s' for profile '%s'", format, profileName)
 
-	// Check if we have a registered creator for this file format
-	registryMutex.RLock()
-	createFunc, exists := outputFormatRegistry["file/"+format]
-	if !exists {
-		createFunc, exists = outputFormatRegistry["file"]
-	}
-	registryMutex.RUnlock()
+// 	// Check if we have a registered creator for this file format
+// 	registryMutex.RLock()
+// 	createFunc, exists := outputFormatRegistry["file/"+format]
+// 	if !exists {
+// 		createFunc, exists = outputFormatRegistry["file"]
+// 	}
+// 	registryMutex.RUnlock()
 
-	if exists {
-		return createFunc(profileName, config)
-	}
+// 	if exists {
+// 		return createFunc(profileName, config)
+// 	}
 
-	// Fallback to placeholder implementation
-	log.Debug("[output] No registered creator for file format '%s', using placeholder", format)
-	return &placeholderFormat{
-		profileName: profileName,
-		formatType:  fmt.Sprintf("file/%s", format),
-	}, nil
-}
+// 	// Fallback to placeholder implementation
+// 	log.Debug("[output] No registered creator for file format '%s', using placeholder", format)
+// 	return &placeholderFormat{
+// 		profileName: profileName,
+// 		formatType:  fmt.Sprintf("file/%s", format),
+// 	}, nil
+// }
 
 // createDNSFormat creates a DNS output format using dynamic loading to avoid import cycles
-func createDNSFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	provider, _ := config["provider"].(string)
-	if provider == "" {
-		return nil, fmt.Errorf("DNS format requires 'provider' field")
-	}
+// func createDNSFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
+// 	provider, _ := config["provider"].(string)
+// 	if provider == "" {
+// 		return nil, fmt.Errorf("DNS format requires 'provider' field")
+// 	}
 
-	log.Debug("[output] Attempting to create DNS format with provider '%s' for profile '%s'", provider, profileName)
+// 	log.Debug("[output] Attempting to create DNS format with provider '%s' for profile '%s'", provider, profileName)
 
-	// Check if we have a registered creator for this DNS provider
-	registryMutex.RLock()
-	createFunc, exists := outputFormatRegistry["dns/"+provider]
-	if !exists {
-		createFunc, exists = outputFormatRegistry["dns"]
-	}
-	registryMutex.RUnlock()
+// 	// Check if we have a registered creator for this DNS provider
+// 	registryMutex.RLock()
+// 	createFunc, exists := outputFormatRegistry["dns/"+provider]
+// 	if !exists {
+// 		createFunc, exists = outputFormatRegistry["dns"]
+// 	}
+// 	registryMutex.RUnlock()
 
-	if exists {
-		return createFunc(profileName, config)
-	}
+// 	if exists {
+// 		return createFunc(profileName, config)
+// 	}
 
-	// Fallback to placeholder implementation
-	log.Debug("[output] No registered creator for DNS provider '%s', using placeholder", provider)
-	return &placeholderFormat{
-		profileName: profileName,
-		formatType:  fmt.Sprintf("dns/%s", provider),
-	}, nil
-}
+// 	// Fallback to placeholder implementation
+// 	log.Debug("[output] No registered creator for DNS provider '%s', using placeholder", provider)
+// 	return &placeholderFormat{
+// 		profileName: profileName,
+// 		formatType:  fmt.Sprintf("dns/%s", provider),
+// 	}, nil
+// }
 
 // GetOutputManager returns the global output manager instance
 func GetOutputManager() *OutputManager {
@@ -186,7 +166,7 @@ func GetOutputManager() *OutputManager {
 
 // OutputFormat defines the interface that all output formats must implement
 // Use the canonical interface from fileoutput to avoid duplication and type mismatch
-type OutputFormat = fileoutput.OutputFormat
+type OutputFormat = common.OutputFormat
 
 // OutputManager manages multiple output formats
 type OutputManager struct {
@@ -315,26 +295,26 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 
 // getAllowedOutputsForDomainConfig returns the output profiles allowed for a domain config
 // This uses the global config to determine the allowed outputs dynamically
-func (om *OutputManager) getAllowedOutputsForDomainConfig(domainConfigKey string) []string {
-	// Import the config package to access global configuration
-	// This is safe as config doesn't import output
-	globalConfig := getGlobalConfigForOutput()
-	if globalConfig == nil {
-		log.Debug("[output/manager] No global config available, falling back to all outputs")
-		return []string{}
-	}
+// func (om *OutputManager) getAllowedOutputsForDomainConfig(domainConfigKey string) []string {
+// 	// Import the config package to access global configuration
+// 	// This is safe as config doesn't import output
+// 	globalConfig := getGlobalConfigForOutput()
+// 	if globalConfig == nil {
+// 		log.Debug("[output/manager] No global config available, falling back to all outputs")
+// 		return []string{}
+// 	}
 
-	// Find the domain config by key
-	if domainConfig, exists := globalConfig.GetDomains()[domainConfigKey]; exists {
-		// Use the GetOutputs helper method to get effective outputs
-		outputs := domainConfig.GetOutputs()
-		log.Debug("[output/manager] Domain config '%s' allows outputs: %v", domainConfigKey, outputs)
-		return outputs
-	}
+// 	// Find the domain config by key
+// 	if domainConfig, exists := globalConfig.GetDomains()[domainConfigKey]; exists {
+// 		// Use the GetOutputs helper method to get effective outputs
+// 		outputs := domainConfig.GetOutputs()
+// 		log.Debug("[output/manager] Domain config '%s' allows outputs: %v", domainConfigKey, outputs)
+// 		return outputs
+// 	}
 
-	log.Debug("[output/manager] Domain config '%s' not found, falling back to all outputs", domainConfigKey)
-	return []string{} // No outputs = fall back to all
-}
+// 	log.Debug("[output/manager] Domain config '%s' not found, falling back to all outputs", domainConfigKey)
+// 	return []string{} // No outputs = fall back to all
+// }
 
 // GetProfile returns a specific output profile by name
 func (om *OutputManager) GetProfile(profileName string) OutputFormat {
@@ -345,7 +325,7 @@ func (om *OutputManager) GetProfile(profileName string) OutputFormat {
 }
 
 // AddProfile adds an output profile to the manager
-func (om *OutputManager) AddProfile(profileName, format, path string, domains []string, config map[string]interface{}) error {
+func (om *OutputManager) AddProfile(profileName, path string, domains []string, config map[string]interface{}) error {
 	om.mutex.Lock()
 	defer om.mutex.Unlock()
 
@@ -358,7 +338,7 @@ func (om *OutputManager) AddProfile(profileName, format, path string, domains []
 	var err error
 
 	// Support both 'format' and 'type' as synonyms for output format
-	format, _ = config["format"].(string)
+	format, _ := config["format"].(string)
 	if format == "" {
 		if t, ok := config["type"].(string); ok && t != "" {
 			format = t
@@ -389,8 +369,6 @@ func (om *OutputManager) AddProfile(profileName, format, path string, domains []
 		config["domain"] = domainArg
 		// FIX: Pass the output profile name as the first argument, not the domain
 		outputFormat, err = fileoutput.NewFileOutput(profileName, config)
-	} else if format == "remote" {
-		outputFormat, err = createRemoteFormat(profileName, config)
 	} else if format == "dns" {
 		// Use the DNS provider registry to instantiate the provider
 		providerName, ok := config["provider"].(string)
@@ -415,7 +393,15 @@ func (om *OutputManager) AddProfile(profileName, format, path string, domains []
 			Config:      config,
 		}
 	} else {
-		return fmt.Errorf("unsupported output format: %s", format)
+		// Generic registry lookup for any other format (e.g., remote)
+		registryMutex.RLock()
+		createFunc, exists := outputFormatRegistry[format]
+		registryMutex.RUnlock()
+		if exists {
+			outputFormat, err = createFunc(profileName, config)
+		} else {
+			return fmt.Errorf("unsupported output format: %s", format)
+		}
 	}
 
 	if err != nil {
@@ -642,7 +628,6 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 				log.Error("[output] Invalid config for profile '%s', skipping", profileName)
 				continue
 			}
-			format, _ := configMap["format"].(string)
 			path, _ := configMap["path"].(string)
 			domains := []string{}
 			if d, ok := configMap["domains"].([]interface{}); ok {
@@ -652,7 +637,7 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 					}
 				}
 			}
-			err := outputManager.AddProfile(profileName, format, path, domains, configMap)
+			err := outputManager.AddProfile(profileName, path, domains, configMap)
 			if err != nil {
 				log.Error("[output] Failed to add profile '%s': %v", profileName, err)
 			}
@@ -665,43 +650,21 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 	return nil
 }
 
-// createRemoteFormat creates a remote output format
-func createRemoteFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	urlRaw, ok := config["url"]
-	if !ok || urlRaw == nil {
-		return nil, fmt.Errorf("remote format requires 'url' field")
-	}
-
-	url := urlRaw.(string)
-	url = util.ReadSecretValue(url)
-
-	if url == "" {
-		return nil, fmt.Errorf("remote format URL cannot be empty after processing")
-	}
-
-	return &remoteFormat{
-		profileName: profileName,
-		config:      config,
-		url:         url,
-		records:     make(map[string]*remoteRecord),
-	}, nil
-}
-
 // createPlaceholderFileFormat creates a placeholder file format that logs operations but doesn't write files
-func createPlaceholderFileFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	return &placeholderFormat{
-		profileName: profileName,
-		formatType:  "file",
-	}, nil
-}
+// func createPlaceholderFileFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
+// 	return &placeholderFormat{
+// 		profileName: profileName,
+// 		formatType:  "file",
+// 	}, nil
+// }
 
 // createPlaceholderDNSFormat creates a placeholder DNS format that logs operations but doesn't make DNS calls
-func createPlaceholderDNSFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	return &placeholderFormat{
-		profileName: profileName,
-		formatType:  "dns",
-	}, nil
-}
+// func createPlaceholderDNSFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
+// 	return &placeholderFormat{
+// 		profileName: profileName,
+// 		formatType:  "dns",
+// 	}, nil
+// }
 
 // placeholderFormat is a placeholder implementation for formats that aren't fully implemented
 type placeholderFormat struct {
@@ -729,163 +692,5 @@ func (p *placeholderFormat) RemoveRecord(domain, hostname, recordType string) er
 
 func (p *placeholderFormat) Sync() error {
 	log.Debug("[output/%s] Would sync %s format (placeholder implementation)", p.formatType, p.formatType)
-	return nil
-}
-
-// remoteRecord represents a single DNS record for remote output
-type remoteRecord struct {
-	Domain     string `json:"domain"`
-	Hostname   string `json:"hostname"`
-	Target     string `json:"target"`
-	RecordType string `json:"type"`
-	TTL        int    `json:"ttl"`
-	Source     string `json:"source,omitempty"`
-}
-
-// remoteFormat implements remote output via HTTP POST
-type remoteFormat struct {
-	profileName string
-	config      map[string]interface{}
-	url         string
-	records     map[string]*remoteRecord
-	mutex       sync.RWMutex
-}
-
-func (r *remoteFormat) GetName() string { return "remote" }
-
-func (r *remoteFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
-	return r.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
-}
-
-func (r *remoteFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	r.records[key] = &remoteRecord{
-		Domain:     domain,
-		Hostname:   hostname,
-		Target:     target,
-		RecordType: recordType,
-		TTL:        ttl,
-		Source:     source,
-	}
-
-	log.Debug("[output/remote/%s] Added record: %s %s -> %s (TTL: %d)", strings.ReplaceAll(domain, ".", "_"), hostname, recordType, target, ttl)
-	return nil
-}
-
-func (r *remoteFormat) RemoveRecord(domain, hostname, recordType string) error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
-	delete(r.records, key)
-	return nil
-}
-
-func (r *remoteFormat) Sync() error {
-	r.mutex.RLock()
-	defer r.mutex.RUnlock()
-
-	if len(r.records) == 0 {
-		log.Debug("[output/remote] No records to send, skipping HTTP POST")
-		return nil
-	}
-
-	// Build the payload in the correct API format
-	payload := struct {
-		Metadata map[string]string                 `json:"metadata"`
-		Domains  map[string]map[string]interface{} `json:"domains"`
-	}{
-		Metadata: map[string]string{
-			"generator":    "herald",
-			"generated_at": time.Now().Format(time.RFC3339),
-			"last_updated": time.Now().Format(time.RFC3339),
-		},
-		Domains: make(map[string]map[string]interface{}),
-	}
-
-	// Group records by domain
-	for _, record := range r.records {
-		domain := record.Domain
-		if _, exists := payload.Domains[domain]; !exists {
-			payload.Domains[domain] = map[string]interface{}{
-				"comment": fmt.Sprintf("Domain: %s", domain),
-				"records": []map[string]interface{}{},
-			}
-		}
-
-		// Add record to domain
-		domainData := payload.Domains[domain]
-		records := domainData["records"].([]map[string]interface{})
-		records = append(records, map[string]interface{}{
-			"hostname":   record.Hostname,
-			"type":       record.RecordType,
-			"target":     record.Target,
-			"ttl":        record.TTL,
-			"created_at": time.Now().Format(time.RFC3339),
-			"source":     record.Source,
-		})
-		domainData["records"] = records
-		payload.Domains[domain] = domainData
-	}
-
-	// Get auth config from remote config
-	var clientID, token string
-	if val, exists := r.config["client_id"]; exists {
-		if strVal, ok := val.(string); ok {
-			clientID = util.ReadSecretValue(strVal)
-		}
-	}
-	if val, exists := r.config["token"]; exists {
-		if strVal, ok := val.(string); ok {
-			token = util.ReadSecretValue(strVal)
-		}
-	}
-
-	// Marshal payload to JSON
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal payload to JSON: %v", err)
-	}
-
-	// Send HTTP POST request with authentication
-	req, err := http.NewRequest("POST", r.url, strings.NewReader(string(jsonBytes)))
-	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %v", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	// Add authentication headers
-	if clientID != "" {
-		req.Header.Set("X-Client-ID", clientID)
-		log.Debug("[output/remote] Setting X-Client-ID: %s", clientID)
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-		log.Debug("[output/remote] Setting Authorization header with token: %s", util.MaskSensitiveValue(token))
-	}
-
-	log.Debug("[output/remote] Sending %d records to %s with client_id: %s", len(r.records), r.url, clientID)
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send HTTP request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		log.Error("[output/remote] Remote server returned status %d: %s", resp.StatusCode, string(body))
-		return fmt.Errorf("HTTP request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	log.Info("[output/remote] Successfully sent %d records to %s", len(r.records), r.url)
-
-	// Clear records after successful sync
-	r.records = make(map[string]*remoteRecord)
 	return nil
 }

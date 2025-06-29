@@ -107,6 +107,15 @@ func (z *ZoneFormat) Sync() error {
 	z.GetLogger().Debug("[output/zone] Sync called for domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
 	z.GetLogger().Debug("[output/zone] Sync: domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
 	z.GetLogger().Debug("[output/zone] Attempting to write file: %s", z.GetFilePath())
+
+	// Ensure that if there are no records, the export data is cleared for this domain
+	export := z.GetExportData()
+	if export.Domains != nil {
+		if d, ok := export.Domains[z.GetDomain()]; ok && d != nil && len(d.Records) == 0 {
+			d.Records = nil // ensure empty slice, not stale data
+		}
+	}
+
 	err := z.CommonFormat.SyncWithSerializer(z.serializeZone)
 	if err != nil {
 		z.GetLogger().Error("[output/zone] Sync FAILED for domain=%s, profile=%s, file=%s: %v", z.GetDomain(), z.GetProfile(), z.GetFilePath(), err)
@@ -275,4 +284,14 @@ func (z *ZoneFormat) Records() int {
 		n += len(d.Records)
 	}
 	return n
+}
+
+// ClearRecords removes all records for a given domain from the export data
+func (z *ZoneFormat) ClearRecords(domain string) {
+	export := z.GetExportData()
+	if export.Domains != nil {
+		if d, ok := export.Domains[domain]; ok && d != nil {
+			d.Records = nil
+		}
+	}
 }
