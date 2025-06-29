@@ -7,6 +7,7 @@ package file
 import (
 	"fmt"
 	"herald/pkg/log"
+	"herald/pkg/output/types/common"
 	"strings"
 	"time"
 )
@@ -25,13 +26,7 @@ func expandTags(s, domain, profile string) string {
 }
 
 // OutputFormat defines the interface to avoid import cycle
-type OutputFormat interface {
-	GetName() string
-	WriteRecord(domain, hostname, target, recordType string, ttl int) error
-	WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error
-	RemoveRecord(domain, hostname, recordType string) error
-	Sync() error
-}
+type OutputFormat = common.OutputFormat
 
 // FileOutput implements OutputFormat for file-based outputs (zone, hosts, json, yaml)
 type FileOutput struct {

@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,11 @@ type Record struct {
 	Comment   string    `json:"comment,omitempty" yaml:"comment,omitempty"`
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 	Source    string    `json:"source,omitempty" yaml:"source,omitempty"`
+}
+
+type RemoteActionPayload struct {
+	Action  string             `json:"action" yaml:"action"`
+	Domains map[string]*Domain `json:"domains" yaml:"domains"`
 }
 
 // APIServer handles DNS record aggregation via HTTP API
@@ -333,32 +339,126 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logger.Debug("[%s] Received %d bytes from client %s", connID, len(body), clientID)
+	s.logger.Trace("[%s] Raw request body: %s", connID, string(body))
 
 	// Parse based on content type
 	var clientData ClientData
+	var remotePayload RemoteActionPayload
 	contentType := r.Header.Get("Content-Type")
-
 	s.logger.Trace("[%s] Content-Type: %s", connID, contentType)
-
+	s.logger.Trace("[%s] About to parse payload as JSON or YAML", connID)
+	s.logger.Trace("[%s] Payload (pre-parse): %s", connID, string(body))
 	switch {
-	case strings.Contains(contentType, "application/json"):
-		if err := json.Unmarshal(body, &clientData); err != nil {
-			s.logger.Error("[%s] Failed to parse JSON from client %s: %v", connID, clientID, err)
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			return
-		}
-		s.logger.Debug("[%s] Successfully parsed JSON data from client %s", connID, clientID)
-	case strings.Contains(contentType, "application/x-yaml"):
-		if err := yaml.Unmarshal(body, &clientData); err != nil {
-			s.logger.Error("[%s] Failed to parse YAML from client %s: %v", connID, clientID, err)
-			http.Error(w, "Invalid YAML", http.StatusBadRequest)
-			return
-		}
-		s.logger.Trace("[%s] Successfully parsed YAML data from client %s", connID, clientID)
 	default:
-		s.logger.Error("[%s] Unsupported content type from client %s: %s", connID, clientID, contentType)
-		http.Error(w, "Unsupported content type", http.StatusBadRequest)
-		return
+		// Try JSON first
+		if err := json.Unmarshal(body, &clientData); err == nil {
+			// Check for removals map in the raw JSON
+			var raw map[string]interface{}
+			if err := json.Unmarshal(body, &raw); err == nil {
+				if removals, ok := raw["removals"].(map[string]interface{}); ok {
+					for domain, recs := range removals {
+						recList, ok := recs.([]interface{})
+						if !ok {
+							continue
+						}
+						if clientData.Domains == nil {
+							continue
+						}
+						domainObj, ok := clientData.Domains[domain]
+						if !ok || domainObj == nil {
+							continue
+						}
+						// Remove each record in recList from domainObj.Records
+						newRecords := make([]*Record, 0, len(domainObj.Records))
+						for _, record := range domainObj.Records {
+							shouldRemove := false
+							for _, r := range recList {
+								rm, ok := r.(map[string]interface{})
+								if !ok {
+									continue
+								}
+								if record.Hostname == rm["hostname"] && record.Type == rm["type"] {
+									shouldRemove = true
+									break
+								}
+							}
+							if !shouldRemove {
+								newRecords = append(newRecords, record)
+							}
+						}
+						domainObj.Records = newRecords
+					}
+				}
+			}
+		} else if err := json.Unmarshal(body, &remotePayload); err == nil && remotePayload.Action == "remove" {
+			// Remove records for each domain in remotePayload.Domains
+			for domain, dom := range remotePayload.Domains {
+				if clientData.Domains == nil {
+					continue
+				}
+				domainObj, ok := clientData.Domains[domain]
+				if !ok || domainObj == nil {
+					continue
+				}
+				// Remove all records in dom.Records from domainObj.Records
+				newRecords := make([]*Record, 0, len(domainObj.Records))
+				for _, record := range domainObj.Records {
+					shouldRemove := false
+					for _, r := range dom.Records {
+						if record.Hostname == r.Hostname && record.Type == r.Type {
+							shouldRemove = true
+							break
+						}
+					}
+					if !shouldRemove {
+						newRecords = append(newRecords, record)
+					}
+				}
+				domainObj.Records = newRecords
+			}
+		}
+	}
+
+	// After parsing the payload and before storing clientData, process removals globally
+	var raw map[string]interface{}
+	if err := json.Unmarshal(body, &raw); err == nil {
+		if removals, ok := raw["removals"].(map[string]interface{}); ok {
+			s.mutex.Lock()
+			for domain, recs := range removals {
+				recList, ok := recs.([]interface{})
+				if !ok {
+					continue
+				}
+				for _, client := range s.clients {
+					if client.Domains == nil {
+						continue
+					}
+					domainObj, ok := client.Domains[domain]
+					if !ok || domainObj == nil {
+						continue
+					}
+					newRecords := make([]*Record, 0, len(domainObj.Records))
+					for _, record := range domainObj.Records {
+						shouldRemove := false
+						for _, r := range recList {
+							rm, ok := r.(map[string]interface{})
+							if !ok {
+								continue
+							}
+							if record.Hostname == rm["hostname"] && record.Type == rm["type"] {
+								shouldRemove = true
+								break
+							}
+						}
+						if !shouldRemove {
+							newRecords = append(newRecords, record)
+						}
+					}
+					domainObj.Records = newRecords
+				}
+			}
+			s.mutex.Unlock()
+		}
 	}
 
 	// Store client data
@@ -367,7 +467,10 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 
 	clientData.ClientID = clientID
 	clientData.Received = time.Now()
-	s.clients[clientID] = &clientData
+	// Only update the client's state if there are domains/records in the payload
+	if len(clientData.Domains) > 0 {
+		s.clients[clientID] = &clientData
+	}
 
 	s.logger.Info("[%s] Received data from client %s with %d domains", connID, clientID, len(clientData.Domains))
 	s.logger.Debug("[%s] Client %s metadata: generator=%s", connID, clientID,
@@ -430,6 +533,7 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 	// Aggregate data for each output profile separately
 	for outputProfile, clientIDs := range clientsByProfile {
 		aggregatedRecords := make(map[string][]map[string]interface{})
+		allDomains := make(map[string]struct{}) // Track all domains, even if empty
 
 		s.logger.Verbose("[%s] Aggregating data for output profile '%s' from %d clients", connID, outputProfile, len(clientIDs))
 
@@ -438,6 +542,7 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 			s.logger.Trace("[%s] Processing client %s data for profile %s", connID, clientID, outputProfile)
 
 			for domainName, domain := range data.Domains {
+				allDomains[domainName] = struct{}{}
 				if aggregatedRecords[domainName] == nil {
 					aggregatedRecords[domainName] = make([]map[string]interface{}, 0)
 				}
@@ -460,76 +565,76 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 			}
 		}
 
-		// Write aggregated data to the specified output profile if we have data
-		if len(aggregatedRecords) > 0 {
-			s.logger.Debug("[%s] Writing %d aggregated domains to output profile '%s'", connID, len(aggregatedRecords), outputProfile)
+		// Always write/sync for all domains, even if there are zero records
+		if len(allDomains) > 0 {
+			s.logger.Debug("[%s] Writing %d aggregated domains to output profile '%s' (including empty domains)", connID, len(allDomains), outputProfile)
 
 			// Log summary of aggregated data
-			for domainName, records := range aggregatedRecords {
+			for domainName := range allDomains {
+				records := aggregatedRecords[domainName]
 				s.logger.Verbose("[%s] Profile '%s' domain '%s': %d records", connID, outputProfile, domainName, len(records))
 			}
 
-			// Get the output profile configuration
 			if _, exists := s.outputProfiles[outputProfile]; exists {
 				s.logger.Trace("[%s] Found output profile configuration for '%s'", connID, outputProfile)
 
-				// Write aggregated records ONLY to the specific API output profile
-				// This prevents API data from being written to main domain outputs like Cloudflare DNS
 				if s.outputManager != nil {
 					var writeErrors []string
 					recordsWritten := 0
-
 					// Write each record to ONLY the API output profile, not all outputs
-					for domainName, records := range aggregatedRecords {
+					for domainName := range allDomains {
+						records := aggregatedRecords[domainName]
+						if len(records) == 0 {
+							profile := s.outputManager.GetProfile(outputProfile)
+							if profile != nil {
+								// If the output profile supports ClearRecords, call it for empty domains
+								if zoneProfile, ok := profile.(interface{ ClearRecords(string) }); ok {
+									zoneProfile.ClearRecords(domainName)
+								}
+								err := profile.Sync()
+								if err != nil {
+									s.logger.Error("[%s] Failed to sync empty domain '%s' in profile '%s': %v", connID, domainName, outputProfile, err)
+									writeErrors = append(writeErrors, fmt.Sprintf("empty domain %s: %v", domainName, err))
+								}
+							}
+							continue
+						}
 						for _, record := range records {
 							hostname, _ := record["hostname"].(string)
 							recordType, _ := record["type"].(string)
 							target, _ := record["target"].(string)
 							ttl, _ := record["ttl"].(uint32)
 							source, _ := record["source"].(string)
-
-							// Use the API server's own output manager
 							err := s.writeToSpecificProfile(s.outputManager, outputProfile, domainName, hostname, target, recordType, int(ttl), source)
 							if err != nil {
 								s.logger.Error("[%s] Failed to write record %s.%s to profile '%s': %v", connID, hostname, domainName, outputProfile, err)
 								writeErrors = append(writeErrors, fmt.Sprintf("record %s.%s: %v", hostname, domainName, err))
 								continue
 							}
-
 							recordsWritten++
 							s.logger.Debug("[%s] Successfully wrote %s.%s (%s) -> %s to profile '%s'",
 								connID, hostname, domainName, recordType, target, outputProfile)
 						}
-					}
-
-					// Trigger sync for the specific profile after writing all records
-					if len(writeErrors) == 0 && recordsWritten > 0 {
-						s.logger.Debug("[%s] Syncing zone file profile '%s' after writing %d records", connID, outputProfile, recordsWritten)
-
-						// Sync only the specific zone file profile, not all outputs
+						// Sync after writing records for this domain
 						profile := s.outputManager.GetProfile(outputProfile)
 						if profile != nil {
 							err := profile.Sync()
 							if err != nil {
-								s.logger.Error("[%s] Failed to sync zone file profile '%s': %v", connID, outputProfile, err)
-							} else {
-								s.logger.Info("[%s] Successfully wrote and synced %d records to zone file '%s'",
-									connID, recordsWritten, outputProfile)
+								s.logger.Error("[%s] Failed to sync domain '%s' in profile '%s': %v", connID, domainName, outputProfile, err)
+								writeErrors = append(writeErrors, fmt.Sprintf("sync domain %s: %v", domainName, err))
 							}
-						} else {
-							s.logger.Error("[%s] Zone file profile '%s' not found for sync", connID, outputProfile)
 						}
-					} else if len(writeErrors) > 0 {
+					}
+					if len(writeErrors) == 0 {
+						s.logger.Info("[%s] Successfully wrote and synced %d records to zone file '%s' (including empty domains)",
+							connID, recordsWritten, outputProfile)
+					} else {
 						s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred",
 							connID, outputProfile, len(writeErrors))
-					} else {
-						s.logger.Warn("[%s] No records were written to output profile '%s' (no data to process)",
-							connID, outputProfile)
 					}
 				} else {
 					s.logger.Error("[%s] Output manager not available for profile '%s'", connID, outputProfile)
 				}
-
 				s.logger.Debug("[%s] Completed aggregation for profile '%s'", connID, outputProfile)
 			} else {
 				s.logger.Error("[%s] Output profile '%s' not found in configuration", connID, outputProfile)
@@ -542,7 +647,7 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 				}())
 			}
 		} else {
-			s.logger.Debug("[%s] No records to aggregate for output profile '%s'", connID, outputProfile)
+			s.logger.Debug("[%s] No domains to aggregate for output profile '%s'", connID, outputProfile)
 		}
 	}
 }
@@ -821,4 +926,21 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 	}()
 
 	return nil
+}
+
+// VerifyZoneRecord checks if a DNS record exists in the zone file.
+func VerifyZoneRecord(zoneFilePath, hostname, recordType, target string) (bool, error) {
+	data, err := os.ReadFile(zoneFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read zone file: %w", err)
+	}
+	lines := strings.Split(string(data), "\n")
+	pattern := fmt.Sprintf(`^\s*%s\s+\d+\s+IN\s+%s\s+%s`, regexp.QuoteMeta(hostname), regexp.QuoteMeta(recordType), regexp.QuoteMeta(target))
+	re := regexp.MustCompile(pattern)
+	for _, line := range lines {
+		if re.MatchString(line) {
+			return true, nil // Record exists
+		}
+	}
+	return false, nil // Record not found
 }
