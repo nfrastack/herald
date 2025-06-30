@@ -5,16 +5,16 @@
 package dns
 
 import (
-	"fmt"
-	"os"
-	"strings"
-	"sync"
-	"context"
-	"strconv"
-	"time"
-
 	"herald/pkg/log"
 	"herald/pkg/util"
+
+	"context"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/cloudflare/cloudflare-go"
 )

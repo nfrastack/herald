@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Package log provides unified logging functionality for the application
 package log
 
 import (

@@ -5,15 +5,15 @@
 package file
 
 import (
+	"herald/pkg/log"
+	"herald/pkg/output/common"
+
 	"fmt"
 	"net"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-
-	"herald/pkg/log"
-	"herald/pkg/output/common"
 
 	"github.com/miekg/dns"
 )
