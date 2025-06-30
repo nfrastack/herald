@@ -5,6 +5,7 @@
 package traefik
 
 import (
+	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/log"
@@ -72,6 +73,26 @@ type TraefikProvider struct {
 	outputSyncer domain.OutputSyncer        // Injected dependency
 
 	logger *log.ScopedLogger // provider-specific logger
+
+	domainConfigs map[string]config.DomainConfig // Add domain configs for domain matching
+}
+
+// SetDomainConfigs allows injection of loaded domain configs (like Docker/Caddy)
+func (p *TraefikProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
+	p.domainConfigs = domainConfigs
+}
+
+// Helper to find the best matching domain config by suffix match on the 'name' field
+func (p *TraefikProvider) getParentDomainForFQDN(fqdn string) string {
+	var bestMatch string
+	for _, cfg := range p.domainConfigs {
+		if strings.HasSuffix(fqdn, cfg.Name) {
+			if len(cfg.Name) > len(bestMatch) {
+				bestMatch = cfg.Name
+			}
+		}
+	}
+	return bestMatch
 }
 
 // evaluateTraefikFilter evaluates a single filter against a Traefik router using conditions
@@ -532,8 +553,12 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 
 		log.Debug("%s Filter configuration: %d active filters", logPrefix, len(filterConfig.Filters))
 		for i, f := range filterConfig.Filters {
-			log.Debug("%s   Filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v",
-				logPrefix, i, f.Type, f.Value, f.Operation, f.Negate)
+			log.Debug("%s   Filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v, Conditions=%d",
+				logPrefix, i, f.Type, f.Value, f.Operation, f.Negate, len(f.Conditions))
+			for j, condition := range f.Conditions {
+				log.Debug("%s     Condition %d: Key='%s', Value='%s', Logic='%s'",
+					logPrefix, j, condition.Key, condition.Value, condition.Logic)
+			}
 		}
 	} else {
 		log.Verbose("%s Active filter: none (all routers will be processed)", logPrefix)
@@ -956,13 +981,11 @@ func (t *TraefikProvider) processRouterAdd(state domain.RouterState) {
 	hostnames := util.ExtractHostsFromRule(state.Rule)
 	for _, hostname := range hostnames {
 		fqdnNoDot := strings.TrimSuffix(hostname, ".")
-		realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-		// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup and input provider validation.
-		// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-		log.Trace("%s Using real domain name '%s' for DNS provider", realDomain)
+		realDomain := t.getParentDomainForFQDN(fqdnNoDot)
+		log.Trace("%s Using real domain name '%s' for DNS provider", t.logPrefix, realDomain)
 
 		log.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", t.logPrefix, realDomain, fqdnNoDot, state)
-		err := batchProcessor.ProcessRecord(fqdnNoDot, fqdnNoDot, state)
+		err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 		if err != nil {
 			log.Error("%s Failed to ensure DNS for '%s': %v", t.logPrefix, fqdnNoDot, err)
 		}
@@ -984,14 +1007,11 @@ func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
 	hostnames := util.ExtractHostsFromRule(state.Rule)
 	for _, hostname := range hostnames {
 		fqdnNoDot := strings.TrimSuffix(hostname, ".")
-		realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-		// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup and input provider validation.
-		// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-		log.Trace("%s Using real domain name '%s' for DNS provider (removal)", realDomain)
+		realDomain := t.getParentDomainForFQDN(fqdnNoDot)
+		log.Trace("%s Using real domain name '%s' for DNS provider (removal)", t.logPrefix, realDomain)
 
 		log.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", t.logPrefix, realDomain, fqdnNoDot, state)
-		err := batchProcessor.ProcessRecordRemoval(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
-
+		err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 		if err != nil {
 			log.Error("%s Failed to remove DNS for '%s': %v", t.logPrefix, fqdnNoDot, err)
 		}
