@@ -14,6 +14,7 @@ import (
 	"herald/pkg/util"
 
 	_ "herald/pkg/output/types/dns/providers"
+	_ "herald/pkg/output/types/remote" // Register remote output provider
 
 	"encoding/json"
 	"flag"
@@ -230,10 +231,6 @@ func main() {
 		if err := api.StartAPIServer(cfg.API); err != nil {
 			log.Fatal("[api] Failed to start API server: %v", err)
 		}
-		// If API is enabled, allow running with zero input providers
-		if len(cfg.Inputs) == 0 {
-			apiLogger.Warn("No input providers defined, running in API-only mode.")
-		}
 	}
 
 	// Initialize output manager - now domain-driven, not general config driven
@@ -252,12 +249,8 @@ func main() {
 	}
 
 	if len(activeOutputProfiles) == 0 {
-		// If no domains specify output profiles, use all available (backward compatibility)
 		for profileName := range cfg.Outputs {
 			activeOutputProfiles = append(activeOutputProfiles, profileName)
-		}
-		if len(activeOutputProfiles) > 0 {
-			log.Debug("[output] No output profiles specified in domains, using all available: %v", activeOutputProfiles)
 		}
 	} else {
 		log.Debug("[output] Using output profiles from domain configurations: %v", activeOutputProfiles)
@@ -443,10 +436,9 @@ func main() {
 		time.Sleep(300 * time.Millisecond)
 	} else {
 		// API-only mode: handle signals for graceful shutdown
-		log.Warn("[api] Running in API-only mode: no input providers or input profiles defined.")
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		<-sigChan
-		fmt.Printf("\nShutting down Herald (API-only mode)\n")
+		fmt.Printf("\nShutting down Herald\n")
 	}
 }

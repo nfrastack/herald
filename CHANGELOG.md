@@ -1,4 +1,4 @@
-## 2.0.2beta8 2025-06-26 <code at nfrastack dot com>
+## 2.1.0beta12 2025-06-30 <code at nfrastack dot com>
 
    ### Changed
    - (domain) Log that an Input Provider is overriding an IP Address properly
@@ -13,6 +13,7 @@
    - (output/dns/cloudflare) change log prefix to [function/pkg/provider/profile_name]
    - (output/dns/cloudflare) properly accomodate for multiple domains with same name
    - (output/file/zonefile) make columns fixed width
+   - (output/remote) - remove duplicate routines limiting ability to remove records
    - (common) introduce common package to deal with records and logprefixes properly
 
 ## 2.0.1 2025-06-21 <code at nfrastack dot com>

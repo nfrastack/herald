@@ -72,78 +72,77 @@ func DefaultFilterConfig() FilterConfig {
 
 // NewFilterFromStructuredOptions creates a FilterConfig from structured options
 // This supports the new format where options contain a 'filter' array
-func NewFilterFromStructuredOptions(options map[string]interface{}) (FilterConfig, error) {
-	log.Debug("[filter] NewFilterFromStructuredOptions called with: %+v", options)
+func NewFilterFromStructuredOptions(options map[string]interface{}, logger *log.ScopedLogger) (FilterConfig, error) {
+	logger.Debug("NewFilterFromStructuredOptions called with: %+v", options)
 
 	// Check for new structured filter format
 	if filterInterface, exists := options["filter"]; exists {
-		log.Debug("[filter] Found filter interface: %+v (type: %T)", filterInterface, filterInterface)
+		logger.Debug("Found filter interface: %+v (type: %T)", filterInterface, filterInterface)
 
 		// Handle JSON string case - which is what we're getting
 		if filterStr, ok := filterInterface.(string); ok {
-			log.Debug("[filter] Filter is JSON string, attempting to parse: %s", filterStr)
 
 			// Parse the JSON string into []interface{}
 			var filterArray []interface{}
 			if err := json.Unmarshal([]byte(filterStr), &filterArray); err != nil {
-				log.Error("[filter] Failed to parse filter JSON string: %v", err)
+				logger.Error("Failed to parse filter JSON string: %v", err)
 				return DefaultFilterConfig(), fmt.Errorf("invalid filter JSON: %v", err)
 			}
 
-			log.Debug("[filter] Successfully parsed JSON string into %d filter items", len(filterArray))
+			logger.Debug("Successfully parsed JSON string into %d filter items", len(filterArray))
 
 			var filterMaps []map[string]interface{}
 			for i, item := range filterArray {
-				log.Debug("[filter] Processing parsed filter item %d: %+v (type: %T)", i, item, item)
+				logger.Debug("Processing parsed filter item %d: %+v (type: %T)", i, item, item)
 
 				if filterMap, ok := item.(map[string]interface{}); ok {
-					log.Debug("[filter] Item %d is a map: %+v", i, filterMap)
+					logger.Debug("Item %d is a map: %+v", i, filterMap)
 					filterMaps = append(filterMaps, filterMap)
 				} else {
-					log.Warn("[filter] Item %d is not a map, skipping", i)
+					logger.Warn("Item %d is not a map, skipping", i)
 				}
 			}
 
 			if len(filterMaps) > 0 {
-				log.Debug("[filter] Calling ParseFilterFromYAML with %d filter maps from JSON", len(filterMaps))
-				result, err := ParseFilterFromYAML(filterMaps)
-				log.Debug("[filter] ParseFilterFromYAML returned: %+v, error: %v", result, err)
+				logger.Debug("Calling ParseFilterFromYAML with %d filter maps from JSON", len(filterMaps))
+				result, err := ParseFilterFromYAML(filterMaps, logger)
+				logger.Debug("ParseFilterFromYAML returned: %+v, error: %v", result, err)
 				return result, err
 			}
 		}
 
 		// Handle []interface{} case - original structured case
 		if filterArray, ok := filterInterface.([]interface{}); ok {
-			log.Debug("[filter] Filter is []interface{} with %d elements", len(filterArray))
+			logger.Debug("Filter is []interface{} with %d elements", len(filterArray))
 
 			var filterMaps []map[string]interface{}
 			for i, item := range filterArray {
-				log.Debug("[filter] Processing filter array item %d: %+v (type: %T)", i, item, item)
+				logger.Debug("Processing filter array item %d: %+v (type: %T)", i, item, item)
 
 				if filterMap, ok := item.(map[string]interface{}); ok {
-					log.Debug("[filter] Item %d is a map: %+v", i, filterMap)
+					logger.Debug("Item %d is a map: %+v", i, filterMap)
 					filterMaps = append(filterMaps, filterMap)
 				} else {
-					log.Warn("[filter] Item %d is not a map, skipping", i)
+					logger.Warn("Item %d is not a map, skipping", i)
 				}
 			}
 
 			if len(filterMaps) > 0 {
-				log.Debug("[filter] Calling ParseFilterFromYAML with %d filter maps", len(filterMaps))
-				result, err := ParseFilterFromYAML(filterMaps)
-				log.Debug("[filter] ParseFilterFromYAML returned: %+v, error: %v", result, err)
+				logger.Debug("Calling ParseFilterFromYAML with %d filter maps", len(filterMaps))
+				result, err := ParseFilterFromYAML(filterMaps, logger)
+				logger.Debug("ParseFilterFromYAML returned: %+v, error: %v", result, err)
 				return result, err
 			}
 		}
 
 		switch filterArray := filterInterface.(type) {
 		case []map[string]interface{}:
-			return ParseFilterFromYAML(filterArray)
+			return ParseFilterFromYAML(filterArray, logger)
 		}
 	}
 
 	// No filter configuration found
-	log.Debug("[filter] No filter configuration found, returning default")
+	logger.Debug("No filter configuration found, returning default")
 	return DefaultFilterConfig(), nil
 }
 
@@ -156,13 +155,13 @@ func NewFilterFromStructuredOptions(options map[string]interface{}) (FilterConfi
 //   - key: another.key
 //     value: another_value
 //     logic: or
-func ParseFilterFromYAML(filterConfigs []map[string]interface{}) (FilterConfig, error) {
-	log.Debug("[filter] ParseFilterFromYAML called with %d filter configs: %+v", len(filterConfigs), filterConfigs)
+func ParseFilterFromYAML(filterConfigs []map[string]interface{}, logger *log.ScopedLogger) (FilterConfig, error) {
+	logger.Debug("ParseFilterFromYAML called with %d filter configs: %+v", len(filterConfigs), filterConfigs)
 
 	config := FilterConfig{}
 
 	for i, filterMap := range filterConfigs {
-		log.Debug("[filter] Processing filter config %d: %+v", i, filterMap)
+		logger.Debug("Processing filter config %d: %+v", i, filterMap)
 
 		filter := Filter{
 			Operation: FilterOperationAND,
@@ -172,59 +171,59 @@ func ParseFilterFromYAML(filterConfigs []map[string]interface{}) (FilterConfig, 
 		// Parse type
 		if filterType, ok := filterMap["type"].(string); ok {
 			filter.Type = FilterType(filterType)
-			log.Debug("[filter] Filter %d type set to: %s", i, filterType)
+			logger.Debug("Filter %d type set to: %s", i, filterType)
 		} else {
-			log.Error("[filter] Filter %d missing required 'type' field", i)
+			logger.Error("Filter %d missing required 'type' field", i)
 			return config, fmt.Errorf("filter type is required")
 		}
 
 		// Parse operation (optional, defaults to AND)
 		if operation, ok := filterMap["operation"].(string); ok {
 			filter.Operation = strings.ToUpper(operation)
-			log.Debug("[filter] Filter %d operation set to: %s", i, filter.Operation)
+			logger.Debug("Filter %d operation set to: %s", i, filter.Operation)
 		}
 
 		// Parse negate (optional, defaults to false)
 		if negate, ok := filterMap["negate"].(bool); ok {
 			filter.Negate = negate
-			log.Debug("[filter] Filter %d negate set to: %t", i, negate)
+			logger.Debug("Filter %d negate set to: %t", i, negate)
 		}
 
 		// Parse conditions array (new format)
 		if conditionsInterface, ok := filterMap["conditions"]; ok {
-			log.Debug("[filter] Filter %d has conditions: %+v (type: %T)", i, conditionsInterface, conditionsInterface)
+			logger.Debug("Filter %d has conditions: %+v (type: %T)", i, conditionsInterface, conditionsInterface)
 
 			switch conditionsArray := conditionsInterface.(type) {
 			case []interface{}:
-				log.Debug("[filter] Filter %d conditions is []interface{} with %d items", i, len(conditionsArray))
+				logger.Debug("Filter %d conditions is []interface{} with %d items", i, len(conditionsArray))
 				for j, conditionItem := range conditionsArray {
-					log.Debug("[filter] Processing condition %d: %+v", j, conditionItem)
+					logger.Debug("Processing condition %d: %+v", j, conditionItem)
 
 					if conditionMap, ok := conditionItem.(map[string]interface{}); ok {
 						filterCondition := FilterCondition{}
 
 						if key, ok := conditionMap["key"].(string); ok {
 							filterCondition.Key = key
-							log.Debug("[filter] Condition %d key: %s", j, key)
+							logger.Debug("Condition %d key: %s", j, key)
 						}
 						if value, ok := conditionMap["value"].(string); ok {
 							filterCondition.Value = value
-							log.Debug("[filter] Condition %d value: %s", j, value)
+							logger.Debug("Condition %d value: %s", j, value)
 						}
 						if logic, ok := conditionMap["logic"].(string); ok {
 							filterCondition.Logic = strings.ToLower(logic)
-							log.Debug("[filter] Condition %d logic: %s", j, filterCondition.Logic)
+							logger.Debug("Condition %d logic: %s", j, filterCondition.Logic)
 						} else {
 							filterCondition.Logic = "and" // default
-							log.Debug("[filter] Condition %d using default logic: and", j)
+							logger.Debug("Condition %d using default logic: and", j)
 						}
 
 						filter.Conditions = append(filter.Conditions, filterCondition)
-						log.Debug("[filter] Added condition %d to filter %d: %+v", j, i, filterCondition)
+						logger.Debug("Added condition %d to filter %d: %+v", j, i, filterCondition)
 					}
 				}
 			case []map[string]interface{}:
-				log.Debug("[filter] Filter %d conditions is []map[string]interface{} with %d items", i, len(conditionsArray))
+				logger.Debug("Filter %d conditions is []map[string]interface{} with %d items", i, len(conditionsArray))
 				for j, conditionMap := range conditionsArray {
 					filterCondition := FilterCondition{}
 
@@ -241,19 +240,19 @@ func ParseFilterFromYAML(filterConfigs []map[string]interface{}) (FilterConfig, 
 					}
 
 					filter.Conditions = append(filter.Conditions, filterCondition)
-					log.Debug("[filter] Added condition %d to filter %d: %+v", j, i, filterCondition)
+					logger.Debug("Added condition %d to filter %d: %+v", j, i, filterCondition)
 				}
 			}
 		} else {
-			log.Debug("[filter] Filter %d has no conditions", i)
+			logger.Debug("Filter %d has no conditions", i)
 		}
 
 		config.Filters = append(config.Filters, filter)
-		log.Debug("[filter] Added filter %d to config: Type=%s, Operation=%s, Negate=%t, Conditions=%d",
+		logger.Debug("Added filter %d to config: Type=%s, Operation=%s, Negate=%t, Conditions=%d",
 			i, filter.Type, filter.Operation, filter.Negate, len(filter.Conditions))
 	}
 
-	log.Debug("[filter] ParseFilterFromYAML returning config with %d filters: %+v", len(config.Filters), config.Filters)
+	logger.Debug("ParseFilterFromYAML returning config with %d filters: %+v", len(config.Filters), config.Filters)
 	return config, nil
 }
 

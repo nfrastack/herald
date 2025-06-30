@@ -44,7 +44,6 @@ func parseStringArray(value interface{}) []string {
 
 // InitializeDomainSystem initializes the domain management system with full validation
 func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles, outputProfiles, dnsProviders map[string]interface{}) error {
-	log.Debug("[domain] Initializing domain management system")
 	log.Debug("[domain] Raw domain configs received: %+v", domainConfigs)
 
 	// Parse domain configurations
@@ -149,7 +148,6 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 		GlobalDomainManager.AddDomain(domainName, domainConfig)
 	}
 
-	log.Verbose("[domain] Initialized %d domain configurations with validation", len(domains))
 	return nil
 }
 

@@ -7,7 +7,6 @@ import (
 	"herald/pkg/log"
 	"net"
 	"strings"
-	"sync"
 )
 
 type RouterState struct {
@@ -61,7 +60,7 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 				domainConfigKey = key
 				found = true
 				// Create a proper log prefix with domain config key
-				logPrefix := fmt.Sprintf("[domain/%s/%s]", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
+				logPrefix := fmt.Sprintf("[domain/%s/%s]", domainConfigKey, domain)
 				log.Debug("%s Found domain config '%s' for input provider '%s'", logPrefix, key, inputProviderName)
 				break
 			} else {
@@ -76,7 +75,7 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 	}
 
 	// Create a proper log prefix with domain config key
-	logPrefix := fmt.Sprintf("[domain/%s/%s]", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
+	logPrefix := fmt.Sprintf("[domain/%s/%s]", domainConfigKey, domain)
 	log.Debug("%s Processing record through unified output system", logPrefix)
 
 	// Prepare record details
@@ -91,19 +90,19 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 	recordType := state.RecordType
 	target := ""
 
-	log.Debug("[domain/%s/%s] Initial state: RecordType='%s', Service='%s'", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), recordType, state.Service)
+	log.Debug("[domain/%s/%s] Initial state: RecordType='%s', Service='%s'", domainConfigKey, domain, recordType, state.Service)
 
 	// Get target from domain config first
 	if domainConfig.Record.Target != "" {
 		target = domainConfig.Record.Target
-		log.Debug("[domain/%s/%s] Using target from domain config: '%s'", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), target)
+		log.Debug("[domain/%s/%s] Using target from domain config: '%s'", domainConfigKey, domain, target)
 	} else if state.Service != "" {
 		if ip := net.ParseIP(state.Service); ip != nil {
 			target = state.Service
-			log.Debug("[domain/%s/%s] Using Service as target (IP): '%s'", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), target)
+			log.Debug("[domain/%s/%s] Using Service as target (IP): '%s'", domainConfigKey, domain, target)
 		} else if strings.Contains(state.Service, ".") {
 			target = state.Service
-			log.Debug("[domain/%s/%s] Using Service as target (hostname): '%s'", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), target)
+			log.Debug("[domain/%s/%s] Using Service as target (hostname): '%s'", domainConfigKey, domain, target)
 		}
 	}
 
@@ -111,13 +110,13 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 	if state.ForceServiceAsTarget && state.Service != "" {
 		if ip := net.ParseIP(state.Service); ip != nil {
 			if target != state.Service {
-				log.Verbose("[domain/%s/%s] Input provider supplying IP '%s' for hostname '%s' (overriding domain target '%s')", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), state.Service, hostname, target)
+				log.Verbose("[domain/%s/%s] Input provider supplying IP '%s' for hostname '%s' (overriding domain target '%s')", domainConfigKey, domain, state.Service, hostname, target)
 			} else {
-				log.Verbose("[domain/%s/%s] Input provider supplying IP '%s' for hostname '%s'", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), state.Service, hostname)
+				log.Verbose("[domain/%s/%s] Input provider supplying IP '%s' for hostname '%s'", domainConfigKey, domain, state.Service, hostname)
 			}
 			target = state.Service
 		} else {
-			log.Error("[domain/%s/%s] ForceServiceAsTarget=true but Service field '%s' is not a valid IP address (SourceType=%s)", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), state.Service, state.SourceType)
+			log.Error("[domain/%s/%s] ForceServiceAsTarget=true but Service field '%s' is not a valid IP address (SourceType=%s)", domainConfigKey, domain, state.Service, state.SourceType)
 			return fmt.Errorf("invalid IP address in Service field for VPN provider: %s", state.Service)
 		}
 	}
@@ -146,7 +145,7 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 		// If config omits type, always use autodetected type, regardless of input provider
 		if !explicitType {
 			recordType = expectedRecordType
-			log.Debug("[domain/%s/%s] Auto-detected record type: %s (target: %s)", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), recordType, target)
+			log.Debug("[domain/%s/%s] Auto-detected record type: %s (target: %s)", domainConfigKey, domain, recordType, target)
 		} else if recordType == "" {
 			// If config sets type but input provider omits, use config type
 			recordType = domainConfig.Record.Type
@@ -155,10 +154,10 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 		// If type is set (from config or input), only warn/correct if it's wrong for the target
 		if explicitType && recordType != expectedRecordType {
 			if (expectedRecordType == "A" || expectedRecordType == "AAAA") && (recordType != "A" && recordType != "AAAA") {
-				log.Warn("[domain/%s/%s] Record type mismatch: configured as '%s' but target '%s' requires '%s' - correcting to %s", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), recordType, target, expectedRecordType, expectedRecordType)
+				log.Warn("[domain/%s/%s] Record type mismatch: configured as '%s' but target '%s' requires '%s' - correcting to %s", domainConfigKey, domain, recordType, target, expectedRecordType, expectedRecordType)
 				recordType = expectedRecordType
 			} else if expectedRecordType == "CNAME" && (recordType == "A" || recordType == "AAAA") {
-				log.Warn("[domain/%s/%s] Record type mismatch: configured as '%s' but target '%s' requires '%s' - correcting to %s", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), recordType, target, expectedRecordType, expectedRecordType)
+				log.Warn("[domain/%s/%s] Record type mismatch: configured as '%s' but target '%s' requires '%s' - correcting to %s", domainConfigKey, domain, recordType, target, expectedRecordType, expectedRecordType)
 				recordType = expectedRecordType
 			}
 		}
@@ -170,23 +169,23 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 	}
 
 	if target == "" {
-		log.Error("[domain/%s/%s] No target specified for domain '%s' (fqdn: %s, service: %s)", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), domain, fqdn, state.Service)
+		log.Error("[domain/%s/%s] No target specified for domain '%s' (fqdn: %s, service: %s)", domainConfigKey, domain, domain, fqdn, state.Service)
 		return fmt.Errorf("no target specified for domain %s (fqdn: %s, service: %s)", domain, fqdn, state.Service)
 	}
 
-	log.Debug("[domain/%s/%s] Output params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), domain, recordType, hostname, target, ttl)
+	log.Debug("[domain/%s/%s] Output params: domain=%s, recordType=%s, hostname=%s, target=%s, ttl=%d", domainConfigKey, domain, domain, recordType, hostname, target, ttl)
 
 	if outputWriter == nil {
-		log.Error("[domain/%s/%s] Output writer not provided", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
+		log.Error("[domain/%s/%s] Output writer not provided", domainConfigKey, domain)
 		return fmt.Errorf("output writer not provided")
 	}
 
 	outputErr := outputWriter.WriteRecordToOutputs(domainConfig.GetOutputs(), domain, hostname, target, recordType, ttl, state.SourceType)
 	if outputErr != nil {
-		log.Error("[domain/%s/%s] Failed to write to output system: %v", domainConfigKey, strings.ReplaceAll(domain, ".", "_"), outputErr)
+		log.Error("[domain/%s/%s] Failed to write to output system: %v", domainConfigKey, domain, outputErr)
 		return outputErr
 	} else {
-		log.Debug("[domain/%s/%s] Successfully wrote to output system", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
+		log.Debug("[domain/%s/%s] Successfully wrote to output system", domainConfigKey, domain)
 	}
 	return nil
 }
@@ -288,8 +287,6 @@ func EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn string, state Router
 	if outputErr != nil {
 		domainLogger.Error("Failed to remove from output system: %v", outputErr)
 		return outputErr
-	} else {
-		domainLogger.Debug("Successfully removed from output system")
 	}
 	return nil
 }
@@ -297,21 +294,18 @@ func EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn string, state Router
 // FinalizeBatch triggers a sync of changes to the output manager if any changes were processed in this batch.
 func (bp *BatchProcessor) FinalizeBatch() {
 	if !bp.hasChanges {
-		bp.logger.Debug("%s No changes in batch, skipping output sync", bp.logPrefix)
+		bp.logger.Debug("No changes in batch, skipping output sync")
 		return
 	}
 
-	bp.logger.Debug("%s Finalizing batch and syncing output files", bp.logPrefix) // This log is fine
 	if bp.outputSyncer != nil {
 		// Use source-specific sync to avoid syncing other providers' changes
 		err := bp.outputSyncer.SyncAllFromSource(bp.inputProvider)
 		if err != nil {
-			bp.logger.Error("%s Failed to sync output files: %v", bp.logPrefix, err)
-		} else {
-			bp.logger.Debug("%s Successfully synced output files for batch", bp.logPrefix)
+			bp.logger.Error("Failed to sync output files: %v", err)
 		}
 	} else {
-		bp.logger.Error("%s Output syncer not provided, cannot sync batch", bp.logPrefix)
+		bp.logger.Error("Output syncer not provided, cannot sync batch")
 	}
 
 	// Reset hasChanges after finalizing
@@ -324,7 +318,6 @@ type BatchProcessor struct {
 	logPrefix     string
 	inputProvider string // Track which input provider is using this batch
 	logger        *log.ScopedLogger
-	syncMutex     sync.Mutex   // Prevent concurrent syncs from same provider
 	outputWriter  OutputWriter // Dependency for writing/removing records
 	outputSyncer  OutputSyncer // Dependency for triggering syncs
 }
@@ -362,26 +355,26 @@ func (bp *BatchProcessor) isInputProviderAllowed(domain, inputProviderName strin
 			// Use the new helper method to get effective input profiles
 			inputProfiles := domainConfig.GetInputProfiles()
 
-			log.Debug("%s Checking domain config '%s' for domain '%s' - allowed inputs: %v", bp.logPrefix, domainKey, domain, inputProfiles)
+			// Use a logger with the correct domain log prefix
+			domainLogPrefix := getDomainLogPrefix(domainKey, domain)
+			domainLogger := log.NewScopedLogger(domainLogPrefix, "")
+
+			domainLogger.Debug("Checking domain config '%s' for domain '%s' - allowed inputs: %v", domainKey, domain, inputProfiles)
 
 			// Check if this input provider is in the allowed list
 			for _, allowedProvider := range inputProfiles {
 				if allowedProvider == inputProviderName {
-					log.Debug("%s Input provider '%s' allowed for domain '%s' via config '%s'", bp.logPrefix, inputProviderName, domain, domainKey)
+					domainLogger.Debug("Input provider '%s' allowed for domain '%s' via config '%s'", inputProviderName, domain, domainKey)
 					return true
 				}
 			}
 		}
 	}
 
-	log.Debug("%s Input provider '%s' not allowed for domain '%s' (no matching domain config found)", bp.logPrefix, inputProviderName, domain)
 	return false
 }
 
-// extractInputProviderFromLogPrefix extracts the input provider name from log prefix
-// e.g., "[input/docker/main]" -> "main"
 func extractInputProviderFromLogPrefix(logPrefix string) string {
-	// Extract provider name from log prefix like "[input/ docker/ main]"
 	if strings.HasPrefix(logPrefix, "[input/") && strings.HasSuffix(logPrefix, "]") {
 		parts := strings.Split(logPrefix[7:len(logPrefix)-1], "/")
 		if len(parts) >= 2 {

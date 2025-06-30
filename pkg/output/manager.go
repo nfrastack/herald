@@ -102,7 +102,7 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 			log.Error(errStr)
 			errors = append(errors, errStr)
 		} else {
-			log.Debug("Successfully removed record from profile '%s'", profileName)
+			log.Debug("[output/manager] Successfully removed record from profile '%s'", profileName)
 			removedCount++
 
 			// PATCH: Mark this profile as changed for this source (so sync will reflect removals)

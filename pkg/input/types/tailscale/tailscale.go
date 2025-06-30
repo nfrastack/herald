@@ -346,7 +346,9 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	}
 
 	// Parse filter configuration using structured format
-	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions)
+	filterLogPrefix := logPrefix + "/filter"
+	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
+	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
 		log.Debug("%s Error creating filter configuration: %v, using default", logPrefix, err)
 		filterConfig = common.DefaultFilterConfig()
@@ -958,16 +960,8 @@ func (p *TailscaleProvider) processDevices() {
 				// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
 				// and input provider validation.
 				// We pass the fqdn as the domain for now, and the domain package will resolve it to the correct domain config.
-				// This is consistent with how other input providers pass the FQDN.
-				// The domain.EnsureDNSForRouterStateWithProvider will extract the domain and subdomain from fqdn.
-
-				// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
-				// We pass the fqdn as the domain for now, and the domain package will resolve it to the correct domain config.
+				// Consistent with how other input providers pass the FQDN.
 				realDomain, _ := common.ExtractDomainAndSubdomain(fqdn) // This is just for logging, actual domain resolution is in domain package
-
-				// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
 
 				p.logger.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
 

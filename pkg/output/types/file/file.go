@@ -36,15 +36,13 @@ type FileOutput struct {
 
 // NewFileOutput creates a new file output instance that delegates to specific format implementations
 func NewFileOutput(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	log.Debug("[output/file] Creating file output '%s' with config: %+v", profileName, config)
-
 	format, ok := config["format"].(string)
 	if !ok || format == "" {
 		log.Error("[output/file] Missing or invalid 'format' field in config: %+v", config)
 		return nil, fmt.Errorf("file output requires 'format' field")
 	}
 
-	log.Debug("[output/file] Using format: %s", format)
+	log.Debug("[output/file] Creating file output '%s' (format: %s) with config: %+v", profileName, format, config)
 
 	// Validate format and delegate to specific implementations
 	switch format {

@@ -116,7 +116,9 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	}
 
 	// Parse filter configuration using structured format
-	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions)
+	filterLogPrefix := fmt.Sprintf("[poll/zerotier/%s/filter]", profileName)
+	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
+	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
 		// Build logPrefix for this debug message - we need it before the full logPrefix is created
 		tempLogPrefix := fmt.Sprintf("[poll/zerotier/%s]", profileName)

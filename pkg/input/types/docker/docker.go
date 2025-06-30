@@ -348,10 +348,20 @@ func NewProvider(profileName string, config map[string]interface{}, outputWriter
 
 // NewProviderFromStructured creates a new Docker poll provider from structured options with injected dependencies
 func NewProviderFromStructured(options map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
+	// Build log prefix for filter logs
+	profileName := ""
+	if v, ok := options["name"].(string); ok && v != "" {
+		profileName = v
+	} else if v, ok := options["profile_name"].(string); ok && v != "" {
+		profileName = v
+	}
+	filterLogPrefix := fmt.Sprintf("[input/docker/%s/filter]", profileName)
+	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
+
 	// Parse the filter configuration BEFORE converting to strings to preserve structured data
-	filterConfig, err := common.NewFilterFromStructuredOptions(options)
+	filterConfig, err := common.NewFilterFromStructuredOptions(options, filterLogger)
 	if err != nil {
-		log.Info("Error creating filter configuration: %v, using default", err)
+		filterLogger.Info("Error creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
@@ -370,7 +380,7 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 		Name:               "docker",
 	})
 
-	profileName := stringOptions["name"]
+	profileName = stringOptions["name"]
 	if profileName == "" {
 		profileName = stringOptions["profile_name"]
 	}
@@ -481,19 +491,17 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 	config.SwarmMode = false
 
 	// Log all available options for debugging
-	scopedLogger.Trace("%s Provider options received: %v", logPrefix, options)
+	scopedLogger.Trace("Provider options received: %v", options)
 
 	// Check if we should expose all containers by default from options
 	if val, exists := options["expose_containers"]; exists {
 		if strVal, ok := val.(string); ok {
 			lowerVal := strings.ToLower(strVal)
 			config.ExposeContainers = lowerVal == "true" || lowerVal == "1" || lowerVal == "yes"
-			scopedLogger.Trace("%s Option 'expose_containers' found with value: '%s', parsed as: %v",
-				logPrefix, strVal, config.ExposeContainers)
+			scopedLogger.Trace("Option 'expose_containers' found with value: '%s', parsed as: %v", strVal, config.ExposeContainers)
 		}
 	} else {
-		scopedLogger.Trace("%s No 'expose_containers' option found, using default: %v",
-			logPrefix, config.ExposeContainers)
+		scopedLogger.Trace("No 'expose_containers' option found, using default: %v", config.ExposeContainers)
 	}
 
 	// Check if we're running in Swarm mode
@@ -1408,7 +1416,6 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 			return entries
 		}
 		if val == "true" || val == "1" {
-			log.Verbose("%s DNS enabled for container '%s' due to label override", p.logPrefix, containerName)
 			// continue processing
 		} else {
 			log.Warn("%s Skipping container '%s' due to 'nfrastack.dns.enable' label set to unknown value '%s'", p.logPrefix, containerName, dnsLabel)

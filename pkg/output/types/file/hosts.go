@@ -23,7 +23,7 @@ import (
 type HostsFormat struct {
 	*common.CommonFormat
 	domain      string
-	profileName string // store the output profile name explicitly
+	profileName string                  // store the output profile name explicitly
 	records     map[string]*HostsRecord // key: hostname:type
 	config      HostsConfig
 	enableIPv4  bool
@@ -354,7 +354,7 @@ func (h *HostsFormat) RemoveRecord(domain, hostname, recordType string) error {
 	defer func() {
 		h.Unlock()
 		dur := time.Now().UnixMilli() - start
-		log.Debug("%s Released lock in RemoveRecord (lock_held_ms=%d)", h.getHostsLogPrefix(), dur)
+		log.Trace("%s Released lock in RemoveRecord (lock_held_ms=%d)", h.getHostsLogPrefix(), dur)
 		if dur > 5000 {
 			log.Warn("%s RemoveRecord lock held for %d ms (>5s)!", h.getHostsLogPrefix(), dur)
 		}

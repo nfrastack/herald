@@ -7,7 +7,6 @@ package common
 import (
 	"herald/pkg/log"
 
-	"bytes"
 	"fmt"
 	"os"
 	"os/user"
@@ -17,7 +16,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"runtime"
 )
 
 // expandTags replaces template tags in s with values from domain, profile, etc.
@@ -496,14 +494,13 @@ func (c *CommonFormat) LoadExistingData(unmarshalFunc func([]byte, interface{}) 
 
 // SyncWithSerializer writes data using the provided serialization function
 func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, export *ExportData) ([]byte, error), fallbackDomain ...string) error {
-	gid := getGID()
 	c.Lock()
 	defer func() {
 		c.Unlock()
-		log.Debug("%s [SyncWithSerializer] [GID=%d] Released lock", c.GetLogPrefix(), gid)
+		log.Debug("%s Released lock", c.GetLogPrefix())
 	}()
 
-	log.Debug("%s [SyncWithSerializer] [GID=%d] Starting file sync", c.GetLogPrefix(), gid)
+	log.Debug("%s Starting file sync", c.GetLogPrefix())
 
 	// Create directory if it doesn't exist
 	if err := c.EnsureDirectory(); err != nil {
@@ -513,7 +510,7 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, expo
 
 	export := c.GetExportData()
 	if export.Domains == nil || len(export.Domains) == 0 {
-		log.Warn("%s [SyncWithSerializer] No domains to export, calling serializer with empty export", c.GetLogPrefix())
+		log.Warn("%s  No domains to export, calling serializer with empty export", c.GetLogPrefix())
 		// Use fallbackDomain for tag expansion and serializer domain argument
 		var domain string
 		if len(fallbackDomain) > 0 && fallbackDomain[0] != "" {
@@ -545,7 +542,7 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, expo
 		if err := setFileOwnership(filename, c.config, c.logger); err != nil {
 			log.Warn("%s Failed to set file ownership for %s: %v", c.GetLogPrefix(), filename, err)
 		}
-		log.Debug("%s [SyncWithSerializer] Empty export file written successfully", c.GetLogPrefix())
+		log.Debug("%s Empty export file written successfully", c.GetLogPrefix())
 		return nil
 	}
 
@@ -582,31 +579,6 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, expo
 			log.Warn("%s Failed to set file ownership for %s: %v", c.GetLogPrefix(), filename, err)
 		}
 	}
-	log.Debug("%s [SyncWithSerializer] All files written successfully", c.GetLogPrefix())
+	log.Debug("%s All files written successfully", c.GetLogPrefix())
 	return nil
-}
-
-// --- Aggressive logging helpers ---
-func nowMillis() int64 {
-	return time.Now().UnixNano() / 1e6
-}
-
-func getGID() int64 {
-	b := make([]byte, 64)
-	b = b[:runtime.Stack(b, false)]
-	b = bytes.TrimPrefix(b, []byte("goroutine "))
-	b = b[:bytes.IndexByte(b, ' ')]
-	gid, _ := parseIntBytes(b)
-	return gid
-}
-
-func parseIntBytes(b []byte) (int64, error) {
-	var n int64
-	for _, c := range b {
-		if c < '0' || c > '9' {
-			break
-		}
-		n = n*10 + int64(c-'0')
-	}
-	return n, nil
 }

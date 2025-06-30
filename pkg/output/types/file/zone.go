@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"herald/pkg/output/common"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -104,23 +103,14 @@ func (z *ZoneFormat) GetFilePath() string {
 
 // Sync writes the zone file to disk
 func (z *ZoneFormat) Sync() error {
-	z.GetLogger().Debug("[output/zone] Sync called for domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
-	z.GetLogger().Debug("[output/zone] Sync: domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
-	z.GetLogger().Debug("[output/zone] Attempting to write file: %s", z.GetFilePath())
-
-	// Ensure that if there are no records, the export data is cleared for this domain
-	export := z.GetExportData()
-	if export.Domains != nil {
-		if d, ok := export.Domains[z.GetDomain()]; ok && d != nil && len(d.Records) == 0 {
-			d.Records = nil // ensure empty slice, not stale data
-		}
-	}
+	z.GetLogger().Debug("Sync called for domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
+	z.GetLogger().Debug("Attempting to write file: %s", z.GetFilePath())
 
 	err := z.CommonFormat.SyncWithSerializer(z.serializeZone)
 	if err != nil {
-		z.GetLogger().Error("[output/zone] Sync FAILED for domain=%s, profile=%s, file=%s: %v", z.GetDomain(), z.GetProfile(), z.GetFilePath(), err)
+		z.GetLogger().Error("Sync FAILED for domain=%s, profile=%s, file=%s: %v", z.GetDomain(), z.GetProfile(), z.GetFilePath(), err)
 	} else {
-		z.GetLogger().Info("[output/zone] Sync SUCCESS for domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
+		z.GetLogger().Info("Sync SUCCESS for domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
 	}
 	return err
 }
@@ -242,34 +232,11 @@ func generateSerial() string {
 	return fmt.Sprintf("%04d%02d%02d%02d", now.Year(), now.Month(), now.Day(), now.Hour())
 }
 
-// Helper functions
-func getStringConfigWithDefault(config map[string]interface{}, key, defaultValue string) string {
-	if value, ok := config[key].(string); ok {
-		return value
-	}
-	return defaultValue
-}
-
-func getIntConfigWithDefault(config map[string]interface{}, key string, defaultValue int) int {
-	if value, ok := config[key].(int); ok {
-		return value
-	}
-	if value, ok := config[key].(float64); ok {
-		return int(value)
-	}
-	if value, ok := config[key].(string); ok {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
-}
-
 // WriteRecordWithSource writes or updates a DNS record with source information
 func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	z.GetLogger().Debug("[output/zone] WriteRecordWithSource called: domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
+	z.GetLogger().Debug("WriteRecordWithSource called: domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
 	defer func() {
-		z.GetLogger().Debug("[output/zone] WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
+		z.GetLogger().Debug("WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
 	}()
 	return z.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
 }

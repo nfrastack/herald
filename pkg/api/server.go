@@ -143,7 +143,6 @@ func (s *APIServer) LoadClientProfiles(profiles map[string]config.APIClientProfi
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	s.profiles = profiles
-	s.logger.Verbose("Loaded %d client profiles", len(profiles))
 	s.logger.Verbose("Client profiles configured: %v", func() []string {
 		var names []string
 		for name := range profiles {
@@ -346,8 +345,7 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	var remotePayload RemoteActionPayload
 	contentType := r.Header.Get("Content-Type")
 	s.logger.Trace("[%s] Content-Type: %s", connID, contentType)
-	s.logger.Trace("[%s] About to parse payload as JSON or YAML", connID)
-	s.logger.Trace("[%s] Payload (pre-parse): %s", connID, string(body))
+	s.logger.Trace("[%s] Payload: %s", connID, string(body))
 	switch {
 	default:
 		// Try JSON first
@@ -567,7 +565,7 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 
 		// Always write/sync for all domains, even if there are zero records
 		if len(allDomains) > 0 {
-			s.logger.Debug("[%s] Writing %d aggregated domains to output profile '%s' (including empty domains)", connID, len(allDomains), outputProfile)
+			s.logger.Debug("[%s] Writing %d aggregated domains to output profile '%s'", connID, len(allDomains), outputProfile)
 
 			// Log summary of aggregated data
 			for domainName := range allDomains {
@@ -626,7 +624,7 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 						}
 					}
 					if len(writeErrors) == 0 {
-						s.logger.Info("[%s] Successfully wrote and synced %d records to zone file '%s' (including empty domains)",
+						s.logger.Verbose("[%s] Successfully wrote and synced %d records to profile '%s'",
 							connID, recordsWritten, outputProfile)
 					} else {
 						s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred",
@@ -764,11 +762,9 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		server.LoadClientProfiles(resolvedProfiles)
 
 		// Initialize API server's output manager after loading client profiles
-		server.logger.Debug("About to initialize API output profiles...")
 		if err := server.initializeAPIOutputProfiles(globalConfig.Outputs); err != nil {
 			return fmt.Errorf("failed to initialize API output profiles: %w", err)
 		}
-		server.logger.Debug("API output profiles initialization completed")
 	}
 
 	// Load client tokens if token file is specified (for backward compatibility)
@@ -816,10 +812,6 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 	}
 
 	server.logger.Debug("Endpoint: %s", endpoint)
-
-	if len(apiConfig.Profiles) > 0 {
-		server.logger.Verbose("Loaded %d client profiles", len(apiConfig.Profiles))
-	}
 
 	// Validate listen patterns before proceeding
 	if len(apiConfig.Listen) > 0 {
