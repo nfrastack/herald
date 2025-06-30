@@ -78,10 +78,6 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 		return nil // Not an error - just filtered out
 	}
 
-	// Create a proper log prefix with domain config key
-	logPrefix := fmt.Sprintf("[domain/%s/%s]", domainConfigKey, domain)
-	log.Debug("%s Processing record through unified output system", logPrefix)
-
 	// Prepare record details
 	hostname := fqdn
 	if fqdn == domain {
