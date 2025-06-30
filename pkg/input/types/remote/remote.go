@@ -5,11 +5,11 @@
 package remote
 
 import (
+	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/input/types/file/parsers"
 	"herald/pkg/log"
-	"herald/pkg/config"
 
 	"fmt"
 	"strings"
@@ -47,19 +47,19 @@ func (d DNSEntry) GetRecordType() string {
 }
 
 type RemoteProvider struct {
-	remoteURL    string
-	format       string
-	interval     time.Duration
-	opts         common.PollProviderOptions
-	running      bool
-	lastRecords  map[string]DNSEntry
-	logPrefix    string
-	options      map[string]string
-	filterConfig common.FilterConfig
-	logger       *log.ScopedLogger
-	name         string              // Profile name
-	outputWriter domain.OutputWriter // Injected dependency
-	outputSyncer domain.OutputSyncer // Injected dependency
+	remoteURL     string
+	format        string
+	interval      time.Duration
+	opts          common.PollProviderOptions
+	running       bool
+	lastRecords   map[string]DNSEntry
+	logPrefix     string
+	options       map[string]string
+	filterConfig  common.FilterConfig
+	logger        *log.ScopedLogger
+	name          string                         // Profile name
+	outputWriter  domain.OutputWriter            // Injected dependency
+	outputSyncer  domain.OutputSyncer            // Injected dependency
 	domainConfigs map[string]config.DomainConfig // Add domain configs for domain matching
 }
 
