@@ -5,6 +5,7 @@
 package tailscale
 
 import (
+	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/log"
@@ -142,6 +143,8 @@ type TailscaleProvider struct {
 	clientSecret string
 	tlsConfig    common.TLSConfig
 	name         string
+
+	domainConfigs map[string]config.DomainConfig // Add domain configs for domain matching
 }
 
 type TailscaleDevicesResponse struct {
@@ -883,6 +886,23 @@ func (p *TailscaleProvider) pollLoop() {
 	}
 }
 
+func (p *TailscaleProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
+	p.domainConfigs = domainConfigs
+}
+
+// Helper to find the best matching domain config by suffix match on the 'name' field
+func (p *TailscaleProvider) getParentDomainForFQDN(fqdn string) string {
+	var bestMatch string
+	for _, cfg := range p.domainConfigs {
+		if strings.HasSuffix(fqdn, cfg.Name) {
+			if len(cfg.Name) > len(bestMatch) {
+				bestMatch = cfg.Name
+			}
+		}
+	}
+	return bestMatch
+}
+
 func (p *TailscaleProvider) processDevices() {
 	p.logger.Trace("%s Starting device processing cycle", p.logPrefix)
 	devices, err := p.fetchTailscaleDevices()
@@ -949,6 +969,11 @@ func (p *TailscaleProvider) processDevices() {
 
 			p.logger.Trace("%s Checking record %s (%s) -> %s", p.logPrefix, fqdn, recordType, cleanIP)
 
+			// Use helper to get parent domain for correct domain config matching
+			fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
+			p.logger.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
+
 			// Check if this is a new or changed record
 			if lastTarget, exists := p.lastKnownRecords[key]; !exists || lastTarget != cleanIP {
 				if !exists {
@@ -956,14 +981,6 @@ func (p *TailscaleProvider) processDevices() {
 				} else {
 					p.logMemberChanged(fqdn, lastTarget, cleanIP)
 				}
-
-				// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
-				// We pass the fqdn as the domain for now, and the domain package will resolve it to the correct domain config.
-				// Consistent with how other input providers pass the FQDN.
-				realDomain, _ := common.ExtractDomainAndSubdomain(fqdn) // This is just for logging, actual domain resolution is in domain package
-
-				p.logger.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
 
 				state := domain.RouterState{
 					SourceType:           "tailscale",
@@ -1004,13 +1021,11 @@ func (p *TailscaleProvider) processDevices() {
 				}
 				hostname, recordType := parts[0], parts[1]
 				fqdn := hostname + "." + p.domain
-
-				p.logMemberRemoved(fqdn) // This log is fine
-				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup and input provider validation.
-				// We pass the fqdn as the domain for now, and the domain package will resolve it to the correct domain config.
-				realDomain, _ := common.ExtractDomainAndSubdomain(fqdn) // This is just for logging, actual domain resolution is in domain package
+				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 				p.logger.Trace("%s Using real domain name '%s' for DNS provider (removal)", p.logPrefix, realDomain)
 
+				p.logMemberRemoved(fqdn) // This log is fine
 				state := domain.RouterState{
 					SourceType:           "tailscale",
 					Name:                 p.profileName,
@@ -1038,7 +1053,6 @@ func (p *TailscaleProvider) processDevices() {
 	p.logger.Trace("%s Updated lastKnownRecords cache with %d entries", p.logPrefix, len(current))
 
 	// Finalize the batch - this will sync output files only if there were changes
-	//p.logger.Trace("%s Finalizing batch processor", p.logPrefix)
 	batchProcessor.FinalizeBatch()
 }
 

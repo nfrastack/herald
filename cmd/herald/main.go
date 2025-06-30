@@ -357,8 +357,6 @@ func main() {
 						log.Error("[input] Failed to convert filter to JSON: %v", err)
 					}
 				}
-			} else {
-				log.Debug("[input] NO filter found in final options")
 			}
 
 			// Special debug for filter configuration
