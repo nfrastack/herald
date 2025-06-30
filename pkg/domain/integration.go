@@ -6,6 +6,7 @@ package domain
 
 import (
 	"fmt"
+	"herald/pkg/common"
 	"herald/pkg/log"
 	"herald/pkg/output"
 	"herald/pkg/output/types/dns"
@@ -300,7 +301,7 @@ func ValidateAllDomainReferences() error {
 
 // IntegrateDomain integrates a domain configuration into the system
 func IntegrateDomain(domainConfigKey string, domainConfig *DomainConfig) error {
-	logPrefix := getDomainLogPrefix(domainConfigKey, domainConfig.Name)
+	logPrefix := common.GetDomainLogPrefix(domainConfigKey, domainConfig.Name)
 	logger := log.NewScopedLogger(logPrefix, domainConfig.LogLevel)
 	logger.Info("%s Integrating domain", logPrefix)
 
