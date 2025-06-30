@@ -104,14 +104,9 @@ func (z *ZoneFormat) GetFilePath() string {
 
 // Sync writes the zone file to disk
 func (z *ZoneFormat) Sync() error {
-	z.GetLogger().Debug("Sync called for domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
-	z.GetLogger().Debug("Attempting to write file: %s", z.GetFilePath())
-
 	err := z.CommonFormat.SyncWithSerializer(z.serializeZone)
 	if err != nil {
 		z.GetLogger().Error("Sync FAILED for domain=%s, profile=%s, file=%s: %v", z.GetDomain(), z.GetProfile(), z.GetFilePath(), err)
-	} else {
-		z.GetLogger().Info("Sync SUCCESS for domain=%s, profile=%s, file=%s, records=%d", z.GetDomain(), z.GetProfile(), z.GetFilePath(), z.Records())
 	}
 	return err
 }
