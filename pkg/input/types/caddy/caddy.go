@@ -5,6 +5,7 @@
 package caddy
 
 import (
+	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/log"
@@ -22,18 +23,18 @@ type Provider interface {
 }
 
 type CaddyProvider struct {
-	apiURL       string
-	interval     time.Duration
-	opts         common.PollProviderOptions
-	running      bool
-	lastHosts    map[string]domain.RouterState
-	logPrefix    string
-	options      map[string]string
-	logger       *log.ScopedLogger
-	filterConfig common.FilterConfig
-	name         string              // Profile name
-	outputWriter domain.OutputWriter // Injected dependency
-	outputSyncer domain.OutputSyncer // Injected dependency
+	apiURL        string
+	interval      time.Duration
+	opts          common.PollProviderOptions
+	running       bool
+	lastHosts     map[string]domain.RouterState
+	logPrefix     string
+	options       map[string]string
+	logger        *log.ScopedLogger
+	filterConfig  common.FilterConfig
+	domainConfigs map[string]config.DomainConfig
+	outputWriter  domain.OutputWriter
+	outputSyncer  domain.OutputSyncer
 }
 
 func NewProvider(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
@@ -153,6 +154,24 @@ func (p *CaddyProvider) pollLoop() {
 	}
 }
 
+// SetDomainConfigs allows injection of loaded domain configs (like Docker)
+func (p *CaddyProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
+	p.domainConfigs = domainConfigs
+}
+
+// Helper to find the best matching domain config by suffix match on the 'name' field
+func (p *CaddyProvider) getParentDomainForFQDN(fqdn string) string {
+	var bestMatch string
+	for _, cfg := range p.domainConfigs {
+		if strings.HasSuffix(fqdn, cfg.Name) {
+			if len(cfg.Name) > len(bestMatch) {
+				bestMatch = cfg.Name
+			}
+		}
+	}
+	return bestMatch
+}
+
 func (p *CaddyProvider) processCaddy() {
 	isInitialLoad := len(p.lastHosts) == 0
 	hosts, err := p.readCaddy()
@@ -182,9 +201,8 @@ func (p *CaddyProvider) processCaddy() {
 			} else {
 				p.logger.Info("New record detected: %s (A)", fqdnNoDot)
 			}
-			realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup and input provider validation.
-			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
+			// Use helper to get parent domain for correct domain config matching
+			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 			p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
 			state := domain.RouterState{
 				SourceType: "caddy",
@@ -193,7 +211,8 @@ func (p *CaddyProvider) processCaddy() {
 				RecordType: "A",
 			}
 			p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
-			err := batchProcessor.ProcessRecord(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
+			// Pass realDomain (parent domain) for correct config matching
+			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
 				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
 			}
@@ -204,10 +223,9 @@ func (p *CaddyProvider) processCaddy() {
 			if _, ok := current[key]; !ok {
 				fqdn := old.Name
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
-				p.logger.Info("Record removed: %s (A)", fqdnNoDot)           // This log is fine
-				realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup and input provider validation.
-				// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
+				p.logger.Info("Record removed: %s (A)", fqdnNoDot)
+				// Use helper to get parent domain for correct domain config matching
+				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 				p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
 				state := domain.RouterState{
 					SourceType: "caddy",
@@ -216,7 +234,8 @@ func (p *CaddyProvider) processCaddy() {
 					RecordType: "A",
 				}
 				p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
-				err := batchProcessor.ProcessRecordRemoval(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
+				// Pass realDomain (parent domain) for correct config matching
+				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
 					p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
 				}
