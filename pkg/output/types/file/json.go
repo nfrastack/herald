@@ -49,7 +49,7 @@ func (j *JSONFormat) GetName() string {
 func (j *JSONFormat) Sync() error {
 	err := j.CommonFormat.SyncWithSerializer(j.serializeJSON)
 	if err != nil {
-		j.logger.Error("[output/json] Sync FAILED for domain=%s, profile=%s, file=%s: %v", j.GetDomain(), j.GetProfile(), j.GetFilePath(), err)
+		j.logger.Error("Sync FAILED for domain=%s, profile=%s, file=%s: %v", j.GetDomain(), j.GetProfile(), j.GetFilePath(), err)
 	}
 	return err
 }
@@ -73,9 +73,9 @@ func (j *JSONFormat) GetFilePath() string {
 
 // WriteRecordWithSource writes or updates a DNS record with source information
 func (j *JSONFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	j.logger.Debug("[output/json] WriteRecordWithSource called: domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
+	j.logger.Debug("WriteRecordWithSource called: domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
 	defer func() {
-		j.logger.Debug("[output/json] WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
+		j.logger.Debug("WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
 	}()
 	return j.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
 }

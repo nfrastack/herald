@@ -545,11 +545,10 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 	// Get list of changed profiles for this specific source
 	om.changesMutex.RLock()
 	sourceChanges, exists := om.changedProfiles[source]
-	// Debug: print changedProfiles for this source at start of sync
-	log.Debug("[output/manager] changedProfiles[%s] at start of SyncAllFromSource: %v", source, sourceChanges)
+	log.Trace("[output/manager] changedProfiles[%s] at start of SyncAllFromSource: %v", source, sourceChanges)
 	if !exists || len(sourceChanges) == 0 {
 		om.changesMutex.RUnlock()
-		log.Debug("[output/manager] No changed profiles to sync for source '%s'", source)
+		log.Trace("[output/manager] No changed profiles to sync for source '%s'", source)
 		return nil
 	}
 
@@ -562,7 +561,7 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 	om.changesMutex.RUnlock()
 
 	if len(changedProfiles) == 0 {
-		log.Debug("[output/manager] No changed profiles to sync for source '%s'", source)
+		log.Trace("[output/manager] No changed profiles to sync for source '%s'", source)
 		return nil
 	}
 
