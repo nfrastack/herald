@@ -9,6 +9,7 @@ import (
 	"herald/pkg/input/common"
 	"herald/pkg/input/types/file/parsers"
 	"herald/pkg/log"
+	"herald/pkg/config"
 
 	"fmt"
 	"strings"
@@ -59,6 +60,7 @@ type RemoteProvider struct {
 	name         string              // Profile name
 	outputWriter domain.OutputWriter // Injected dependency
 	outputSyncer domain.OutputSyncer // Injected dependency
+	domainConfigs map[string]config.DomainConfig // Add domain configs for domain matching
 }
 
 func NewProvider(options map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
@@ -180,13 +182,20 @@ func (p *RemoteProvider) processRemote() {
 	isInitialLoad := len(p.lastRecords) == 0
 	entries, err := p.readRemote()
 	if err != nil {
-		log.Error("%s Failed to read remote: %v", p.logPrefix, err)
+		p.logger.Error("Failed to read remote: %v", err)
 		return
 	}
-	log.Verbose("%s Processing %d DNS entries from remote", p.logPrefix, len(entries))
+	p.logger.Verbose("Processing %d DNS entries from remote", len(entries))
 
-	// Create batch processor for efficient sync handling
-	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
+	// Set the provider name for batch processor
+	providerName := p.name
+	if providerName == "" {
+		providerName = p.options["name"]
+		if providerName == "" {
+			providerName = "remote_profile"
+		}
+	}
+	batchProcessor := domain.NewBatchProcessorWithProvider(p.logPrefix, providerName, p.outputWriter, p.outputSyncer)
 	current := make(map[string]DNSEntry)
 
 	for _, e := range entries {
@@ -197,33 +206,14 @@ func (p *RemoteProvider) processRemote() {
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		if _, ok := p.lastRecords[key]; !ok {
 			if isInitialLoad {
-				log.Info("%s Initial record detected: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
+				p.logger.Info("Initial record detected: %s (%s)", fqdnNoDot, recordType)
 			} else {
-				log.Info("%s New record detected: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
+				p.logger.Info("New record detected: %s (%s)", fqdnNoDot, recordType)
 			}
 
-			// Extract domain and subdomain
-			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-			// This is consistent with how other input providers pass the FQDN.
-			// The domain.EnsureDNSForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
-
-			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-			realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-
-			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-			log.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
-
-			var providerName string          // Declare providerName locally
-			providerName = p.options["name"] // Assign value
-			if providerName == "" {
-				providerName = "remote_profile"
-			}
+			// Use helper to get parent domain for correct domain config matching
+			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
+			p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
 
 			state := domain.RouterState{
 				SourceType: "remote_profile",
@@ -232,10 +222,10 @@ func (p *RemoteProvider) processRemote() {
 				RecordType: recordType,
 			}
 
-			log.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-			err := batchProcessor.ProcessRecord(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
+			p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
-				log.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
+				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
 			}
 		}
 	}
@@ -246,28 +236,11 @@ func (p *RemoteProvider) processRemote() {
 				fqdn := old.GetFQDN()
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				recordType := old.GetRecordType()
-				log.Info("%s Record removed: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
+				p.logger.Info("Record removed: %s (%s)", fqdnNoDot, recordType)
 
-				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
-				// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-				// This is consistent with how other input providers pass the FQDN.
-				// The domain.EnsureDNSRemoveForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
-
-				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
-				// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-				realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-
-				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
-				log.Trace("%s Using real domain name '%s' for DNS provider (removal)", p.logPrefix, realDomain)
-
-				var providerName string          // Declare providerName locally
-				providerName = p.options["name"] // Assign value
-				if providerName == "" {
-					providerName = "remote_profile"
-				}
+				// Use helper to get parent domain for correct domain config matching
+				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
+				p.logger.Trace("Using real domain name '%s' for DNS provider (removal)", realDomain)
 
 				state := domain.RouterState{
 					SourceType: "remote_profile",
@@ -276,10 +249,10 @@ func (p *RemoteProvider) processRemote() {
 					RecordType: recordType,
 				}
 
-				log.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-				err := batchProcessor.ProcessRecordRemoval(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
+				p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
-					log.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
+					p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
 				}
 			}
 		}
@@ -292,7 +265,7 @@ func (p *RemoteProvider) processRemote() {
 }
 
 func (p *RemoteProvider) readRemote() ([]DNSEntry, error) {
-	log.Debug("%s Fetching remote source: %s", p.logPrefix, p.remoteURL)
+	p.logger.Debug("Fetching remote source: %s", p.remoteURL)
 	httpUser := common.ReadFileValue(p.options["remote_auth_user"])
 	httpPass := common.ReadFileValue(p.options["remote_auth_pass"])
 
@@ -301,46 +274,46 @@ func (p *RemoteProvider) readRemote() ([]DNSEntry, error) {
 
 	// Log TLS configuration details
 	if !tlsConfig.Verify {
-		log.Debug("%s TLS certificate verification disabled", p.logPrefix)
+		p.logger.Debug("TLS certificate verification disabled")
 	}
 	if tlsConfig.CA != "" {
-		log.Debug("%s Using custom CA certificate: %s", p.logPrefix, tlsConfig.CA)
+		p.logger.Debug("Using custom CA certificate: %s", tlsConfig.CA)
 	}
 	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
-		log.Debug("%s Using client certificate authentication", p.logPrefix)
+		p.logger.Debug("Using client certificate authentication")
 	}
 
 	data, err := common.FetchRemoteResourceWithTLSConfig(p.remoteURL, httpUser, httpPass, nil, &tlsConfig, p.logPrefix)
 	if err != nil {
-		log.Error("%v", err)
+		p.logger.Error("%v", err)
 		return nil, err
 	}
-	log.Trace("%s Fetched %d bytes from %s", p.logPrefix, len(data), p.remoteURL)
+	p.logger.Trace("Fetched %d bytes from %s", len(data), p.remoteURL)
 
 	var records []common.FileRecord
 	if p.format == "yaml" {
-		log.Trace("%s Parsing YAML from remote", p.logPrefix)
+		p.logger.Trace("Parsing YAML from remote")
 		records, err = common.ParseRecordsYAML(data)
 		if err != nil {
-			log.Error("%s YAML unmarshal error: %v", p.logPrefix, err)
+			p.logger.Error("YAML unmarshal error: %v", err)
 			return nil, err
 		}
 	} else if p.format == "json" {
-		log.Trace("%s Parsing JSON from remote", p.logPrefix)
+		p.logger.Trace("Parsing JSON from remote")
 		records, err = common.ParseRecordsJSON(data)
 		if err != nil {
-			log.Error("%s JSON unmarshal error: %v", p.logPrefix, err)
+			p.logger.Error("JSON unmarshal error: %v", err)
 			return nil, err
 		}
 	} else if p.format == "hosts" {
-		log.Trace("%s Parsing hosts file from remote", p.logPrefix)
+		p.logger.Trace("Parsing hosts file from remote")
 		records, err = parsers.ParseHostsFile(data)
 		if err != nil {
-			log.Error("%s Hosts file parse error: %v", p.logPrefix, err)
+			p.logger.Error("Hosts file parse error: %v", err)
 			return nil, err
 		}
 	} else {
-		log.Error("%s Unsupported remote file format: %s", p.logPrefix, p.format)
+		p.logger.Error("Unsupported remote file format: %s", p.format)
 		return nil, fmt.Errorf("unsupported remote file format: %s", p.format)
 	}
 	entries := common.ConvertRecordsToDNSEntries(records, p.opts.Name)
@@ -368,4 +341,28 @@ func (p *RemoteProvider) readRemote() ([]DNSEntry, error) {
 // GetName returns the provider name
 func (rp *RemoteProvider) GetName() string {
 	return "remote"
+}
+
+// SetDomainConfigs allows injection of loaded domain configs (like Docker/Caddy/File)
+func (p *RemoteProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
+	p.domainConfigs = domainConfigs
+}
+
+// Helper to find the best matching domain config by suffix match on the 'name' field
+func (p *RemoteProvider) getParentDomainForFQDN(fqdn string) string {
+	p.logger.Trace("getParentDomainForFQDN called with fqdn='%s'", fqdn)
+	var bestMatch string
+	for _, cfg := range p.domainConfigs {
+		p.logger.Trace("Checking if fqdn '%s' has suffix '%s'", fqdn, cfg.Name)
+		if strings.HasSuffix(fqdn, cfg.Name) {
+			if len(cfg.Name) > len(bestMatch) {
+				bestMatch = cfg.Name
+				p.logger.Trace("Match: '%s'", bestMatch)
+			}
+		}
+	}
+	if bestMatch == "" {
+		p.logger.Warn("No domain config matched for FQDN '%s' (configs: %v)", fqdn, p.domainConfigs)
+	}
+	return bestMatch
 }
