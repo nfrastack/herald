@@ -155,8 +155,19 @@ func evaluateTraefikFilter(filter common.Filter, entry any) bool {
 
 // NewProviderFromStructured creates a new Traefik input provider from structured options
 func NewProviderFromStructured(options map[string]interface{}) (Provider, error) {
-	// Parse the filter configuration BEFORE converting to strings to preserve structured data
-	filterConfig, err := common.NewFilterFromStructuredOptions(options)
+	// Parse the filter configuration BEFORE other processing to preserve structured data
+	filterLogPrefix := "[input/traefik/filter]"
+	if name, ok := options["name"]; ok && name != "" {
+		if strName, ok := name.(string); ok {
+			filterLogPrefix = "[input/traefik/" + strName + "/filter]"
+		}
+	} else if name, ok := options["profile_name"]; ok && name != "" {
+		if strName, ok := name.(string); ok {
+			filterLogPrefix = "[input/traefik/" + strName + "/filter]"
+		}
+	}
+	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
+	filterConfig, err := common.NewFilterFromStructuredOptions(options, filterLogger)
 	if err != nil {
 		log.Info("Error creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
@@ -378,8 +389,22 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		structuredOptions[key] = value
 	}
 
-	// Parse the filter configuration BEFORE other processing to preserve structured data
-	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions)
+	profileName := options["name"]
+	if profileName == "" {
+		profileName = options["profile_name"]
+	}
+	if profileName == "" {
+		parsed := common.ParsePollProviderOptions(options, common.PollProviderOptions{
+			Interval:           30 * time.Second,
+			ProcessExisting:    false,
+			RecordRemoveOnStop: false,
+			Name:               "traefik",
+		})
+		profileName = parsed.Name
+	}
+	filterLogPrefix := common.BuildLogPrefix("traefik", profileName) + "/filter"
+	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
+	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
 		log.Debug("Error creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
@@ -391,7 +416,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		RecordRemoveOnStop: false,
 		Name:               "traefik",
 	})
-	profileName := options["name"]
+	profileName = options["name"]
 	if profileName == "" {
 		profileName = options["profile_name"]
 	}

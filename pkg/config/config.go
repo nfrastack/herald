@@ -306,8 +306,6 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 	log.Trace("[config/output] Starting output manager initialization")
 
 	if outputConfigs != nil {
-		log.Debug("[config/output] Found outputs configuration")
-
 		// Create a set for faster lookup
 		enabledSet := make(map[string]bool)
 		for _, profile := range enabledProfiles {

@@ -98,7 +98,7 @@ func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 
 	r.records[key] = record
 	r.logger.Debug("Queued record: %s.%s (%s) -> %s", hostname, domain, recordType, target)
-	r.logger.Debug("[output/remote] WriteRecordWithSource called: domain=%s, hostname=%s, recordType=%s, target=%s, ttl=%d, source=%s", domain, hostname, recordType, target, ttl, source)
+	r.logger.Debug("WriteRecordWithSource called: domain=%s, hostname=%s, recordType=%s, target=%s, ttl=%d, source=%s", domain, hostname, recordType, target, ttl, source)
 	return nil
 }
 
@@ -178,7 +178,7 @@ func (r *RemoteFormat) Sync() error {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
-	r.logger.Trace("[output/remote] Sync payload: %s", string(jsonData))
+	r.logger.Trace("Sync payload: %s", string(jsonData))
 
 	// Create HTTP request
 	req, err := http.NewRequest("POST", r.url, bytes.NewBuffer(jsonData))

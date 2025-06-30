@@ -93,7 +93,9 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	}
 
 	// Parse filter configuration using structured format
-	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions)
+	filterLogPrefix := logPrefix + "/filter"
+	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
+	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
 		log.Debug("%s Error creating filter configuration: %v, using default", logPrefix, err)
 		filterConfig = common.DefaultFilterConfig()

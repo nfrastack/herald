@@ -62,7 +62,9 @@ func NewProvider(profileName string, config map[string]interface{}, outputWriter
 	}
 
 	// Parse filter configuration using structured format
-	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions)
+	filterLogPrefix := logPrefix + "/filter"
+	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
+	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
 		log.Debug("%s Error creating filter configuration: %v, using default", logPrefix, err)
 		filterConfig = common.DefaultFilterConfig()

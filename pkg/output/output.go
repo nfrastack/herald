@@ -600,7 +600,6 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 
 	globalOutputManagerMutex.Lock()
 	if globalOutputManager != nil {
-		log.Debug("[output] Output manager already initialized, skipping re-initialization.")
 		globalOutputManagerMutex.Unlock()
 		return nil
 	}
@@ -611,7 +610,6 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 	log.Trace("[output] Starting output manager initialization with profiles: %v", enabledProfiles)
 
 	if outputConfigs != nil {
-		log.Debug("[output] Found outputs configuration")
 
 		// Create a set for faster lookup
 		enabledSet := make(map[string]bool)

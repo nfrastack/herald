@@ -5,11 +5,9 @@
 package remote
 
 import (
-	"herald/pkg/log"
 	"herald/pkg/output"
 )
 
 func init() {
-	log.Info("[output/types/remote/manager] Registering remote output provider via RegisterFormat")
 	output.RegisterFormat("remote", NewRemoteFormat)
 }

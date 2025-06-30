@@ -5,11 +5,11 @@
 package input
 
 import (
+	"herald/pkg/domain" // Import domain to access OutputWriter and OutputSyncer interfaces
 	"herald/pkg/input/types/caddy"
 	"herald/pkg/input/types/docker"
 	"herald/pkg/input/types/file"
 	"herald/pkg/input/types/remote"
-	"herald/pkg/domain" // Import domain to access OutputWriter and OutputSyncer interfaces
 	"herald/pkg/input/types/tailscale"
 	"herald/pkg/input/types/traefik"
 	"herald/pkg/input/types/zerotier"
@@ -113,7 +113,10 @@ func GetAvailableTypes() []string {
 
 // CreateAndStartProvider creates and starts an input provider with minimal main.go coupling
 func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig, domains map[string]config.DomainConfig, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
-	log.Verbose("[input] Initializing input provider: '%s' (type: %s)", name, inputConfig.Type)
+	logPrefix := fmt.Sprintf("[input/%s/%s]", inputConfig.Type, name)
+	filterLogPrefix := logPrefix + "/filter"
+
+	log.Verbose("%s Initializing input provider: '%s' (type: %s)", logPrefix, name, inputConfig.Type)
 
 	// Create options map for the provider
 	providerOptions := inputConfig.GetOptions(name)
@@ -121,12 +124,12 @@ func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig,
 	// For backward compatibility, add expose_containers directly
 	if inputConfig.ExposeContainers {
 		providerOptions["expose_containers"] = "true"
-		log.Debug("[input] Adding expose_containers=true to provider options")
+		log.Debug("%s Adding expose_containers=true to provider options", logPrefix)
 	}
 
 	// Handle filter configuration properly for inputcommon
 	if filterConfig, exists := inputConfig.Options["filter"]; exists {
-		log.Debug("[input] Found filter configuration for %s: %+v", name, filterConfig)
+		log.Debug("%s Found filter configuration: %+v", filterLogPrefix, filterConfig)
 	}
 
 	// Add or override with any additional options from the options map
@@ -136,7 +139,7 @@ func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig,
 		} else {
 			// For complex types like filters, convert to string representation
 			if k == "filter" {
-				log.Debug("[input] Converting filter to string for provider %s: %+v", name, v)
+				log.Debug("%s Converting filter to string: %+v", filterLogPrefix, v)
 			}
 			providerOptions[k] = fmt.Sprintf("%v", v)
 		}
@@ -144,22 +147,22 @@ func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig,
 
 	// Handle filter JSON conversion if needed
 	if filterOpt, exists := providerOptions["filter"]; exists {
-		log.Debug("[input] Filter found in final options: %s (type: %T)", filterOpt, filterOpt)
+		log.Debug("%s Filter found in final options: %s (type: %T)", filterLogPrefix, filterOpt, filterOpt)
 
 		// Force JSON conversion for all filters
 		if filterRaw, exists := inputConfig.Options["filter"]; exists {
 			if filterJSON, err := json.Marshal(filterRaw); err == nil {
 				providerOptions["filter"] = string(filterJSON)
-				log.Debug("[input] Successfully converted filter to JSON: %s", string(filterJSON))
+				log.Debug("%s Successfully converted filter to JSON: %s", filterLogPrefix, string(filterJSON))
 			} else {
-				log.Error("[input] Failed to convert filter to JSON: %v", err)
+				log.Error("%s Failed to convert filter to JSON: %v", filterLogPrefix, err)
 			}
 		}
 	}
 
 	// Log configuration for debugging
-	log.Debug("[input] Provider %s raw config: %+v", name, inputConfig)
-	log.Trace("[input] Provider %s options: %v", name, maskSensitiveOptions(providerOptions))
+	log.Debug("%s Provider raw config: %+v", logPrefix, inputConfig)
+	log.Trace("%s Provider options: %v", logPrefix, maskSensitiveOptions(providerOptions))
 
 	// Create the input provider
 	inputProvider, err := NewInputProvider(inputConfig.Type, providerOptions, outputWriter, outputSyncer)
@@ -171,10 +174,10 @@ func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig,
 	if providerWithDomains, ok := inputProvider.(interface {
 		SetDomainConfigs(map[string]config.DomainConfig)
 	}); ok {
-		log.Debug("[input] Setting domain configs on provider '%s'", name)
+		log.Debug("%s Setting domain configs on provider", logPrefix)
 		providerWithDomains.SetDomainConfigs(domains)
 	} else {
-		log.Debug("[input] Provider '%s' does not support domain configs", name)
+		log.Debug("%s Provider does not support domain configs", logPrefix)
 	}
 
 	// Start polling
