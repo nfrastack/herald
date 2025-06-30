@@ -1,9 +1,14 @@
+// SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
 package output
 
 import (
-	"fmt"
 	"herald/pkg/common"
 	"herald/pkg/log"
+
+	"fmt"
 	"strings"
 )
 
@@ -11,9 +16,6 @@ func (m *OutputManager) RouteRecords(domainConfigKey, domain string, records []c
 	logPrefix := common.GetDomainLogPrefix(domainConfigKey, domain)
 	fmt.Printf("%s Routing %d records\n", logPrefix, len(records))
 	log.Debug("%s Successfully routed records\n", logPrefix) // Changed to log.Debug
-
-	// Route each record to the appropriate outputs (existing logic)
-	// ...existing code...
 
 	// After routing, flush outputs if any changes occurred
 	if err := m.SyncAll(); err != nil {

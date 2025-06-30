@@ -5,9 +5,10 @@
 package file
 
 import (
-	"fmt"
 	"herald/pkg/log"
 	"herald/pkg/output/types/common"
+
+	"fmt"
 	"strings"
 	"time"
 )

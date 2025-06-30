@@ -85,7 +85,6 @@ func NewCloudflareProviderWithProfile(profileName string, config map[string]stri
 	return provider, nil
 }
 
-// For backward compatibility, keep the old constructor but mark as deprecated
 func NewCloudflareProvider(config map[string]string) (interface{}, error) {
 	return NewCloudflareProviderWithProfile("default", config)
 }
@@ -355,16 +354,3 @@ func getDomainLogPrefix(domainConfigKey, domain string) string {
 	}
 	return fmt.Sprintf("[domain/%s]", strings.ReplaceAll(domain, ".", "_"))
 }
-
-// Example usage in a domain-related log statement:
-// c.logger.Debug("%s Domain config '%s' does not allow input provider '%s' (allowed: %s)", getDomainLogPrefix(domainConfigKey, domain), domainConfigKey, inputProvider, allowedInputs)
-//
-// Refactor: Replace all domain log statements to use getDomainLogPrefix(domainConfigKey, domain)
-//
-// For illustration, here is how you would update a log statement:
-// BEFORE:
-// c.logger.Debug("Domain config '%s' does not allow input provider '%s' (allowed: %s)", domainConfigKey, inputProvider, allowedInputs)
-// AFTER:
-// c.logger.Debug("%s Domain config '%s' does not allow input provider '%s' (allowed: %s)", getDomainLogPrefix(domainConfigKey, domain), domainConfigKey, inputProvider, allowedInputs)
-//
-// Apply this pattern throughout your domain logic and output manager for all domain-related logs.

@@ -5,11 +5,12 @@
 package output
 
 import (
-	"fmt"
 	"herald/pkg/log"
 	"herald/pkg/output/types/common"
 	"herald/pkg/output/types/dns"
 	fileoutput "herald/pkg/output/types/file"
+
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -73,8 +74,6 @@ func createDNSOutput(profileName string, config map[string]interface{}) (OutputF
 		return nil, fmt.Errorf("dns output requires 'provider' field")
 	}
 
-	// All DNS provider logic is now handled in pkg/output/types/dns.
-	// This function only returns a placeholder.
 	return &placeholderFormat{
 		profileName: profileName,
 		formatType:  fmt.Sprintf("dns/%s", provider),

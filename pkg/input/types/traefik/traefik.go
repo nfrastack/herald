@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"regexp"
 
-	//"strconv"
 	"strings"
 	"time"
 )
@@ -1051,5 +1050,3 @@ func getDomainFromHostname(hostname string) string {
 	}
 	return strings.Join(parts[len(parts)-2:], ".")
 }
-
-// Note: DNS provider functionality removed - now handled via output system

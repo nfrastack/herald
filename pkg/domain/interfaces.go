@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
 package domain
 
 // OutputWriter defines the interface for writing/removing DNS records to output providers.

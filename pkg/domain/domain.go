@@ -356,7 +356,7 @@ func (bp *BatchProcessor) isInputProviderAllowed(domain, inputProviderName strin
 			inputProfiles := domainConfig.GetInputProfiles()
 
 			// Use a logger with the correct domain log prefix
-			domainLogPrefix := getDomainLogPrefix(domainKey, domain)
+			domainLogPrefix := GetDomainLogPrefix(domainKey, domain)
 			domainLogger := log.NewScopedLogger(domainLogPrefix, "")
 
 			domainLogger.Debug("Checking domain config '%s' for domain '%s' - allowed inputs: %v", domainKey, domain, inputProfiles)
@@ -429,13 +429,11 @@ type Domain struct {
 
 // SyncRecords syncs the given records for this domain
 func (d *Domain) SyncRecords(records []common.Record) error {
-	logPrefix := getDomainLogPrefix(d.ConfigKey, d.Name)
+	logPrefix := GetDomainLogPrefix(d.ConfigKey, d.Name)
 	d.logger.Info("%s Syncing %d records", logPrefix, len(records))
 
 	// define err if used
 	var err error
-
-	// ... existing code ...
 
 	if err != nil {
 		d.logger.Error("%s Failed to sync records: %v", logPrefix, err)
@@ -447,22 +445,22 @@ func (d *Domain) SyncRecords(records []common.Record) error {
 
 // Validate checks the domain configuration for validity
 func (d *Domain) Validate() error {
-	logPrefix := getDomainLogPrefix(d.ConfigKey, d.Name)
+	logPrefix := GetDomainLogPrefix(d.ConfigKey, d.Name)
 	if d.Name == "" {
 		d.logger.Error("%s Domain name is empty", logPrefix)
 		return errors.New("domain name is empty")
 	}
-	// ... existing code ...
+
 	if d.ConfigKey == "" {
 		d.logger.Warn("%s Domain config key is empty", logPrefix)
 	}
 	return nil
 }
 
-// getDomainLogPrefix returns a log prefix in the format [domain/domainKey/domain_name]
-func getDomainLogPrefix(domainConfigKey, domain string) string {
+// GetDomainLogPrefix returns a log prefix in the format [domain/domainKey/domain_name]
+func GetDomainLogPrefix(domainConfigKey, domain string) string {
 	if domainConfigKey != "" {
-		return fmt.Sprintf("[domain/%s/%s]", domainConfigKey, domain)
+		return fmt.Sprintf("[domain/%s/%s]", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
 	}
-	return fmt.Sprintf("[domain/%s]", domain)
+	return fmt.Sprintf("[domain/%s]", strings.ReplaceAll(domain, ".", "_"))
 }
