@@ -15,9 +15,6 @@ import (
 	"time"
 )
 
-// HeraldVersion is the version of the Herald application, set at build time or imported from main
-var HeraldVersion = "development"
-
 // RemoteFormat implements OutputFormat for remote API endpoints
 type RemoteFormat struct {
 	url      string
@@ -147,7 +144,7 @@ func (r *RemoteFormat) Sync() error {
 		allDomains[domain] = struct{}{}
 	}
 
-	generator := "herald/" + HeraldVersion
+	generator := "herald"
 	metadata := map[string]interface{}{
 		"generator":    generator,
 		"generated_at": time.Now().Format(time.RFC3339),
