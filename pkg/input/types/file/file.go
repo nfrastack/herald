@@ -5,6 +5,7 @@
 package file
 
 import (
+	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/input/types/file/parsers"
@@ -66,10 +67,11 @@ type FileProvider struct {
 	cancel             context.CancelFunc
 	logPrefix          string
 	isInitialLoad      bool
-	logger             *log.ScopedLogger   // provider-specific logger
-	name               string              // Profile name
-	outputWriter       domain.OutputWriter // Injected dependency
-	outputSyncer       domain.OutputSyncer // Injected dependency
+	logger             *log.ScopedLogger              // provider-specific logger
+	name               string                         // Profile name
+	outputWriter       domain.OutputWriter            // Injected dependency
+	outputSyncer       domain.OutputSyncer            // Injected dependency
+	domainConfigs      map[string]config.DomainConfig // Add domain configs for domain matching
 }
 
 func NewProvider(options map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
@@ -202,7 +204,7 @@ func (p *FileProvider) IsRunning() bool {
 }
 
 func (p *FileProvider) GetDNSEntries() ([]DNSEntry, error) {
-	p.logger.Debug("%s GetDNSEntries called", p.logPrefix)
+	p.logger.Debug("GetDNSEntries called")
 	return p.readFile()
 }
 
@@ -210,7 +212,7 @@ func (p *FileProvider) pollLoop() {
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 	if p.processExisting {
-		p.logger.Trace("%s Processing existing file on startup", p.logPrefix)
+		p.logger.Trace("Processing existing file on startup")
 		p.processFile()
 	}
 	// Always process once immediately on startup
@@ -222,27 +224,27 @@ func (p *FileProvider) pollLoop() {
 		case <-p.ctx.Done():
 			return
 		case <-ticker.C:
-			p.logger.Trace("%s Polling file for changes", p.logPrefix)
+			p.logger.Trace("Polling file for changes")
 			p.processFile()
 		}
 	}
 }
 
 func (p *FileProvider) watchLoop() {
-	p.logger.Verbose("%s Starting file watch mode", p.logPrefix)
+	p.logger.Verbose("Starting file watch mode")
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		p.logger.Error("%s Failed to create file watcher: %v", p.logPrefix, err)
+		p.logger.Error("Failed to create file watcher: %v", err)
 		return
 	}
 	defer watcher.Close()
 	dir := filepath.Dir(p.source)
 	if err := watcher.Add(dir); err != nil {
-		p.logger.Error("%s Failed to add watch on dir %s: %v", p.logPrefix, dir, err)
+		p.logger.Error("Failed to add watch on dir %s: %v", dir, err)
 		return
 	}
 	if p.processExisting {
-		p.logger.Trace("%s Processing existing file on startup (watch mode)", p.logPrefix)
+		p.logger.Trace("Processing existing file on startup (watch mode)")
 		p.processFile()
 	}
 	for {
@@ -260,18 +262,18 @@ func (p *FileProvider) watchLoop() {
 
 			// Only log and process events for our actual source file, not other files in directory
 			if absEvent == absSource && (event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) != 0) {
-				p.logger.Trace("%s fsnotify event: Name='%s', Op=%v", p.logPrefix, event.Name, event.Op)
+				p.logger.Trace("fsnotify event: Name='%s', Op=%v", event.Name, event.Op)
 				switch {
 				case event.Op&fsnotify.Write != 0:
-					p.logger.Verbose("%s File modified: '%s'", p.logPrefix, event.Name)
+					p.logger.Verbose("File modified: '%s'", event.Name)
 				case event.Op&fsnotify.Create != 0:
-					p.logger.Verbose("%s File created: '%s'", p.logPrefix, event.Name)
+					p.logger.Verbose("File created: '%s'", event.Name)
 				case event.Op&fsnotify.Rename != 0:
-					p.logger.Verbose("%s File renamed: '%s'", p.logPrefix, event.Name)
+					p.logger.Verbose("File renamed: '%s'", event.Name)
 				case event.Op&fsnotify.Remove != 0:
-					p.logger.Verbose("%s File removed: '%s'", p.logPrefix, event.Name)
+					p.logger.Verbose("File removed: '%s'", event.Name)
 				default:
-					p.logger.Verbose("%s File changed: '%s' (op: '%v')", p.logPrefix, event.Name, event.Op)
+					p.logger.Verbose("File changed: '%s' (op: '%v')", event.Name, event.Op)
 				}
 				p.processFile()
 			}
@@ -279,7 +281,7 @@ func (p *FileProvider) watchLoop() {
 			if !ok {
 				return
 			}
-			p.logger.Error("%s File watch error: %v", p.logPrefix, err)
+			p.logger.Error("File watch error: %v", err)
 		}
 	}
 }
@@ -287,10 +289,10 @@ func (p *FileProvider) watchLoop() {
 func (p *FileProvider) processFile() {
 	entries, err := p.readFile()
 	if err != nil {
-		p.logger.Error("%s Failed to read file: %v", p.logPrefix, err)
+		p.logger.Error("Failed to read file: %v", err)
 		return
 	}
-	p.logger.Debug("%s Processing %d DNS entries from file", p.logPrefix, len(entries))
+	p.logger.Debug("Processing %d DNS entries from file", len(entries))
 	// p.logger.Trace("%s Available domains in config: %v", p.logPrefix, keys(config.GlobalConfig.Domains)) // Removed direct access
 
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
@@ -304,11 +306,11 @@ func (p *FileProvider) processFile() {
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		if _, ok := p.lastRecords[key]; !ok {
 			if p.isInitialLoad {
-				p.logger.Info("%s Initial record detected: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
+				p.logger.Info("Initial record detected: %s (%s)", fqdnNoDot, recordType)
 			} else {
-				p.logger.Info("%s New record detected: %s (%s)", p.logPrefix, fqdnNoDot, recordType)
+				p.logger.Info("New record detected: %s (%s)", fqdnNoDot, recordType)
 			}
-			p.logger.Trace("%s New or changed record detected: fqdn='%s', type='%s'", p.logPrefix, fqdnNoDot, recordType)
+			p.logger.Trace("New or changed record detected: fqdn='%s', type='%s'", fqdnNoDot, recordType)
 
 			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
 			// and input provider validation.
@@ -316,24 +318,19 @@ func (p *FileProvider) processFile() {
 			// This is consistent with how other input providers pass the FQDN.
 			// The domain.EnsureDNSForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
 
-			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-			realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-
-			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			p.logger.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
+			// Use helper to get parent domain for correct domain config matching
+			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
+			p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
 			state := domain.RouterState{
 				SourceType: "file",
 				Name:       p.name, // Use the actual provider name
 				Service:    e.Target,
 				RecordType: recordType, // Set the actual DNS record type
 			}
-			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-			err := batchProcessor.ProcessRecord(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
+			p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
-				p.logger.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
+				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
 			}
 		}
 	}
@@ -343,7 +340,7 @@ func (p *FileProvider) processFile() {
 				fqdn := old.GetFQDN()
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				recordType := old.GetRecordType()
-				p.logger.Info("%s Record removed: %s (%s)", p.logPrefix, fqdnNoDot, recordType) // This log is fine
+				p.logger.Info("Record removed: %s (%s)", fqdnNoDot, recordType) // This log is fine
 
 				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
 				// and input provider validation.
@@ -351,23 +348,19 @@ func (p *FileProvider) processFile() {
 				// This is consistent with how other input providers pass the FQDN.
 				// The domain.EnsureDNSRemoveForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
 
-				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
-				// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-				realDomain, _ := common.ExtractDomainAndSubdomain(fqdnNoDot) // This is just for logging, actual domain resolution is in domain package
-
-				p.logger.Trace("%s Using real domain name '%s' for DNS provider (removal)", p.logPrefix, realDomain)
-
+				// Use helper to get parent domain for correct domain config matching
+				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
+				p.logger.Trace("Using real domain name '%s' for DNS provider (removal)", realDomain)
 				state := domain.RouterState{
 					SourceType: "file",
 					Name:       p.name, // Use the actual provider name
 					Service:    old.Target,
 					RecordType: recordType,
 				}
-				p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdnNoDot, state)
-				err := batchProcessor.ProcessRecordRemoval(fqdnNoDot, fqdnNoDot, state) // Pass fqdnNoDot as domain, it will be resolved later
+				p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
-					p.logger.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdnNoDot, err)
+					p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
 				}
 			}
 		}
@@ -382,46 +375,46 @@ func (p *FileProvider) processFile() {
 }
 
 func (p *FileProvider) readFile() ([]DNSEntry, error) {
-	p.logger.Trace("%s Reading file: %s", p.logPrefix, p.source)
+	p.logger.Trace("Reading file: %s", p.source)
 	data, err := os.ReadFile(p.source)
 	if err != nil {
-		p.logger.Error("%s Error reading file: %v", p.logPrefix, err)
+		p.logger.Error("Error reading file: %v", err)
 		return nil, err
 	}
 	var records []common.FileRecord
 	if p.format == "yaml" {
-		p.logger.Trace("%s Parsing YAML file", p.logPrefix)
+		p.logger.Trace("Parsing YAML file")
 		// Try structured format first, fall back to basic format
 		records, err = parsers.ParseStructuredYAML(data)
 		if err != nil {
-			p.logger.Trace("%s Structured YAML parse failed, trying basic format: %v", p.logPrefix, err)
+			p.logger.Trace("Structured YAML parse failed, trying basic format: %v", err)
 			records, err = common.ParseRecordsYAML(data)
 			if err != nil {
-				p.logger.Error("%s YAML unmarshal error: %v", p.logPrefix, err)
+				p.logger.Error("YAML unmarshal error: %v", err)
 				return nil, err
 			}
 		}
 	} else if p.format == "json" {
-		p.logger.Trace("%s Parsing JSON file", p.logPrefix)
+		p.logger.Trace("Parsing JSON file")
 		// Try structured format first, fall back to basic format
 		records, err = parsers.ParseStructuredJSON(data)
 		if err != nil {
-			p.logger.Trace("%s Structured JSON parse failed, trying basic format: %v", p.logPrefix, err)
+			p.logger.Trace("Structured JSON parse failed, trying basic format: %v", err)
 			records, err = common.ParseRecordsJSON(data)
 			if err != nil {
-				p.logger.Error("%s JSON unmarshal error: %v", p.logPrefix, err)
+				p.logger.Error("JSON unmarshal error: %v", err)
 				return nil, err
 			}
 		}
 	} else if p.format == "hosts" {
-		p.logger.Trace("%s Parsing hosts file", p.logPrefix)
+		p.logger.Trace("Parsing hosts file")
 		records, err = parsers.ParseHostsFile(data)
 		if err != nil {
-			p.logger.Error("%s Hosts file parse error: %v", p.logPrefix, err)
+			p.logger.Error("Hosts file parse error: %v", err)
 			return nil, err
 		}
 	} else {
-		p.logger.Error("%s Unsupported file format: %s", p.logPrefix, p.format)
+		p.logger.Error("Unsupported file format: %s", p.format)
 		return nil, fmt.Errorf("unsupported file format: %s", p.format)
 	}
 	entries := common.ConvertRecordsToDNSEntries(records, p.name)
@@ -449,4 +442,28 @@ func (p *FileProvider) readFile() ([]DNSEntry, error) {
 // GetName returns the provider name
 func (fp *FileProvider) GetName() string {
 	return "file"
+}
+
+// SetDomainConfigs allows injection of loaded domain configs (like Docker/Caddy)
+func (p *FileProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
+	p.domainConfigs = domainConfigs
+}
+
+// Helper to find the best matching domain config by suffix match on the 'name' field
+func (p *FileProvider) getParentDomainForFQDN(fqdn string) string {
+	p.logger.Trace("getParentDomainForFQDN called with fqdn='%s'", fqdn)
+	var bestMatch string
+	for _, cfg := range p.domainConfigs {
+		p.logger.Trace("Checking if fqdn '%s' has suffix '%s'", fqdn, cfg.Name)
+		if strings.HasSuffix(fqdn, cfg.Name) {
+			if len(cfg.Name) > len(bestMatch) {
+				bestMatch = cfg.Name
+				p.logger.Trace("Match: '%s'", bestMatch)
+			}
+		}
+	}
+	if bestMatch == "" {
+		p.logger.Warn("No domain config matched for FQDN '%s' (configs: %v)", fqdn, p.domainConfigs)
+	}
+	return bestMatch
 }
