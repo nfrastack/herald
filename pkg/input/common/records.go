@@ -277,6 +277,7 @@ func ConvertRecordsToDNSEntries(records []FileRecord, providerName string) []DNS
 			}
 		}
 		entry := DNSEntry{
+			Name:       fqdn, // Set Name to FQDN for correct domain matching
 			Hostname:   fqdn,
 			Domain:     "",
 			RecordType: recordType,
