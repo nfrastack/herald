@@ -44,14 +44,9 @@ func (y *YAMLFormat) GetName() string {
 
 // Sync writes the YAML export to disk
 func (y *YAMLFormat) Sync() error {
-	log.Debug("[output/yaml] Sync called for domain=%s, profile=%s, file=%s, records=%d", y.GetDomain(), y.GetProfile(), y.GetFilePath(), y.Records())
-	log.Debug("[output/yaml] Sync: domain=%s, profile=%s, file=%s, records=%d", y.GetDomain(), y.GetProfile(), y.GetFilePath(), y.Records())
-	log.Debug("[output/yaml] Attempting to write file: %s", y.GetFilePath())
 	err := y.CommonFormat.SyncWithSerializer(y.serializeYAML)
 	if err != nil {
 		log.Error("[output/yaml] Sync FAILED for domain=%s, profile=%s, file=%s: %v", y.GetDomain(), y.GetProfile(), y.GetFilePath(), err)
-	} else {
-		log.Info("[output/yaml] Sync SUCCESS for domain=%s, profile=%s, file=%s, records=%d", y.GetDomain(), y.GetProfile(), y.GetFilePath(), y.Records())
 	}
 	return err
 }

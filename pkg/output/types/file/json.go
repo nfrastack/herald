@@ -47,13 +47,9 @@ func (j *JSONFormat) GetName() string {
 
 // Sync writes the JSON export to disk
 func (j *JSONFormat) Sync() error {
-	j.logger.Debug("[output/json] Sync called for domain=%s, profile=%s, file=%s, records=%d", j.GetDomain(), j.GetProfile(), j.GetFilePath(), j.Records())
-	j.logger.Debug("[output/json] Attempting to write file: %s", j.GetFilePath())
 	err := j.CommonFormat.SyncWithSerializer(j.serializeJSON)
 	if err != nil {
 		j.logger.Error("[output/json] Sync FAILED for domain=%s, profile=%s, file=%s: %v", j.GetDomain(), j.GetProfile(), j.GetFilePath(), err)
-	} else {
-		j.logger.Info("[output/json] Sync SUCCESS for domain=%s, profile=%s, file=%s, records=%d", j.GetDomain(), j.GetProfile(), j.GetFilePath(), j.Records())
 	}
 	return err
 }
