@@ -146,8 +146,16 @@ func (c *CommonFormat) GetConfig() map[string]interface{} {
 	return c.config
 }
 
-// GetDomain returns the domain (profileName)
+// SetDomain sets the real domain for this output (for file path/tag expansion)
+func (c *CommonFormat) SetDomain(domain string) {
+	c.realDomain = domain
+}
+
+// GetDomain returns the real domain if set, otherwise the profileName
 func (c *CommonFormat) GetDomain() string {
+	if c.realDomain != "" {
+		return c.realDomain
+	}
 	return c.profileName
 }
 

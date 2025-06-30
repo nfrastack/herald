@@ -104,11 +104,35 @@ func (z *ZoneFormat) GetFilePath() string {
 
 // Sync writes the zone file to disk
 func (z *ZoneFormat) Sync() error {
-	err := z.CommonFormat.SyncWithSerializer(z.serializeZone)
-	if err != nil {
-		z.GetLogger().Error("Sync FAILED for domain=%s, profile=%s, file=%s: %v", z.GetDomain(), z.GetProfile(), z.GetFilePath(), err)
+	export := z.GetExportData()
+	profile := z.CommonFormat.GetProfile()
+	if export != nil && export.Domains != nil {
+		domainKeys := make([]string, 0, len(export.Domains))
+		for k := range export.Domains {
+			domainKeys = append(domainKeys, k)
+		}
+		z.GetLogger().Debug("Available domains in export: %v", domainKeys)
+		for domain := range export.Domains {
+			// Save the original domain
+			origDomain := z.CommonFormat.GetDomain()
+			// Temporarily set the domain for correct file path expansion
+			z.CommonFormat.SetDomain(domain)
+			filePath := z.GetFilePath()
+			z.GetLogger().Debug("Syncing domain=%s for profile=%s, file=%s", domain, profile, filePath)
+			err := z.CommonFormat.SyncWithSerializer(func(_ string, e *common.ExportData) ([]byte, error) {
+				return z.serializeZone(domain, e)
+			})
+			// Restore the original domain
+			z.CommonFormat.SetDomain(origDomain)
+			if err != nil {
+				z.GetLogger().Error("Sync FAILED for domain=%s, profile=%s, file=%s: %v", domain, profile, filePath, err)
+				return err
+			}
+		}
+		return nil
 	}
-	return err
+	z.GetLogger().Info("No domains present in export data, not overwriting zone file %s", z.GetFilePath())
+	return nil
 }
 
 // serializeZone handles zone-specific serialization
