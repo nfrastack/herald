@@ -5,6 +5,8 @@
 package zerotier
 
 import (
+	inputtypes "herald/pkg/input/types"
+	"herald/pkg/input/registry"
 	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
@@ -17,35 +19,6 @@ import (
 	"strings"
 	"time"
 )
-
-type Provider interface {
-	StartPolling() error
-	StopPolling() error
-	GetName() string
-}
-
-type DNSEntry struct {
-	Name                   string `json:"name"`
-	Hostname               string `json:"hostname"`
-	Domain                 string `json:"domain"`
-	RecordType             string `json:"type"`
-	Target                 string `json:"target"`
-	TTL                    int    `json:"ttl"`
-	Overwrite              bool   `json:"overwrite"`
-	RecordTypeAMultiple    bool   `json:"record_type_a_multiple"`
-	RecordTypeAAAAMultiple bool   `json:"record_type_aaaa_multiple"`
-	SourceName             string `json:"source_name"`
-}
-
-// GetFQDN returns the fully qualified domain name
-func (d DNSEntry) GetFQDN() string {
-	return d.Name
-}
-
-// GetRecordType returns the DNS record type
-func (d DNSEntry) GetRecordType() string {
-	return d.RecordType
-}
 
 type ZerotierProvider struct {
 	apiURL                 string
@@ -71,13 +44,13 @@ type ZerotierProvider struct {
 	loggedFallbackMembers  map[string]bool   // Track members we've already logged fallback message for
 	addressFallbackMembers map[string]bool   // Track which members are using address fallback (for output context)
 	name                   string
-	lastEntries            []DNSEntry
+	lastEntries            []inputtypes.DNSEntry
 	domainConfigs          map[string]config.DomainConfig
 	outputWriter           domain.OutputWriter // Injected dependency
 	outputSyncer           domain.OutputSyncer // Injected dependency
 }
 
-func NewProvider(options map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
+func NewProvider(options map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (inputtypes.Provider, error) {
 	// Use file:// and env:// support for all configuration options
 	apiURL := common.ReadFileValue(options["api_url"])
 	apiToken := common.ReadFileValue(options["api_token"])
@@ -258,7 +231,7 @@ func (p *ZerotierProvider) IsRunning() bool {
 	return p.running
 }
 
-func (p *ZerotierProvider) GetDNSEntries() ([]DNSEntry, error) {
+func (p *ZerotierProvider) GetDNSEntries() ([]inputtypes.DNSEntry, error) {
 	p.logger.Trace("GetDNSEntries called")
 	return p.fetchMembers()
 }
@@ -308,15 +281,15 @@ func (p *ZerotierProvider) logMemberRemoved(name string) {
 }
 
 // updateDNSEntries compares current and previous entries and updates DNS accordingly
-func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntries []DNSEntry) error {
+func (p *ZerotierProvider) updateDNSEntries(currentEntries []inputtypes.DNSEntry, lastEntries []inputtypes.DNSEntry) error {
 	// Build maps for comparison
-	current := make(map[string]DNSEntry)
+	current := make(map[string]inputtypes.DNSEntry)
 	for _, entry := range currentEntries {
 		key := entry.GetFQDN() + ":" + entry.GetRecordType()
 		current[key] = entry
 	}
 
-	last := make(map[string]DNSEntry)
+	last := make(map[string]inputtypes.DNSEntry)
 	for _, entry := range lastEntries {
 		key := entry.GetFQDN() + ":" + entry.GetRecordType()
 		last[key] = entry
@@ -464,7 +437,7 @@ func diffKeys(old, new map[string]struct{}) (added, removed []string) {
 	return
 }
 
-func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
+func (p *ZerotierProvider) fetchMembers() ([]inputtypes.DNSEntry, error) {
 	p.logger.Trace("fetchMembers called (apiType=%s, detected=%v)", p.apiType, p.apiTypeDetected)
 	if !p.apiTypeDetected {
 		// Try ZTNet first if apiType is empty or ztnet
@@ -500,7 +473,7 @@ func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
 	return p.fetchZerotierMembers()
 }
 
-func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
+func (p *ZerotierProvider) fetchZerotierMembers() ([]inputtypes.DNSEntry, error) {
 	p.logger.Debug("Fetching Zerotier members from %s", p.apiURL)
 
 	// Parse network_id to handle ZT-Net format gracefully if fallback occurs
@@ -544,7 +517,7 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 	}
 
 	p.logger.Debug("Filtering members using filter system")
-	var entries []DNSEntry
+	var entries []inputtypes.DNSEntry
 	for _, m := range members {
 		// Determine if member is "online" based on recent activity
 		// Use configurable timeout (default 5 minutes)
@@ -605,7 +578,7 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 				recordType = "AAAA"
 			}
 			// Always use the configured domain for DNS entry creation
-			entry := DNSEntry{
+			entry := inputtypes.DNSEntry{
 				Hostname:   hostname,
 				Domain:     p.domain, // Force use of configured domain
 				RecordType: recordType,
@@ -620,7 +593,7 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 	return entries, nil
 }
 
-func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
+func (p *ZerotierProvider) fetchZTNetMembers() ([]inputtypes.DNSEntry, error) {
 	p.logger.Debug("Fetching ZT-Net members from %s", p.apiURL)
 	// Parse network_id for org, dnsname, networkid
 	org := ""
@@ -674,7 +647,7 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	}
 
 	p.logger.Debug("Filtering members using filter system")
-	var entries []DNSEntry
+	var entries []inputtypes.DNSEntry
 	for _, m := range members {
 		// Determine if member is "online" based on lastSeen timestamp
 		isOnline := true // Default to online if we can't parse lastSeen
@@ -750,7 +723,7 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 			fqdn := hostname + "." + domain
 			p.logger.Debug("Constructed FQDN: hostname='%s', domain='%s', fqdn='%s'", hostname, domain, fqdn)
 			// Create DNS entry
-			entry := DNSEntry{
+			entry := inputtypes.DNSEntry{
 				Name:       fqdn,
 				Hostname:   hostname,
 				Domain:     domain,
@@ -983,5 +956,22 @@ func detectAPIType(apiURL, networkID, apiToken string) string {
 
 // GetName returns the provider name
 func (zp *ZerotierProvider) GetName() string {
-	return "zerotier"
+	return zp.profileName // Return the actual profile name (e.g., zt_toi)
+}
+
+// Remove local Provider interface, use inputtypes.Provider
+
+// For registration, use registry.RegisterProviderFactory
+func init() {
+	factory := func(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (interface{}, error) {
+		// Convert config to map[string]string for legacy signature
+		opts := make(map[string]string)
+		for k, v := range config {
+			if str, ok := v.(string); ok {
+				opts[k] = str
+			}
+		}
+		return NewProvider(opts, outputWriter, outputSyncer)
+	}
+	registry.RegisterProviderFactory("zerotier", factory)
 }

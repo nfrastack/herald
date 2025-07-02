@@ -78,6 +78,33 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 		return nil // Not an error - just filtered out
 	}
 
+	// Enforce skip/allow/aggregate logic for input providers writing to API output profiles
+	var filteredOutputs []string
+	for _, outputProfile := range domainConfig.GetOutputs() {
+		isAPIOutput := strings.HasPrefix(outputProfile, "api_")
+		if isAPIOutput && inputProviderName != "" {
+			// Check if this is a dedicated mapping (single input, single output, both match)
+			inputs := domainConfig.GetInputProfiles()
+			outputs := domainConfig.GetOutputs()
+			isDedicated := len(inputs) == 1 && len(outputs) == 1 && inputs[0] == inputProviderName && outputs[0] == outputProfile
+			if isDedicated {
+				log.Info("[domain/%s] ALLOW: Input provider '%s' allowed to write to API output profile '%s' (dedicated mapping)", domain, inputProviderName, outputProfile)
+				filteredOutputs = append(filteredOutputs, outputProfile)
+			} else {
+				log.Warn("[domain/%s] SKIP: Input provider '%s' not allowed to write to API output profile '%s' (not a dedicated mapping)", domain, inputProviderName, outputProfile)
+				continue
+			}
+		} else {
+			log.Debug("[domain/%s] AGGREGATE: Input provider '%s' writing to output profile '%s'", domain, inputProviderName, outputProfile)
+			filteredOutputs = append(filteredOutputs, outputProfile)
+		}
+	}
+
+	if len(filteredOutputs) == 0 {
+		log.Warn("[domain/%s] No output profiles allowed for input provider '%s' after skip/allow/aggregate filtering", domain, inputProviderName)
+		return nil
+	}
+
 	// Prepare record details
 	hostname := fqdn
 	if fqdn == domain {
@@ -180,7 +207,7 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 		return fmt.Errorf("output writer not provided")
 	}
 
-	outputErr := outputWriter.WriteRecordToOutputs(domainConfig.GetOutputs(), domain, hostname, target, recordType, ttl, state.SourceType)
+	outputErr := outputWriter.WriteRecordToOutputs(filteredOutputs, domain, hostname, target, recordType, ttl, state.SourceType)
 	if outputErr != nil {
 		log.Error("[domain/%s/%s] Failed to write to output system: %v", domainConfigKey, domain, outputErr)
 		return outputErr

@@ -5,15 +5,9 @@
 package input
 
 import (
-	"herald/pkg/domain" // Import domain to access OutputWriter and OutputSyncer interfaces
-	"herald/pkg/input/types/caddy"
-	"herald/pkg/input/types/docker"
-	"herald/pkg/input/types/file"
-	"herald/pkg/input/types/remote"
-	"herald/pkg/input/types/tailscale"
-	"herald/pkg/input/types/traefik"
-	"herald/pkg/input/types/zerotier"
-
+	"herald/pkg/domain"
+	"herald/pkg/input/types"
+	"herald/pkg/input/registry"
 	"encoding/json"
 	"fmt"
 	"herald/pkg/config"
@@ -21,52 +15,13 @@ import (
 	"strings"
 )
 
-// Provider interface defines the methods that all input providers must implement
-type Provider interface {
-	StartPolling() error
-	StopPolling() error
-	GetName() string
-}
-
-// ProviderWithContainer interface for providers that support container operations
-type ProviderWithContainer interface {
-	Provider
-	GetContainerState(containerID string) (map[string]interface{}, error)
-}
-
-// DNSEntry represents a DNS entry from input providers
-type DNSEntry struct {
-	Name                   string `json:"name"`
-	Hostname               string `json:"hostname"`
-	Domain                 string `json:"domain"`
-	RecordType             string `json:"type"`
-	Target                 string `json:"target"`
-	TTL                    int    `json:"ttl"`
-	Overwrite              bool   `json:"overwrite"`
-	RecordTypeAMultiple    bool   `json:"record_type_a_multiple"`
-	RecordTypeAAAAMultiple bool   `json:"record_type_aaaa_multiple"`
-	SourceName             string `json:"source_name"`
-}
-
-// ContainerInfo represents container information
-type ContainerInfo struct {
-	ID     string            `json:"id"`
-	Name   string            `json:"name"`
-	Labels map[string]string `json:"labels"`
-	State  string            `json:"state"`
-}
-
-// GetFQDN returns the fully qualified domain name
-func (d DNSEntry) GetFQDN() string {
-	return d.Name
-}
-
-func (d DNSEntry) GetRecordType() string {
-	return d.RecordType
-}
+// ProviderFactory is a function that creates a Provider
+// (profileName, config, outputWriter, outputSyncer) -> Provider, error
+// For legacy providers, config is map[string]string; for others, map[string]interface{}
+type ProviderFactory = registry.ProviderFactory
 
 // NewInputProvider creates a new input provider instance using factory pattern
-func NewInputProvider(inputProviderType string, providerOptions map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
+func NewInputProvider(inputProviderType string, providerOptions map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (types.Provider, error) {
 	log.Debug("[input] Creating input provider type: '%s'", inputProviderType)
 
 	profileName := providerOptions["name"]
@@ -74,45 +29,30 @@ func NewInputProvider(inputProviderType string, providerOptions map[string]strin
 		profileName = inputProviderType + "_default"
 	}
 
-	// Factory pattern - direct creation based on type
-	switch inputProviderType {
-	case "caddy":
-		// Convert to interface{} map for providers that need it
-		config := make(map[string]interface{})
-		for k, v := range providerOptions {
-			config[k] = v
-		}
-		return caddy.NewProvider(profileName, config, outputWriter, outputSyncer)
-	case "docker":
-		// Convert to interface{} map for providers that need it
-		config := make(map[string]interface{})
-		for k, v := range providerOptions {
-			config[k] = v
-		}
-		return docker.NewProvider(profileName, config, outputWriter, outputSyncer)
-	case "file":
-		return file.NewProvider(providerOptions, outputWriter, outputSyncer)
-	case "remote":
-		return remote.NewProvider(providerOptions, outputWriter, outputSyncer)
-	case "tailscale":
-		return tailscale.NewProvider(providerOptions, outputWriter, outputSyncer)
-	case "traefik":
-		return traefik.NewProvider(providerOptions, outputWriter, outputSyncer)
-	case "zerotier":
-		return zerotier.NewProvider(providerOptions, outputWriter, outputSyncer)
-	default:
-		availableTypes := []string{"caddy", "docker", "file", "remote", "tailscale", "traefik", "zerotier"}
+	factory, ok := registry.GetProviderFactory(inputProviderType)
+	if !ok {
+		availableTypes := registry.GetAvailableTypes()
 		return nil, fmt.Errorf("unknown input provider type '%s'. Available types: %v", inputProviderType, availableTypes)
 	}
-}
 
-// GetAvailableTypes returns a list of all available input provider type names
-func GetAvailableTypes() []string {
-	return []string{"caddy", "docker", "file", "remote", "tailscale", "traefik", "zerotier"}
+	// Convert providerOptions to map[string]interface{} for compatibility
+	config := make(map[string]interface{})
+	for k, v := range providerOptions {
+		config[k] = v
+	}
+	providerIface, err := factory(profileName, config, outputWriter, outputSyncer)
+	if err != nil {
+		return nil, err
+	}
+	provider, ok := providerIface.(types.Provider)
+	if !ok {
+		return nil, fmt.Errorf("factory for '%s' did not return types.Provider", inputProviderType)
+	}
+	return provider, nil
 }
 
 // CreateAndStartProvider creates and starts an input provider with minimal main.go coupling
-func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig, domains map[string]config.DomainConfig, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
+func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig, domains map[string]config.DomainConfig, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (types.Provider, error) {
 	logPrefix := fmt.Sprintf("[input/%s/%s]", inputConfig.Type, name)
 	filterLogPrefix := logPrefix + "/filter"
 
@@ -207,4 +147,17 @@ func maskSensitiveOptions(options map[string]string) map[string]string {
 		}
 	}
 	return masked
+}
+
+// Global registry for all input providers
+var allInputProviders []types.Provider
+
+// RegisterInputProvider adds a provider to the global registry
+func RegisterInputProvider(p types.Provider) {
+	allInputProviders = append(allInputProviders, p)
+}
+
+// GetAllProviders returns all registered input providers
+func GetAllProviders() []types.Provider {
+	return allInputProviders
 }

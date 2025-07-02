@@ -17,9 +17,10 @@ import (
 )
 
 type Provider interface {
+	GetName() string
+	GetDNSEntries() ([]DNSEntry, error)
 	StartPolling() error
 	StopPolling() error
-	GetName() string
 }
 
 // DNSEntry represents a DNS entry from input providers - local definition

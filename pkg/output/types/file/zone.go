@@ -112,6 +112,17 @@ func (z *ZoneFormat) Sync() error {
 			domainKeys = append(domainKeys, k)
 		}
 		z.GetLogger().Debug("Available domains in export: %v", domainKeys)
+
+		// --- DEBUG: Log record counts for each domain before writing ---
+		domainRecords := make(map[string]int)
+		for d, dom := range export.Domains {
+			if dom != nil {
+				domainRecords[d] = len(dom.Records)
+			}
+		}
+		z.GetLogger().Debug("[DEBUG] Zone Sync: record counts per domain: %v", domainRecords)
+		// --- END DEBUG ---
+
 		for domain := range export.Domains {
 			// Save the original domain
 			origDomain := z.CommonFormat.GetDomain()
@@ -152,6 +163,17 @@ func (z *ZoneFormat) generateZoneFileContent(domainName string, export *common.E
 	}
 
 	profile := z.CommonFormat.GetProfile()
+
+	// Debug: log all records being written
+	if domain != nil && len(domain.Records) > 0 {
+		recordList := make([]string, 0, len(domain.Records))
+		for _, record := range domain.Records {
+			recordList = append(recordList, fmt.Sprintf("%s %s %s -> %s", record.Hostname, record.Type, domainName, record.Target))
+		}
+		z.GetLogger().Debug("[zone] Writing records for domain=%s: %v", domainName, recordList)
+	} else {
+		z.GetLogger().Debug("[zone] No records to write for domain=%s", domainName)
+	}
 
 	// Expand SOA config for this domain
 	soaRaw := z.soaRaw
