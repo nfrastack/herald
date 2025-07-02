@@ -9,6 +9,7 @@ import (
 	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input"
+	inputtypes "herald/pkg/input/types"
 	"herald/pkg/log"
 	"herald/pkg/output"
 	"herald/pkg/util"
@@ -225,10 +226,16 @@ func main() {
 	}
 
 	// Start API server if enabled
+	var apiServer *api.APIServer
 	if cfg.API != nil && cfg.API.Enabled {
 		apiLogger := log.NewScopedLogger("[api]", cfg.API.LogLevel)
 		apiLogger.Info("Starting API server")
-		if err := api.StartAPIServer(cfg.API); err != nil {
+		apiServer = api.NewAPIServer(cfg.Outputs, cfg.API)
+		// Set InputProviderGetter for aggregation from all input providers
+		apiServer.InputProviderGetter = func() []inputtypes.Provider {
+			return input.GetAllProviders()
+		}
+		if err := api.StartAPIServerInstance(apiServer, cfg.API); err != nil {
 			log.Fatal("[api] Failed to start API server: %v", err)
 		}
 	}
@@ -295,7 +302,7 @@ func main() {
 
 		log.Debug("[input] Using input providers from domain configurations: %v", activeInputProfiles)
 		// Initialize input providers
-		inputProviderInstances := []input.Provider{}
+		inputProviderInstances := []inputtypes.Provider{}
 		for _, inputProviderName := range activeInputProfiles {
 			inputProviderConfig, ok := cfg.Inputs[inputProviderName]
 			if !ok {
@@ -438,5 +445,18 @@ func main() {
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		<-sigChan
 		fmt.Printf("\nShutting down Herald\n")
+	}
+
+	if apiServer != nil {
+		// Trigger aggregation at startup
+		apiServer.TriggerAggregation("startup")
+		// Trigger aggregation periodically every 30s
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				apiServer.TriggerAggregation("periodic")
+			}
+		}()
 	}
 }

@@ -21,9 +21,10 @@ import (
 )
 
 type Provider interface {
+	GetName() string
+	GetDNSEntries() ([]DNSEntry, error)
 	StartPolling() error
 	StopPolling() error
-	GetName() string
 }
 
 type DNSEntry struct {
