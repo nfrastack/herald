@@ -46,6 +46,7 @@ type HostsRecord struct {
 	Target   string
 	TTL      uint32
 	Source   string
+	CreatedAt time.Time // PATCH: track record creation time
 }
 
 // global re-entrancy guard for hosts output: key = domain|profile|outputType
@@ -193,6 +194,7 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 			Target:   target,
 			TTL:      uint32(ttl),
 			Source:   source,
+			CreatedAt: time.Now(), // PATCH: set creation time
 		}
 	}
 	h.Unlock()
@@ -482,35 +484,23 @@ func (h *HostsFormat) generateHostsFile(domain string, export *common.ExportData
 		})
 
 		for _, record := range records {
-			// Try to find matching BaseRecord for created_at
-			var createdAtStr string
-			if export != nil && export.Domains != nil {
-				for _, domainData := range export.Domains {
-					for _, baseRec := range domainData.Records {
-						if baseRec.Hostname == record.Hostname && baseRec.Type == record.Type && baseRec.Target == record.Target {
-							if !baseRec.CreatedAt.IsZero() {
-								createdAtStr = baseRec.CreatedAt.Format(time.RFC3339)
-							}
-							break
-						}
-					}
-				}
-			}
-			if createdAtStr != "" {
-				content.WriteString(fmt.Sprintf("# created_at: %s\n", createdAtStr))
-			}
 			// Calculate spacing for alignment
 			ipSpaces := strings.Repeat(" ", maxIPWidth-len(record.Target))
 			hostnameSpaces := strings.Repeat(" ", maxHostnameWidth-len(hostname))
 
 			// Format: IP<spaces>HOSTNAME<spaces># Comment
-			line := fmt.Sprintf("%s%s%s%s# %s (%s)",
+			comment := ""
+			if !record.CreatedAt.IsZero() {
+				comment = fmt.Sprintf("# created_at: %s input: %s", record.CreatedAt.Format(time.RFC3339), record.Source)
+			} else {
+				comment = fmt.Sprintf("# input: %s", record.Source)
+			}
+			line := fmt.Sprintf("%s%s%s%s%s",
 				record.Target,
 				ipSpaces,
 				hostname,
 				hostnameSpaces,
-				record.Type,
-				record.Source)
+				comment)
 
 			content.WriteString(line + "\n")
 		}

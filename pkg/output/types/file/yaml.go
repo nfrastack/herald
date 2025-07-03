@@ -8,6 +8,7 @@ import (
 	"herald/pkg/log"
 	"herald/pkg/output/common"
 
+	"fmt"
 	"strings"
 	"time"
 
@@ -58,8 +59,17 @@ func (y *YAMLFormat) serializeYAML(domain string, export *common.ExportData) ([]
 	encoder := yaml.NewEncoder(&buf)
 	encoder.SetIndent(2)
 
-	// Update last_updated timestamp before serialization
 	export.Metadata.LastUpdated = time.Now().UTC()
+	// Add comment field to each record
+	for _, d := range export.Domains {
+		for _, r := range d.Records {
+			if !r.CreatedAt.IsZero() {
+				r.Comment = fmt.Sprintf("created_at: %s input: %s", r.CreatedAt.Format(time.RFC3339), r.Source)
+			} else {
+				r.Comment = fmt.Sprintf("input: %s", r.Source)
+			}
+		}
+	}
 
 	err := encoder.Encode(export)
 	encoder.Close()

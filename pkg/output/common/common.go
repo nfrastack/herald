@@ -245,6 +245,7 @@ type BaseRecord struct {
 	TTL       uint32    `json:"ttl" yaml:"ttl"`
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 	Source    string    `json:"source" yaml:"source"`
+	Comment   string    `json:"comment,omitempty" yaml:"comment,omitempty"`
 }
 
 // BaseDomain represents a domain and its records in export formats

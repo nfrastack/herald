@@ -5,11 +5,14 @@
 package file
 
 import (
+	"herald/pkg/output/common"
+
 	"bufio"
 	"fmt"
-	"herald/pkg/output/common"
 	"os"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,8 +20,9 @@ import (
 // ZoneFormat implements OutputFormat for DNS zone files
 type ZoneFormat struct {
 	*common.CommonFormat
-	soaRaw map[string]interface{} // store raw SOA config for per-domain expansion
-	nsRaw  []string               // store raw NS config for per-domain expansion
+	soaRaw     map[string]interface{} // store raw SOA config for per-domain expansion
+	nsRaw      []string               // store raw NS config for per-domain expansion
+	strictSync bool                   // if true, blank records not present in new data
 }
 
 // SOARecord represents anSOA record configuration
@@ -39,8 +43,16 @@ func NewZoneFormat(profileName, domain string, config map[string]interface{}) (O
 		return nil, err
 	}
 
+	strictSync := false
+	if v, ok := config["strict_sync"]; ok {
+		if b, ok := v.(bool); ok {
+			strictSync = b
+		}
+	}
+
 	format := &ZoneFormat{
 		CommonFormat: commonFormat,
+		strictSync:   strictSync,
 	}
 
 	if err := format.parseSOAConfig(config); err != nil {
@@ -92,93 +104,144 @@ func (z *ZoneFormat) GetName() string {
 	return "zone"
 }
 
-// GetFilePath returns the expanded file path for this zone file for a given domain
-func (z *ZoneFormat) GetFilePath(domain string) string {
+// GetFilePath returns the expanded file path for this zone file
+func (z *ZoneFormat) GetFilePath() string {
 	path := "zone_%domain_underscore%.zone" // default fallback
 	if z.CommonFormat != nil && z.CommonFormat.GetConfig() != nil {
 		if p, ok := z.CommonFormat.GetConfig()["path"].(string); ok && p != "" {
 			path = p
 		}
 	}
-	return expandTagsWithUnderscore(path, domain, z.CommonFormat.GetProfile())
+	return expandTags(path, z.CommonFormat.GetDomain(), z.CommonFormat.GetProfile())
 }
 
-// ReloadFromDisk parses the zone file and updates in-memory export data
-func (z *ZoneFormat) ReloadFromDisk(domain string) error {
-	filePath := z.GetFilePath(domain)
-	file, err := os.Open(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // No file to reload
-		}
-		return err
-	}
-	defer file.Close()
-
+// Sync writes the zone file to disk
+func (z *ZoneFormat) Sync() error {
 	export := z.GetExportData()
-	if export.Domains == nil {
-		export.Domains = make(map[string]*common.BaseDomain)
-	}
-	if _, ok := export.Domains[domain]; !ok {
-		export.Domains[domain] = &common.BaseDomain{Records: []*common.BaseRecord{}}
-	}
-	d := export.Domains[domain]
-	d.Records = []*common.BaseRecord{}
+	profile := z.CommonFormat.GetProfile()
+	if export != nil && export.Domains != nil {
+		domainKeys := make([]string, 0, len(export.Domains))
+		for k := range export.Domains {
+			domainKeys = append(domainKeys, k)
+		}
+		z.GetLogger().Debug("Available domains in export: %v", domainKeys)
+		for domain := range export.Domains {
+			// Save the original domain
+			origDomain := z.CommonFormat.GetDomain()
+			// Temporarily set the domain for correct file path expansion
+			z.CommonFormat.SetDomain(domain)
+			filePath := z.GetFilePath()
+			z.GetLogger().Debug("Syncing domain=%s for profile=%s, file=%s", domain, profile, filePath)
 
-	scanner := bufio.NewScanner(file)
+			if !z.strictSync {
+				// Non-strict: Load existing records from file, merge with in-memory, only remove if explicitly removed
+				// (Assume a LoadExistingDataFromFile method exists or implement a simple loader)
+				_ = z.loadAndMergeExistingRecords(domain, filePath)
+			}
+
+			err := z.CommonFormat.SyncWithSerializer(func(_ string, e *common.ExportData) ([]byte, error) {
+				return z.serializeZone(domain, e)
+			})
+			// Restore the original domain
+			z.CommonFormat.SetDomain(origDomain)
+			if err != nil {
+				z.GetLogger().Error("Sync FAILED for domain=%s, profile=%s, file=%s: %v", domain, profile, filePath, err)
+				return err
+			}
+		}
+		return nil
+	}
+	z.GetLogger().Info("No domains present in export data, not overwriting zone file %s", z.GetFilePath())
+	return nil
+}
+
+// loadAndMergeExistingRecords loads existing records from the zone file and merges them into the in-memory export, unless they were explicitly removed
+func (z *ZoneFormat) loadAndMergeExistingRecords(domain, filePath string) error {
+	export := z.GetExportData()
+	if export == nil || export.Domains == nil {
+		return nil
+	}
+	domainData, ok := export.Domains[domain]
+	if !ok || domainData == nil {
+		return nil
+	}
+
+	// Build a set of existing in-memory records for fast lookup
+	type recKey struct{ Hostname, Type, Target string }
+	existing := make(map[recKey]struct{})
+	for _, r := range domainData.Records {
+		existing[recKey{r.Hostname, r.Type, r.Target}] = struct{}{}
+	}
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		// If file doesn't exist, nothing to merge
+		return nil
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	zoneRecordRe := regexp.MustCompile(`^([^;\s][^\s]*)\s+(\d+)\s+IN\s+([A-Z]+)\s+(.+)$`)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "$") {
+		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "$ORIGIN") {
 			continue
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
+		if strings.Contains(line, "SOA") || strings.Contains(line, "NS") {
+			continue // skip SOA/NS
+		}
+		m := zoneRecordRe.FindStringSubmatch(line)
+		if len(m) < 5 {
 			continue
 		}
-		// Try to parse: name ttl IN type target
-		name := fields[0]
-		// skip SOA/NS
-		if fields[3] == "SOA" || fields[3] == "NS" {
+		name := strings.TrimSuffix(m[1], ".")
+		ttl := m[2]
+		recType := m[3]
+		target := m[4]
+		// Only merge A, AAAA, CNAME, TXT, MX, SRV, etc. (skip SOA/NS)
+		if recType == "SOA" || recType == "NS" {
 			continue
 		}
-		ttl := uint32(60)
-		typeStr := fields[3]
-		target := fields[4]
-		hostname := name
-		if strings.HasSuffix(hostname, "."+domain+".") {
-			hostname = strings.TrimSuffix(hostname, "."+domain+".")
-		} else if name == domain+"." {
-			hostname = "@"
+		// Convert name to relative if possible
+		if name == domain {
+			name = "@"
 		}
-		d.Records = append(d.Records, &common.BaseRecord{
-			Hostname: hostname,
-			Type:     typeStr,
-			Target:   target,
-			TTL:      ttl,
-			Source:   "manual", // unknown source
+		key := recKey{name, recType, target}
+		if _, found := existing[key]; found {
+			continue // already present in memory
+		}
+		// Parse TTL as int
+		ttlInt := 300 // default
+		if parsed, err := strconv.Atoi(ttl); err == nil {
+			ttlInt = parsed
+		}
+		// Add to in-memory records
+		domainData.Records = append(domainData.Records, &common.BaseRecord{
+			Hostname:  name,
+			Type:      recType,
+			Target:    target,
+			TTL:       uint32(ttlInt),
+			CreatedAt: time.Now().UTC(),
 		})
 	}
 	return scanner.Err()
 }
 
+// serializeZone handles zone-specific serialization
+func (z *ZoneFormat) serializeZone(domain string, export *common.ExportData) ([]byte, error) {
+	content := z.generateZoneFileContent(domain, export)
+	return []byte(content), nil
+}
+
 // WriteOrUpdateRecordWithSource adds or updates a record in the file and memory
 func (z *ZoneFormat) WriteOrUpdateRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	if err := z.ReloadFromDisk(domain); err != nil {
-		return err
-	}
-	// Update in-memory
+	// Update in-memory (sets CreatedAt if new)
 	_ = z.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
-	// Increment SOA serial on any update
-	z.incrementSOASerial(domain)
-	// Now update file: for now, rewrite whole file (TODO: optimize to update line)
 	return z.SyncDomain(domain)
 }
 
 // RemoveRecordFromFile removes a record from the file and memory, but only rewrites the file if a record was actually removed
 func (z *ZoneFormat) RemoveRecordFromFile(domain, hostname, recordType string) error {
-	if err := z.ReloadFromDisk(domain); err != nil {
-		return err
-	}
 	export := z.GetExportData()
 	d, ok := export.Domains[domain]
 	if !ok || d == nil || len(d.Records) == 0 {
@@ -188,79 +251,116 @@ func (z *ZoneFormat) RemoveRecordFromFile(domain, hostname, recordType string) e
 	_ = z.RemoveRecord(domain, hostname, recordType)
 	after := len(d.Records)
 	if after < before {
-		z.incrementSOASerial(domain)
-		return z.SyncDomain(domain) // only rewrite if something was removed
-	}
-	return nil // do nothing if no record was removed
-}
-
-// incrementSOASerial increments the SOA serial for the domain
-func (z *ZoneFormat) incrementSOASerial(domain string) {
-	if z.soaRaw == nil {
-		z.soaRaw = make(map[string]interface{})
-	}
-	serial, ok := z.soaRaw["serial"].(string)
-	if !ok || serial == "auto" {
-		z.soaRaw["serial"] = nextSerial(z.soaRaw["serial"])
-	} else {
-		z.soaRaw["serial"] = nextSerial(serial)
-	}
-}
-
-// nextSerial returns the next serial number in YYYYMMDDnn format
-func nextSerial(current interface{}) string {
-	now := time.Now()
-	datePrefix := now.Format("20060102")
-	if s, ok := current.(string); ok && len(s) >= 10 && strings.HasPrefix(s, datePrefix) {
-		// increment nn
-		nn := s[8:]
-		var n int
-		fmt.Sscanf(nn, "%02d", &n)
-		if n < 99 {
-			n++
-			return datePrefix + fmt.Sprintf("%02d", n)
-		}
-	}
-	return datePrefix + "01"
-}
-
-// SyncDomain writes the zone file for a specific domain
-func (z *ZoneFormat) SyncDomain(domain string) error {
-	filePath := z.GetFilePath(domain)
-	export := z.GetExportData()
-	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	content := z.generateZoneFileContent(domain, export)
-	_, err = f.WriteString(content)
-	return err
-}
-
-// SyncAllDomains writes all zone files for all domains
-func (z *ZoneFormat) SyncAllDomains() error {
-	export := z.GetExportData()
-	if export.Domains == nil {
-		return nil
-	}
-	for domain := range export.Domains {
-		if err := z.SyncDomain(domain); err != nil {
-			return err
-		}
+		return z.SyncDomain(domain)
 	}
 	return nil
 }
 
-// Sync implements OutputFormat and writes all domains
-func (z *ZoneFormat) Sync() error {
-	return z.SyncAllDomains()
-}
+// SyncDomain writes the zone file for a specific domain, updating only SOA serial and managed records, preserving unrelated/manual lines.
+func (z *ZoneFormat) SyncDomain(domain string) error {
+	filePath := z.GetFilePath()
+	export := z.GetExportData()
 
-// serializeZone handles zone-specific serialization
-func (z *ZoneFormat) serializeZone(domain string, export *common.ExportData) ([]byte, error) {
-	content := z.generateZoneFileContent(domain, export)
-	return []byte(content), nil
+	// Read the existing file into memory
+	var lines []string
+	if f, err := os.Open(filePath); err == nil {
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			lines = append(lines, scanner.Text())
+		}
+		f.Close()
+	}
+
+	// Prepare managed records (as a map for fast lookup)
+	domainData, ok := export.Domains[domain]
+	if !ok || domainData == nil {
+		return nil
+	}
+	recordMap := make(map[string]struct{})
+	var managedLines []string
+	for _, record := range domainData.Records {
+		name := record.Hostname
+		if name == "" || name == "@" {
+			name = domain
+		}
+		key := fmt.Sprintf("%s|%s|%s", name, record.Type, record.Target)
+		recordMap[key] = struct{}{}
+		comment := ""
+		if !record.CreatedAt.IsZero() {
+			comment = fmt.Sprintf("; created_at: %s input: %s", record.CreatedAt.Format(time.RFC3339), record.Source)
+		} else {
+			comment = fmt.Sprintf("; input: %s", record.Source)
+		}
+		managedLines = append(managedLines, fmt.Sprintf("%-20s %-6d %-4s %-5s %s  %s",
+			name, record.TTL, "IN", record.Type, record.Target, comment))
+	}
+
+	// Find and increment the SOA serial
+	soaSerialRe := regexp.MustCompile(`^\s*([0-9]{10,})\s*;\s*Serial`)
+	serial := ""
+	serialLineIdx := -1
+	for i, line := range lines {
+		if soaSerialRe.MatchString(line) {
+			m := soaSerialRe.FindStringSubmatch(line)
+			if len(m) > 1 {
+				serial = m[1]
+				serialLineIdx = i
+				break
+			}
+		}
+	}
+	newSerial := serial
+	if serial != "" {
+		today := time.Now().Format("20060102")
+		if strings.HasPrefix(serial, today) {
+			inc, err := strconv.Atoi(serial[8:])
+			if err == nil {
+				newSerial = fmt.Sprintf("%s%02d", today, inc+1)
+			}
+		} else {
+			newSerial = fmt.Sprintf("%s01", today)
+		}
+	} else {
+		// No serial found, generate a new one
+		newSerial = generateSerialFromFile(filePath)
+	}
+
+	// Rewrite lines, updating SOA serial and managed records, preserving others
+	var out []string
+	zoneRecordRe := regexp.MustCompile(`^([^;\s][^\s]*)\s+(\d+)\s+IN\s+([A-Z]+)\s+(.+)$`)
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if i == serialLineIdx {
+			// Replace SOA serial
+			out = append(out, fmt.Sprintf("                              %-12s ; Serial", newSerial))
+			continue
+		}
+		m := zoneRecordRe.FindStringSubmatch(line)
+		if len(m) >= 5 {
+			name := strings.TrimSuffix(m[1], ".")
+			recType := m[3]
+			target := m[4]
+			if recType != "SOA" && recType != "NS" {
+				key := fmt.Sprintf("%s|%s|%s", name, recType, target)
+				if _, found := recordMap[key]; found {
+					// This is a managed record, skip (will be replaced below)
+					continue
+				}
+			}
+		}
+		out = append(out, line)
+	}
+	// Append all managed records at the end of the file
+	if len(managedLines) > 0 {
+		out = append(out, managedLines...)
+	}
+	// Write back only if changed
+	newContent := strings.Join(out, "\n") + "\n"
+	oldContent := strings.Join(lines, "\n") + "\n"
+	if newContent != oldContent {
+		return os.WriteFile(filePath, []byte(newContent), 0644)
+	}
+	return nil
 }
 
 // generateZoneFileContent creates the zone file content
@@ -312,7 +412,8 @@ func (z *ZoneFormat) generateZoneFileContent(domainName string, export *common.E
 	}
 	adminEmail = strings.ReplaceAll(adminEmail, "@", ".")
 	if serial == "auto" {
-		serial = generateSerial()
+		filePath := z.GetFilePath()
+		serial = generateSerialFromFile(filePath)
 	}
 
 	// Expand NS records for this domain
@@ -356,17 +457,31 @@ func (z *ZoneFormat) generateZoneFileContent(domainName string, export *common.E
 			return domain.Records[i].Hostname < domain.Records[j].Hostname
 		})
 
+		// Find max width for record fields to align comments
+		maxRecordLen := 0
+		var recordLines []string
 		for _, record := range domain.Records {
 			name := record.Hostname
 			if name == "" || name == "@" {
 				name = domainName + "."
 			}
-			// Add per-record created timestamp as comment if available
-			if !record.CreatedAt.IsZero() {
-				content.WriteString(fmt.Sprintf("; created_at: %s\n", record.CreatedAt.Format(time.RFC3339)))
+			recordStr := fmt.Sprintf("%-20s %-6d %-4s %-5s %s",
+				name, record.TTL, "IN", record.Type, record.Target)
+			if len(recordStr) > maxRecordLen {
+				maxRecordLen = len(recordStr)
 			}
-			content.WriteString(fmt.Sprintf("%-20s %-6d %-4s %-5s %s\n",
-				name, record.TTL, "IN", record.Type, record.Target))
+			recordLines = append(recordLines, recordStr)
+		}
+		// Write records with aligned comments
+		for i, record := range domain.Records {
+			comment := ""
+			if !record.CreatedAt.IsZero() {
+				comment = fmt.Sprintf("; created_at: %s input: %s", record.CreatedAt.Format(time.RFC3339), record.Source)
+			} else {
+				comment = fmt.Sprintf("; input: %s", record.Source)
+			}
+			line := recordLines[i] + strings.Repeat(" ", maxRecordLen-len(recordLines[i])+2) + comment
+			content.WriteString(line + "\n")
 		}
 	} else {
 		content.WriteString("; No records\n")
@@ -375,10 +490,34 @@ func (z *ZoneFormat) generateZoneFileContent(domainName string, export *common.E
 	return content.String()
 }
 
-// generateSerial generates an auto-incrementing serial number
-func generateSerial() string {
-	now := time.Now()
-	return fmt.Sprintf("%04d%02d%02d%02d", now.Year(), now.Month(), now.Day(), now.Hour())
+// generateSerial generates a serial number in the format YYYYMMDDii, where ii is an incrementing integer for the day.
+func generateSerialFromFile(filePath string) string {
+	today := time.Now().Format("20060102")
+	maxInc := 0
+
+	// Try to read the current serial from the file
+	f, err := os.Open(filePath)
+	if err == nil {
+		scanner := bufio.NewScanner(f)
+		serialRe := regexp.MustCompile(`(?m)^\s*([0-9]{10,})\s*;\s*Serial`)
+		for scanner.Scan() {
+			line := scanner.Text()
+			m := serialRe.FindStringSubmatch(line)
+			if len(m) > 1 {
+				serial := m[1]
+				if len(serial) >= 10 && strings.HasPrefix(serial, today) {
+					inc, err := strconv.Atoi(serial[8:])
+					if err == nil && inc > maxInc {
+						maxInc = inc
+					}
+				}
+			}
+		}
+		f.Close()
+	}
+	// Increment for this update
+	newInc := maxInc + 1
+	return fmt.Sprintf("%s%02d", today, newInc)
 }
 
 // WriteRecordWithSource writes or updates a DNS record with source information
@@ -400,33 +539,6 @@ func (z *ZoneFormat) Records() int {
 		n += len(d.Records)
 	}
 	return n
-}
-
-// RemoveRecords removes records for a given domain matching the provided filter (by source, hostname, type)
-func (z *ZoneFormat) RemoveRecords(domain, hostname, recordType, source string) {
-	export := z.GetExportData()
-	if export.Domains == nil {
-		return
-	}
-	d, ok := export.Domains[domain]
-	if !ok || d == nil || len(d.Records) == 0 {
-		return
-	}
-	filtered := make([]*common.BaseRecord, 0, len(d.Records))
-	for _, rec := range d.Records {
-		if (hostname != "" && rec.Hostname != hostname) ||
-			(recordType != "" && rec.Type != recordType) ||
-			(source != "" && rec.Source != source) {
-			filtered = append(filtered, rec)
-		}
-	}
-	d.Records = filtered
-}
-
-// RemoveRecord removes all records for a given domain, hostname, and type (regardless of source)
-func (z *ZoneFormat) RemoveRecord(domain, hostname, recordType string) error {
-	z.RemoveRecords(domain, hostname, recordType, "")
-	return nil
 }
 
 // ClearRecords removes all records for a given domain from the export data
