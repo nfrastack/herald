@@ -9,6 +9,7 @@ import (
 	"herald/pkg/output/common"
 
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -56,6 +57,9 @@ func (y *YAMLFormat) serializeYAML(domain string, export *common.ExportData) ([]
 	var buf strings.Builder
 	encoder := yaml.NewEncoder(&buf)
 	encoder.SetIndent(2)
+
+	// Update last_updated timestamp before serialization
+	export.Metadata.LastUpdated = time.Now().UTC()
 
 	err := encoder.Encode(export)
 	encoder.Close()

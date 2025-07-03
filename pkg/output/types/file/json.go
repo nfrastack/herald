@@ -9,6 +9,7 @@ import (
 	"herald/pkg/output/common"
 
 	"encoding/json"
+	"time"
 )
 
 // JSONFormat implements OutputFormat for JSON export
@@ -56,6 +57,8 @@ func (j *JSONFormat) Sync() error {
 
 // serializeJSON handles JSON-specific serialization
 func (j *JSONFormat) serializeJSON(domain string, export *common.ExportData) ([]byte, error) {
+	// Update last_updated timestamp before serialization
+	export.Metadata.LastUpdated = time.Now().UTC()
 	// Use simple JSON marshalling with indentation
 	return json.MarshalIndent(export, "", "  ")
 }

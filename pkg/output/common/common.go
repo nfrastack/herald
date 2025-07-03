@@ -408,17 +408,6 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 
 	// Update metadata
 	c.metadata.LastUpdated = time.Now().UTC()
-
-	// --- DEBUG: Log the current state of domains and records ---
-	domainRecords := make(map[string]int)
-	for d, dom := range c.domains {
-		if dom != nil {
-			domainRecords[d] = len(dom.Records)
-		}
-	}
-	c.logger.Debug("[DEBUG] After WriteRecordWithSource: domains=%v", domainRecords)
-	// --- END DEBUG ---
-
 	return nil
 }
 
@@ -587,10 +576,6 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, expo
 			log.Error("%s Failed to serialize data for domain %s: %v", c.GetLogPrefix(), domain, err)
 			return fmt.Errorf("failed to serialize data for domain %s: %v", domain, err)
 		}
-
-		// --- PATCH: Log the data being written for debug ---
-		c.logger.Debug("[DEBUG] Writing to zone file: %s\n---\n%s\n---", filename, string(data))
-		// --- END PATCH ---
 
 		if err := os.WriteFile(filename, data, 0644); err != nil {
 			log.Error("%s Failed to write file for domain %s: %v", c.GetLogPrefix(), domain, err)

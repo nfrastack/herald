@@ -10,8 +10,6 @@ import (
 	"herald/pkg/output"
 	"herald/pkg/util"
 
-	inputtypes "herald/pkg/input/types"
-
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -22,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -69,7 +68,6 @@ type RemoteActionPayload struct {
 }
 
 // APIServer handles DNS record aggregation via HTTP API
-// Add inputProviderGetter to avoid import cycle
 type APIServer struct {
 	clients        map[string]*ClientData
 	mutex          sync.RWMutex
@@ -80,8 +78,6 @@ type APIServer struct {
 	logger         *log.ScopedLogger
 	failedAttempts map[string]*FailedAttemptTracker // Track failed authentication attempts by IP
 	attemptsMutex  sync.RWMutex                     // Separate mutex for failed attempts
-
-	InputProviderGetter func() []inputtypes.Provider // Function to get input providers (DI)
 }
 
 // FailedAttemptTracker tracks failed authentication attempts from an IP
@@ -350,15 +346,6 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get("Content-Type")
 	s.logger.Trace("[%s] Content-Type: %s", connID, contentType)
 	s.logger.Trace("[%s] Payload: %s", connID, string(body))
-
-	// Deep debug: print all in-memory data before removals
-	s.mutex.RLock()
-	s.logger.Debug("[%s] [DEBUG] In-memory data BEFORE removals: %s", connID, func() string {
-		b, _ := json.MarshalIndent(s.clients, "", "  "); return string(b)
-	}())
-	s.mutex.RUnlock()
-
-	// Refactored: Only remove records from the uploading client's data
 	switch {
 	default:
 		// Try JSON first
@@ -367,66 +354,29 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 			var raw map[string]interface{}
 			if err := json.Unmarshal(body, &raw); err == nil {
 				if removals, ok := raw["removals"].(map[string]interface{}); ok {
-					s.mutex.Lock()
-					s.logger.Debug("[DEBUG] In-memory data BEFORE removals: %s", func() string {
-						b, _ := json.MarshalIndent(s.clients, "", "  ")
-						return string(b)
-					}())
-					client, ok := s.clients[clientID]
-					if ok && client.Domains != nil {
-						for domain, recs := range removals {
-							recList, ok := recs.([]interface{})
-							if !ok {
-								continue
-							}
-							domainObj, ok := client.Domains[domain]
-							if !ok || domainObj == nil {
-								continue
-							}
-							newRecords := make([]*Record, 0, len(domainObj.Records))
-							for _, record := range domainObj.Records {
-								shouldRemove := false
-								for _, r := range recList {
-									rm, ok := r.(map[string]interface{})
-									if !ok {
-										continue
-									}
-									if record.Hostname == rm["hostname"] && record.Type == rm["type"] {
-										shouldRemove = true
-										s.logger.Debug("[DEBUG] Removing record: domain=%s, client=%s, hostname=%s, type=%s", domain, clientID, record.Hostname, record.Type)
-										break
-									}
-								}
-								if !shouldRemove {
-									newRecords = append(newRecords, record)
-								}
-							}
-							domainObj.Records = newRecords
+					for domain, recs := range removals {
+						recList, ok := recs.([]interface{})
+						if !ok {
+							continue
 						}
-					}
-					s.logger.Debug("[DEBUG] In-memory data AFTER removals (client only): %s", func() string {
-						b, _ := json.MarshalIndent(s.clients, "", "  ")
-						return string(b)
-					}())
-					s.mutex.Unlock()
-				}
-			} else if err := json.Unmarshal(body, &remotePayload); err == nil && remotePayload.Action == "remove" {
-				// Remove records for each domain in remotePayload.Domains
-				s.mutex.Lock()
-				client, ok := s.clients[clientID]
-				if ok && client.Domains != nil {
-					for domain, dom := range remotePayload.Domains {
-						domainObj, ok := client.Domains[domain]
+						if clientData.Domains == nil {
+							continue
+						}
+						domainObj, ok := clientData.Domains[domain]
 						if !ok || domainObj == nil {
 							continue
 						}
+						// Remove each record in recList from domainObj.Records
 						newRecords := make([]*Record, 0, len(domainObj.Records))
 						for _, record := range domainObj.Records {
 							shouldRemove := false
-							for _, r := range dom.Records {
-								if record.Hostname == r.Hostname && record.Type == r.Type {
+							for _, r := range recList {
+								rm, ok := r.(map[string]interface{})
+								if !ok {
+									continue
+								}
+								if record.Hostname == rm["hostname"] && record.Type == rm["type"] {
 									shouldRemove = true
-									s.logger.Debug("[%s] [DEBUG] Removing record (remote, client only): domain=%s, client=%s, hostname=%s, type=%s", connID, domain, clientID, record.Hostname, record.Type)
 									break
 								}
 							}
@@ -437,20 +387,77 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 						domainObj.Records = newRecords
 					}
 				}
-				s.logger.Debug("[%s] [DEBUG] In-memory data AFTER removals (remote, client only): %s", connID, func() string {
-					b, _ := json.MarshalIndent(s.clients, "", "  "); return string(b)
-				}())
-				s.mutex.Unlock()
+			}
+		} else if err := json.Unmarshal(body, &remotePayload); err == nil && remotePayload.Action == "remove" {
+			// Remove records for each domain in remotePayload.Domains
+			for domain, dom := range remotePayload.Domains {
+				if clientData.Domains == nil {
+					continue
+				}
+				domainObj, ok := clientData.Domains[domain]
+				if !ok || domainObj == nil {
+					continue
+				}
+				// Remove all records in dom.Records from domainObj.Records
+				newRecords := make([]*Record, 0, len(domainObj.Records))
+				for _, record := range domainObj.Records {
+					shouldRemove := false
+					for _, r := range dom.Records {
+						if record.Hostname == r.Hostname && record.Type == r.Type {
+							shouldRemove = true
+							break
+						}
+					}
+					if !shouldRemove {
+						newRecords = append(newRecords, record)
+					}
+				}
+				domainObj.Records = newRecords
 			}
 		}
 	}
 
-	// Deep debug: print all in-memory data after removals
-	s.mutex.RLock()
-	s.logger.Debug("[%s] [DEBUG] In-memory data AFTER removals: %s", connID, func() string {
-		b, _ := json.MarshalIndent(s.clients, "", "  "); return string(b)
-	}())
-	s.mutex.RUnlock()
+	// After parsing the payload and before storing clientData, process removals globally
+	var raw map[string]interface{}
+	if err := json.Unmarshal(body, &raw); err == nil {
+		if removals, ok := raw["removals"].(map[string]interface{}); ok {
+			s.mutex.Lock()
+			for domain, recs := range removals {
+				recList, ok := recs.([]interface{})
+				if !ok {
+					continue
+				}
+				for _, client := range s.clients {
+					if client.Domains == nil {
+						continue
+					}
+					domainObj, ok := client.Domains[domain]
+					if !ok || domainObj == nil {
+						continue
+					}
+					newRecords := make([]*Record, 0, len(domainObj.Records))
+					for _, record := range domainObj.Records {
+						shouldRemove := false
+						for _, r := range recList {
+							rm, ok := r.(map[string]interface{})
+							if !ok {
+								continue
+							}
+							if record.Hostname == rm["hostname"] && record.Type == rm["type"] {
+								shouldRemove = true
+								break
+							}
+						}
+						if !shouldRemove {
+							newRecords = append(newRecords, record)
+						}
+					}
+					domainObj.Records = newRecords
+				}
+			}
+			s.mutex.Unlock()
+		}
+	}
 
 	// Store client data
 	s.mutex.Lock()
@@ -460,20 +467,7 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	clientData.Received = time.Now()
 	// Only update the client's state if there are domains/records in the payload
 	if len(clientData.Domains) > 0 {
-		existing, ok := s.clients[clientID]
-		if !ok {
-			// New client, just add
-			s.clients[clientID] = &clientData
-		} else {
-			// Update only the domains present in the upload, preserve others
-			for domain, dom := range clientData.Domains {
-				existing.Domains[domain] = dom
-			}
-			// Optionally update metadata and timestamps
-			existing.Metadata = clientData.Metadata
-			existing.Received = clientData.Received
-			existing.LastUpdate = time.Now()
-		}
+		s.clients[clientID] = &clientData
 	}
 
 	s.logger.Info("[%s] Received data from client %s with %d domains", connID, clientID, len(clientData.Domains))
@@ -499,19 +493,14 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-// aggregateAndWrite combines all sources (API clients + all input providers) and writes to the specified output profile
+// aggregateAndWrite combines all client data and writes to the specified output profile
 func (s *APIServer) aggregateAndWrite(connID string) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	s.logger.Trace("[%s] Starting data aggregation and write process (multi-source)", connID)
+	s.logger.Trace("[%s] Starting data aggregation and write process", connID)
 
-	if s.InputProviderGetter == nil {
-		s.logger.Warn("[%s] InputProviderGetter is not set; skipping aggregation from input providers", connID)
-		return
-	}
-
-	// Remove expired clients (API clients only)
+	// Remove expired clients
 	now := time.Now()
 	expiredCount := 0
 	for clientID, data := range s.clients {
@@ -525,220 +514,140 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 		s.logger.Debug("[%s] Removed %d expired clients", connID, expiredCount)
 	}
 
-	s.logger.Debug("[%s] Processing data from %d active API clients", connID, len(s.clients))
+	s.logger.Debug("[%s] Processing data from %d active clients", connID, len(s.clients))
 
-	// --- Refactored: Aggregate records by domain config key ---
-	type aggKey struct {
-		DomainKey string
-		Domain   string
-	}
-	type aggRecord struct {
-		Hostname   string
-		Type       string
-		Target     string
-		TTL        int
-		Source     string
-		Comment    string
-		CreatedAt  time.Time
-	}
-	// Map: aggKey -> {records, outputs}
-	aggregate := make(map[aggKey]struct {
-		records []aggRecord
-		outputs []string
-	})
-
-	cfg := config.GetGlobalConfig()
-	if cfg == nil || cfg.Domains == nil {
-		s.logger.Error("[%s] No global config or domains available", connID)
-		return
-	}
-
-	// Helper: contains
-	contains := func(list []string, val string) bool {
-		for _, v := range list {
-			if v == val {
-				return true
+	// Group clients by their output profiles
+	clientsByProfile := make(map[string][]string)
+	for clientID := range s.clients {
+		if profile, exists := s.profiles[clientID]; exists {
+			outputProfile := profile.OutputProfile
+			if outputProfile == "" {
+				outputProfile = "default"
 			}
-		}
-		return false
-	}
-
-	// 1. Aggregate from API clients (use client profile's OutputProfile)
-	for clientID, data := range s.clients {
-		profile, ok := s.profiles[clientID]
-		if !ok || profile.OutputProfile == "" {
-			s.logger.Warn("[%s] No output profile configured for API client '%s'", connID, clientID)
-			continue
-		}
-		outputProfile := profile.OutputProfile
-		for domainName, domain := range data.Domains {
-			agg := aggKey{DomainKey: outputProfile, Domain: domainName}
-			aggVal, exists := aggregate[agg]
-			if !exists {
-				aggVal.outputs = []string{outputProfile}
-			}
-			for _, record := range domain.Records {
-				rec := aggRecord{
-					Hostname:  record.Hostname,
-					Type:      record.Type,
-					Target:    record.Target,
-					TTL:       int(record.TTL),
-					Source:    fmt.Sprintf("api:%s", clientID),
-					Comment:   record.Comment,
-					CreatedAt: record.CreatedAt,
-				}
-				aggVal.records = append(aggVal.records, rec)
-			}
-			aggregate[agg] = aggVal
+			clientsByProfile[outputProfile] = append(clientsByProfile[outputProfile], clientID)
 		}
 	}
 
-	// 2. Aggregate from all input providers
-	inputProviders := s.InputProviderGetter()
-	for _, provider := range inputProviders {
-		if provider == nil {
-			s.logger.Error("[%s] Skipping nil input provider in aggregation", connID)
-			continue
-		}
-		entries, err := provider.GetDNSEntries()
-		if err != nil {
-			s.logger.Warn("[%s] Failed to get DNS entries from provider %s: %v", connID, provider.GetName(), err)
-			continue
-		}
-		for _, entry := range entries {
-			// For each domain config, check if this provider is allowed as input
-			for _, domCfg := range cfg.Domains {
-				if domCfg.Name != entry.Domain {
-					continue
+	// Aggregate data for each output profile separately
+	for outputProfile, clientIDs := range clientsByProfile {
+		aggregatedRecords := make(map[string][]map[string]interface{})
+		allDomains := make(map[string]struct{}) // Track all domains, even if empty
+
+		s.logger.Verbose("[%s] Aggregating data for output profile '%s' from %d clients", connID, outputProfile, len(clientIDs))
+
+		for _, clientID := range clientIDs {
+			data := s.clients[clientID]
+			s.logger.Trace("[%s] Processing client %s data for profile %s", connID, clientID, outputProfile)
+
+			for domainName, domain := range data.Domains {
+				allDomains[domainName] = struct{}{}
+				if aggregatedRecords[domainName] == nil {
+					aggregatedRecords[domainName] = make([]map[string]interface{}, 0)
 				}
-				if !contains(domCfg.GetInputProfiles(), provider.GetName()) {
-					continue
-				}
-				outputs := domCfg.GetOutputs()
-				for _, outputProfile := range outputs {
-					agg := aggKey{DomainKey: outputProfile, Domain: entry.Domain}
-					aggVal, exists := aggregate[agg]
-					if !exists {
-						aggVal.outputs = []string{outputProfile}
+
+				// Add all records from this client, prefixing source with client ID
+				for _, record := range domain.Records {
+					recordMap := map[string]interface{}{
+						"hostname":   record.Hostname,
+						"type":       record.Type,
+						"target":     record.Target,
+						"ttl":        record.TTL,
+						"comment":    record.Comment,
+						"created_at": record.CreatedAt,
+						"source":     fmt.Sprintf("%s:%s", clientID, record.Source),
 					}
-					rec := aggRecord{
-						Hostname:  entry.Hostname,
-						Type:      entry.RecordType,
-						Target:    entry.Target,
-						TTL:       entry.TTL,
-						Source:    provider.GetName(),
-						Comment:   "",
-						CreatedAt: time.Now(),
-					}
-					aggVal.records = append(aggVal.records, rec)
-					aggregate[agg] = aggVal
+					aggregatedRecords[domainName] = append(aggregatedRecords[domainName], recordMap)
+					s.logger.Trace("[%s] Added record from client %s: %s.%s (%s) -> %s",
+						connID, clientID, record.Hostname, domainName, record.Type, record.Target)
 				}
 			}
 		}
-	}
-	// --- END STRICT OUTPUT PROFILE FILTERING (DEDICATED DOMAIN LOGIC) ---
 
-	// 3. Apply removals (from API clients) to the aggregate, for all outputs that contain the record, not just the client's output profile
-	removals := make(map[string][]map[string]string) // domain -> list of {hostname, type}
-	for _, client := range s.clients {
-		if client.Domains == nil {
-			continue
-		}
-		for domain, dom := range client.Domains {
-			for _, record := range dom.Records {
-				if record.Comment == "REMOVED" {
-					rm := map[string]string{"hostname": record.Hostname, "type": record.Type}
-					removals[domain] = append(removals[domain], rm)
-				}
+		// Always write/sync for all domains, even if there are zero records
+		if len(allDomains) > 0 {
+			s.logger.Debug("[%s] Writing %d aggregated domains to output profile '%s'", connID, len(allDomains), outputProfile)
+
+			// Log summary of aggregated data
+			for domainName := range allDomains {
+				records := aggregatedRecords[domainName]
+				s.logger.Verbose("[%s] Profile '%s' domain '%s': %d records", connID, outputProfile, domainName, len(records))
 			}
-		}
-	}
-	// Remove from all aggregate groups for the domain, not just the client's output profile
-	toDelete := []aggKey{}
-	for agg, group := range aggregate {
-		if rmList, ok := removals[agg.Domain]; ok {
-			filtered := make([]aggRecord, 0, len(group.records))
-			for _, record := range group.records {
-				shouldRemove := false
-				for _, rm := range rmList {
-					if record.Hostname == rm["hostname"] && record.Type == rm["type"] {
-						shouldRemove = true
-						break
+
+			if _, exists := s.outputProfiles[outputProfile]; exists {
+				s.logger.Trace("[%s] Found output profile configuration for '%s'", connID, outputProfile)
+
+				if s.outputManager != nil {
+					var writeErrors []string
+					recordsWritten := 0
+					// Write each record to ONLY the API output profile, not all outputs
+					for domainName := range allDomains {
+						records := aggregatedRecords[domainName]
+						if len(records) == 0 {
+							profile := s.outputManager.GetProfile(outputProfile)
+							if profile != nil {
+								// If the output profile supports ClearRecords, call it for empty domains
+								if zoneProfile, ok := profile.(interface{ ClearRecords(string) }); ok {
+									zoneProfile.ClearRecords(domainName)
+								}
+								err := profile.Sync()
+								if err != nil {
+									s.logger.Error("[%s] Failed to sync empty domain '%s' in profile '%s': %v", connID, domainName, outputProfile, err)
+									writeErrors = append(writeErrors, fmt.Sprintf("empty domain %s: %v", domainName, err))
+								}
+							}
+							continue
+						}
+						for _, record := range records {
+							hostname, _ := record["hostname"].(string)
+							recordType, _ := record["type"].(string)
+							target, _ := record["target"].(string)
+							ttl, _ := record["ttl"].(uint32)
+							source, _ := record["source"].(string)
+							err := s.writeToSpecificProfile(s.outputManager, outputProfile, domainName, hostname, target, recordType, int(ttl), source)
+							if err != nil {
+								s.logger.Error("[%s] Failed to write record %s.%s to profile '%s': %v", connID, hostname, domainName, outputProfile, err)
+								writeErrors = append(writeErrors, fmt.Sprintf("record %s.%s: %v", hostname, domainName, err))
+								continue
+							}
+							recordsWritten++
+							s.logger.Debug("[%s] Successfully wrote %s.%s (%s) -> %s to profile '%s'",
+								connID, hostname, domainName, recordType, target, outputProfile)
+						}
+						// Sync after writing records for this domain
+						profile := s.outputManager.GetProfile(outputProfile)
+						if profile != nil {
+							err := profile.Sync()
+							if err != nil {
+								s.logger.Error("[%s] Failed to sync domain '%s' in profile '%s': %v", connID, domainName, outputProfile, err)
+								writeErrors = append(writeErrors, fmt.Sprintf("sync domain %s: %v", domainName, err))
+							}
+						}
 					}
+					if len(writeErrors) == 0 {
+						s.logger.Verbose("[%s] Successfully wrote and synced %d records to profile '%s'",
+							connID, recordsWritten, outputProfile)
+					} else {
+						s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred",
+							connID, outputProfile, len(writeErrors))
+					}
+				} else {
+					s.logger.Error("[%s] Output manager not available for profile '%s'", connID, outputProfile)
 				}
-				if !shouldRemove {
-					filtered = append(filtered, record)
-				}
-			}
-			if len(filtered) > 0 {
-				group.records = filtered
-				aggregate[agg] = group
+				s.logger.Debug("[%s] Completed aggregation for profile '%s'", connID, outputProfile)
 			} else {
-				toDelete = append(toDelete, agg)
-			}
-		}
-	}
-	for _, agg := range toDelete {
-		delete(aggregate, agg)
-	}
-
-	// 4. Write each group of records to its allowed outputs
-	// --- DEBUG: Dump aggregate map before writing ---
-	s.logger.Debug("[%s] [DEBUG] Aggregate map before write: %d groups", connID, len(aggregate))
-	for agg, group := range aggregate {
-		recSummaries := make([]string, 0, len(group.records))
-		for _, rec := range group.records {
-			recSummaries = append(recSummaries, fmt.Sprintf("%s %s %s -> %s (TTL: %d, Source: %s)", rec.Hostname, rec.Type, agg.Domain, rec.Target, rec.TTL, rec.Source))
-		}
-		s.logger.Debug("[%s]   OutputProfile=%s Domain=%s: %d records: %v", connID, agg.DomainKey, agg.Domain, len(group.records), recSummaries)
-	}
-	// --- END DEBUG ---
-	for agg, group := range aggregate {
-		if len(group.outputs) == 0 {
-			s.logger.Warn("[%s] No output profiles configured for domain config '%s' (domain '%s')", connID, agg.DomainKey, agg.Domain)
-			continue
-		}
-		for _, outputProfile := range group.outputs {
-			if s.outputManager == nil {
-				s.logger.Error("[%s] Output manager not available for profile '%s'", connID, outputProfile)
-				continue
-			}
-			profile := s.outputManager.GetProfile(outputProfile)
-			if profile == nil {
 				s.logger.Error("[%s] Output profile '%s' not found in configuration", connID, outputProfile)
-				continue
+				s.logger.Debug("[%s] Available output profiles: %v", connID, func() []string {
+					var names []string
+					for name := range s.outputProfiles {
+						names = append(names, name)
+					}
+					return names
+				}())
 			}
-			if zoneProfile, ok := profile.(interface{ ClearRecords(string) }); ok {
-				zoneProfile.ClearRecords(agg.Domain)
-			}
-			for _, record := range group.records {
-				err := s.writeToSpecificProfile(s.outputManager, outputProfile, agg.Domain, record.Hostname, record.Target, record.Type, record.TTL, record.Source)
-				if err != nil {
-					s.logger.Error("[%s] Failed to write record %s.%s to profile '%s': %v", connID, record.Hostname, agg.Domain, outputProfile, err)
-				}
-			}
+		} else {
+			s.logger.Debug("[%s] No domains to aggregate for output profile '%s'", connID, outputProfile)
 		}
 	}
-}
-
-// getDomainOutputProfiles returns a map of domain name -> []output profile names from config
-func (s *APIServer) getDomainOutputProfiles() map[string][]string {
-	result := make(map[string][]string)
-	globalConfig := config.GetGlobalConfig()
-	if globalConfig == nil {
-		return result
-	}
-	for _, domainCfg := range globalConfig.Domains {
-		name := domainCfg.Name
-		if name == "" {
-			continue
-		}
-		outputs := domainCfg.Profiles.Outputs
-		if len(outputs) > 0 {
-			result[name] = outputs
-		}
-	}
-	return result
 }
 
 // writeToSpecificProfile writes a record to only the specified output profile
@@ -816,8 +725,8 @@ func (s *APIServer) syncNonRemoteOutputs(outputManager *output.OutputManager) er
 	return nil
 }
 
-// StartAPIServerInstance starts the DNS API server using a provided APIServer instance
-func StartAPIServerInstance(server *APIServer, apiConfig *config.APIConfig) error {
+// StartAPIServer starts the DNS API server
+func StartAPIServer(apiConfig *config.APIConfig) error {
 	if !apiConfig.Enabled {
 		return nil
 	}
@@ -827,6 +736,8 @@ func StartAPIServerInstance(server *APIServer, apiConfig *config.APIConfig) erro
 	if globalConfig == nil {
 		return fmt.Errorf("no global configuration available for output profiles")
 	}
+
+	server := NewAPIServer(globalConfig.Outputs, apiConfig)
 
 	// Load client profiles from config with file support
 	if len(apiConfig.Profiles) > 0 {
@@ -1009,27 +920,19 @@ func StartAPIServerInstance(server *APIServer, apiConfig *config.APIConfig) erro
 	return nil
 }
 
-// Deprecated: use StartAPIServerInstance instead
-func StartAPIServer(apiConfig *config.APIConfig) error {
-	globalConfig := config.GetGlobalConfig()
-	if globalConfig == nil {
-		return fmt.Errorf("no global configuration available for output profiles")
+// VerifyZoneRecord checks if a DNS record exists in the zone file.
+func VerifyZoneRecord(zoneFilePath, hostname, recordType, target string) (bool, error) {
+	data, err := os.ReadFile(zoneFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read zone file: %w", err)
 	}
-	server := NewAPIServer(globalConfig.Outputs, apiConfig)
-	return StartAPIServerInstance(server, apiConfig)
-}
-
-// AggregationDNSRecord is a minimal struct for aggregation from input providers
-// (You may want to use your existing DNSEntry type instead)
-type AggregationDNSRecord struct {
-	Domain     string
-	Hostname   string
-	RecordType string
-	Target     string
-	TTL        int
-}
-
-// TriggerAggregation triggers aggregation and write from outside the API server
-func (s *APIServer) TriggerAggregation(reason string) {
-	go s.aggregateAndWrite(reason)
+	lines := strings.Split(string(data), "\n")
+	pattern := fmt.Sprintf(`^\s*%s\s+\d+\s+IN\s+%s\s+%s`, regexp.QuoteMeta(hostname), regexp.QuoteMeta(recordType), regexp.QuoteMeta(target))
+	re := regexp.MustCompile(pattern)
+	for _, line := range lines {
+		if re.MatchString(line) {
+			return true, nil // Record exists
+		}
+	}
+	return false, nil // Record not found
 }
