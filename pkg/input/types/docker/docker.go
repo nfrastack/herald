@@ -8,8 +8,6 @@ import (
 	"herald/pkg/config" // This import is needed for config.GlobalConfig
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
-	inputtypes "herald/pkg/input/types" // Use inputtypes.Provider, inputtypes.DNSEntry
-	"herald/pkg/input/registry"
 	"herald/pkg/log" // Re-import the log package
 
 	"context"
@@ -27,6 +25,12 @@ import (
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 )
+
+type Provider interface {
+	StartPolling() error
+	StopPolling() error
+	GetName() string
+}
 
 type DNSEntry struct {
 	Name                   string `json:"name"`
@@ -327,7 +331,7 @@ func evaluateDockerStatusFilter(filter common.Filter, container types.ContainerJ
 }
 
 // NewProvider creates a new Docker poll provider
-func NewProvider(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (inputtypes.Provider, error) {
+func NewProvider(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	// Convert interface{} config to string map for compatibility
 	options := make(map[string]string)
 	for k, v := range config {
@@ -343,7 +347,7 @@ func NewProvider(profileName string, config map[string]interface{}, outputWriter
 }
 
 // NewProviderFromStructured creates a new Docker poll provider from structured options with injected dependencies
-func NewProviderFromStructured(options map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (inputtypes.Provider, error) {
+func NewProviderFromStructured(options map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	// Build log prefix for filter logs
 	profileName := ""
 	if v, ok := options["name"].(string); ok && v != "" {
@@ -1071,7 +1075,7 @@ func (p *DockerProvider) processService(ctx context.Context, serviceID string) {
 
 // processDNSEntries sends DNS entries to the DNS provider using batch processing
 // If remove is true, perform DNS removal, otherwise always create/update
-func (p *DockerProvider) processDNSEntries(entries []inputtypes.DNSEntry, remove bool) error {
+func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) error {
 	// Use NewBatchProcessorWithProvider to ensure correct input provider name is used
 	batchProcessor := domain.NewBatchProcessorWithProvider(p.profileName, p.profileName, p.outputWriter, p.outputSyncer)
 
@@ -1138,7 +1142,7 @@ func (p *DockerProvider) processDNSEntries(entries []inputtypes.DNSEntry, remove
 }
 
 // GetDNSEntries returns all DNS entries from all containers
-func (p *DockerProvider) GetDNSEntries() ([]inputtypes.DNSEntry, error) {
+func (p *DockerProvider) GetDNSEntries() ([]DNSEntry, error) {
 	ctx := context.Background()
 
 	// List containers
@@ -1147,7 +1151,7 @@ func (p *DockerProvider) GetDNSEntries() ([]inputtypes.DNSEntry, error) {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	var result []inputtypes.DNSEntry
+	var result []DNSEntry
 
 	// Process each container
 	for _, c := range containers {
@@ -1393,10 +1397,10 @@ func matchesPattern(subdomain string, patterns []string) bool {
 }
 
 // extractDNSEntriesFromContainer extracts DNS entries from a Docker container
-func (p *DockerProvider) extractDNSEntriesFromContainer(container types.ContainerJSON) []inputtypes.DNSEntry {
+func (p *DockerProvider) extractDNSEntriesFromContainer(container types.ContainerJSON) []DNSEntry {
 	log.Trace("%s domainConfigs map at entry: %v", p.logPrefix, p.domainConfigs)
 
-	var entries []inputtypes.DNSEntry
+	var entries []DNSEntry
 	containerName := getContainerName(container)
 	labels := container.Config.Labels
 	if len(labels) == 0 {
@@ -1643,7 +1647,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 		fqdn = hostname + "." + domain
 	}
 
-	entries = append(entries, inputtypes.DNSEntry{
+	entries = append(entries, DNSEntry{
 		Name:                   fqdn,
 		Hostname:               hostname,
 		Domain:                 domain,
@@ -1663,8 +1667,8 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 }
 
 // extractDNSEntriesFromService extracts all DNS entries from a Swarm service
-func (p *DockerProvider) extractDNSEntriesFromService(service swarm.Service) ([]inputtypes.DNSEntry, error) {
-	var entries []inputtypes.DNSEntry
+func (p *DockerProvider) extractDNSEntriesFromService(service swarm.Service) ([]DNSEntry, error) {
+	var entries []DNSEntry
 	labels := service.Spec.Labels
 	if len(labels) == 0 {
 		return entries, nil
@@ -1714,9 +1718,9 @@ func (p *DockerProvider) getServiceVIPs(service swarm.Service) []string {
 	return vips
 }
 
-// GetName returns the provider profile name (not just "docker")
+// GetName returns the provider name
 func (dp *DockerProvider) GetName() string {
-	return dp.profileName
+	return "docker"
 }
 
 // GetContainerState returns container state information
@@ -1725,12 +1729,4 @@ func (dp *DockerProvider) GetContainerState(containerID string) (map[string]inte
 	state := make(map[string]interface{})
 	// Add your container state logic here
 	return state, nil
-}
-
-// For registration, use registry.RegisterProviderFactory
-func init() {
-	factory := func(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (interface{}, error) {
-		return NewProvider(profileName, config, outputWriter, outputSyncer)
-	}
-	registry.RegisterProviderFactory("docker", factory)
 }

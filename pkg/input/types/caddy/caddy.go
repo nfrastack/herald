@@ -8,8 +8,6 @@ import (
 	"herald/pkg/config"
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
-	"herald/pkg/input/types"
-	"herald/pkg/input/registry"
 	"herald/pkg/log"
 
 	"encoding/json"
@@ -17,6 +15,12 @@ import (
 	"strings"
 	"time"
 )
+
+type Provider interface {
+	StartPolling() error
+	StopPolling() error
+	GetName() string
+}
 
 type CaddyProvider struct {
 	apiURL        string
@@ -33,7 +37,7 @@ type CaddyProvider struct {
 	outputSyncer  domain.OutputSyncer
 }
 
-func NewProvider(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (types.Provider, error) {
+func NewProvider(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	// Convert interface{} config back to string map for compatibility
 	options := make(map[string]string)
 	for k, v := range config {
@@ -446,19 +450,11 @@ func inspectHandlers(handlers []caddyHandle, predicate func(caddyHandle) bool) b
 	return false
 }
 
-func (p *CaddyProvider) GetDNSEntries() ([]types.DNSEntry, error) {
+func (p *CaddyProvider) GetDNSEntries() ([]interface{}, error) {
 	return nil, nil
 }
 
 // GetName returns the provider name
 func (cp *CaddyProvider) GetName() string {
 	return "caddy"
-}
-
-func init() {
-	// Adapter to match registry.ProviderFactory signature
-	factory := func(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (interface{}, error) {
-		return NewProvider(profileName, config, outputWriter, outputSyncer)
-	}
-	registry.RegisterProviderFactory("caddy", factory)
 }

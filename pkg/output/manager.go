@@ -92,19 +92,19 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 	for _, profileName := range allowedOutputs {
 		provider, exists := om.profiles[profileName]
 		if !exists {
-			warnStr := fmt.Sprintf("output profile '%s' not found for domain '%s' (removal skipped)", profileName, domain)
-			log.Warn("[output/manager] %s", warnStr)
-			// Do NOT append to errors; just log and continue
+			errStr := fmt.Sprintf("output profile '%s' not found for domain '%s'", profileName, domain)
+			log.Error(errStr)
+			errors = append(errors, errStr)
 			continue
 		}
 
 		err := provider.RemoveRecord(domain, hostname, recordType)
 		if err != nil {
 			errStr := fmt.Sprintf("failed to remove record from profile '%s': %v", profileName, err)
-			log.Error("[output/manager] %s", errStr)
+			log.Error(errStr)
 			errors = append(errors, errStr)
 		} else {
-			log.Info("[output/manager] Successfully removed record from profile '%s'", profileName)
+			log.Debug("[output/manager] Successfully removed record from profile '%s'", profileName)
 			removedCount++
 
 			// PATCH: Mark this profile as changed for this source (so sync will reflect removals)
