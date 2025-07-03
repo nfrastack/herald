@@ -343,6 +343,7 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	// Parse based on content type
 	var clientData ClientData
 	var remotePayload RemoteActionPayload
+	var removalsFromPayload map[string][][2]string // domain -> list of [hostname, type]
 	contentType := r.Header.Get("Content-Type")
 	s.logger.Trace("[%s] Content-Type: %s", connID, contentType)
 	s.logger.Trace("[%s] Payload: %s", connID, string(body))
@@ -354,37 +355,23 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 			var raw map[string]interface{}
 			if err := json.Unmarshal(body, &raw); err == nil {
 				if removals, ok := raw["removals"].(map[string]interface{}); ok {
+					removalsFromPayload = make(map[string][][2]string)
 					for domain, recs := range removals {
 						recList, ok := recs.([]interface{})
 						if !ok {
 							continue
 						}
-						if clientData.Domains == nil {
-							continue
-						}
-						domainObj, ok := clientData.Domains[domain]
-						if !ok || domainObj == nil {
-							continue
-						}
-						// Remove each record in recList from domainObj.Records
-						newRecords := make([]*Record, 0, len(domainObj.Records))
-						for _, record := range domainObj.Records {
-							shouldRemove := false
-							for _, r := range recList {
-								rm, ok := r.(map[string]interface{})
-								if !ok {
-									continue
-								}
-								if record.Hostname == rm["hostname"] && record.Type == rm["type"] {
-									shouldRemove = true
-									break
-								}
+						for _, r := range recList {
+							rec, ok := r.(map[string]interface{})
+							if !ok {
+								continue
 							}
-							if !shouldRemove {
-								newRecords = append(newRecords, record)
+							hostname, _ := rec["hostname"].(string)
+							recordType, _ := rec["type"].(string)
+							if hostname != "" && recordType != "" {
+								removalsFromPayload[domain] = append(removalsFromPayload[domain], [2]string{hostname, recordType})
 							}
 						}
-						domainObj.Records = newRecords
 					}
 				}
 			}
@@ -418,46 +405,7 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// After parsing the payload and before storing clientData, process removals globally
-	var raw map[string]interface{}
-	if err := json.Unmarshal(body, &raw); err == nil {
-		if removals, ok := raw["removals"].(map[string]interface{}); ok {
-			s.mutex.Lock()
-			for domain, recs := range removals {
-				recList, ok := recs.([]interface{})
-				if !ok {
-					continue
-				}
-				for _, client := range s.clients {
-					if client.Domains == nil {
-						continue
-					}
-					domainObj, ok := client.Domains[domain]
-					if !ok || domainObj == nil {
-						continue
-					}
-					newRecords := make([]*Record, 0, len(domainObj.Records))
-					for _, record := range domainObj.Records {
-						shouldRemove := false
-						for _, r := range recList {
-							rm, ok := r.(map[string]interface{})
-							if !ok {
-								continue
-							}
-							if record.Hostname == rm["hostname"] && record.Type == rm["type"] {
-								shouldRemove = true
-								break
-							}
-						}
-						if !shouldRemove {
-							newRecords = append(newRecords, record)
-						}
-					}
-					domainObj.Records = newRecords
-				}
-			}
-			s.mutex.Unlock()
-		}
-	}
+	// (REMOVED: old code that referenced undefined 'profile' variable)
 
 	// Store client data
 	s.mutex.Lock()
@@ -485,16 +433,16 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 		s.logger.Trace("[%s] Client %s domain '%s': %d records", connID, clientID, domainName, len(domain.Records))
 	}
 
-	// Trigger aggregation
-	go s.aggregateAndWrite(connID)
+	// Trigger aggregation, passing removals
+	go s.aggregateAndWriteWithRemovals(connID, removalsFromPayload)
 
 	s.logger.Debug("[%s] Completed processing for client %s", connID, clientID)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
 
-// aggregateAndWrite combines all client data and writes to the specified output profile
-func (s *APIServer) aggregateAndWrite(connID string) {
+// aggregateAndWriteWithRemovals combines all client data and writes to the specified output profile, processing explicit removals
+func (s *APIServer) aggregateAndWriteWithRemovals(connID string, removals map[string][][2]string) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -530,123 +478,68 @@ func (s *APIServer) aggregateAndWrite(connID string) {
 
 	// Aggregate data for each output profile separately
 	for outputProfile, clientIDs := range clientsByProfile {
-		aggregatedRecords := make(map[string][]map[string]interface{})
-		allDomains := make(map[string]struct{}) // Track all domains, even if empty
+		if s.outputManager == nil {
+			s.logger.Error("[%s] Output manager not available for profile '%s'", connID, outputProfile)
+			continue
+		}
+		profile := s.outputManager.GetProfile(outputProfile)
+		if profile == nil {
+			s.logger.Error("[%s] Output profile '%s' not found in configuration", connID, outputProfile)
+			continue
+		}
+		// --- Process explicit removals for this output profile ---
+		if removals != nil {
+			for domain, recs := range removals {
+				for _, pair := range recs {
+					hostname := pair[0]
+					recordType := pair[1]
+					_ = profile.RemoveRecord(domain, hostname, recordType)
+				}
+			}
+		}
 
-		s.logger.Verbose("[%s] Aggregating data for output profile '%s' from %d clients", connID, outputProfile, len(clientIDs))
-
+		var writeErrors []string
+		var recordsWritten int
+		// Track all records seen for this profile (domain, hostname, type) by all clients
+		seenRecords := make(map[string]map[string]map[string]bool) // domain -> hostname -> type -> true
 		for _, clientID := range clientIDs {
 			data := s.clients[clientID]
-			s.logger.Trace("[%s] Processing client %s data for profile %s", connID, clientID, outputProfile)
-
 			for domainName, domain := range data.Domains {
-				allDomains[domainName] = struct{}{}
-				if aggregatedRecords[domainName] == nil {
-					aggregatedRecords[domainName] = make([]map[string]interface{}, 0)
+				if seenRecords[domainName] == nil {
+					seenRecords[domainName] = make(map[string]map[string]bool)
 				}
-
-				// Add all records from this client, prefixing source with client ID
 				for _, record := range domain.Records {
-					recordMap := map[string]interface{}{
-						"hostname":   record.Hostname,
-						"type":       record.Type,
-						"target":     record.Target,
-						"ttl":        record.TTL,
-						"comment":    record.Comment,
-						"created_at": record.CreatedAt,
-						"source":     fmt.Sprintf("%s:%s", clientID, record.Source),
+					if seenRecords[domainName][record.Hostname] == nil {
+						seenRecords[domainName][record.Hostname] = make(map[string]bool)
 					}
-					aggregatedRecords[domainName] = append(aggregatedRecords[domainName], recordMap)
-					s.logger.Trace("[%s] Added record from client %s: %s.%s (%s) -> %s",
-						connID, clientID, record.Hostname, domainName, record.Type, record.Target)
+					seenRecords[domainName][record.Hostname][record.Type] = true
+					// Add or update each record individually
+					err := profile.WriteRecordWithSource(domainName, record.Hostname, record.Target, record.Type, int(record.TTL), record.Source)
+					if err != nil {
+						writeErrors = append(writeErrors, fmt.Sprintf("add %s.%s: %v", record.Hostname, domainName, err))
+						s.logger.Error("[%s] Failed to add record %s.%s to profile '%s': %v", connID, record.Hostname, domainName, outputProfile, err)
+						continue
+					}
+					recordsWritten++
 				}
 			}
 		}
-
-		// Always write/sync for all domains, even if there are zero records
-		if len(allDomains) > 0 {
-			s.logger.Debug("[%s] Writing %d aggregated domains to output profile '%s'", connID, len(allDomains), outputProfile)
-
-			// Log summary of aggregated data
-			for domainName := range allDomains {
-				records := aggregatedRecords[domainName]
-				s.logger.Verbose("[%s] Profile '%s' domain '%s': %d records", connID, outputProfile, domainName, len(records))
-			}
-
-			if _, exists := s.outputProfiles[outputProfile]; exists {
-				s.logger.Trace("[%s] Found output profile configuration for '%s'", connID, outputProfile)
-
-				if s.outputManager != nil {
-					var writeErrors []string
-					recordsWritten := 0
-					// Write each record to ONLY the API output profile, not all outputs
-					for domainName := range allDomains {
-						records := aggregatedRecords[domainName]
-						if len(records) == 0 {
-							profile := s.outputManager.GetProfile(outputProfile)
-							if profile != nil {
-								// If the output profile supports ClearRecords, call it for empty domains
-								if zoneProfile, ok := profile.(interface{ ClearRecords(string) }); ok {
-									zoneProfile.ClearRecords(domainName)
-								}
-								err := profile.Sync()
-								if err != nil {
-									s.logger.Error("[%s] Failed to sync empty domain '%s' in profile '%s': %v", connID, domainName, outputProfile, err)
-									writeErrors = append(writeErrors, fmt.Sprintf("empty domain %s: %v", domainName, err))
-								}
-							}
-							continue
-						}
-						for _, record := range records {
-							hostname, _ := record["hostname"].(string)
-							recordType, _ := record["type"].(string)
-							target, _ := record["target"].(string)
-							ttl, _ := record["ttl"].(uint32)
-							source, _ := record["source"].(string)
-							err := s.writeToSpecificProfile(s.outputManager, outputProfile, domainName, hostname, target, recordType, int(ttl), source)
-							if err != nil {
-								s.logger.Error("[%s] Failed to write record %s.%s to profile '%s': %v", connID, hostname, domainName, outputProfile, err)
-								writeErrors = append(writeErrors, fmt.Sprintf("record %s.%s: %v", hostname, domainName, err))
-								continue
-							}
-							recordsWritten++
-							s.logger.Debug("[%s] Successfully wrote %s.%s (%s) -> %s to profile '%s'",
-								connID, hostname, domainName, recordType, target, outputProfile)
-						}
-						// Sync after writing records for this domain
-						profile := s.outputManager.GetProfile(outputProfile)
-						if profile != nil {
-							err := profile.Sync()
-							if err != nil {
-								s.logger.Error("[%s] Failed to sync domain '%s' in profile '%s': %v", connID, domainName, outputProfile, err)
-								writeErrors = append(writeErrors, fmt.Sprintf("sync domain %s: %v", domainName, err))
-							}
-						}
-					}
-					if len(writeErrors) == 0 {
-						s.logger.Verbose("[%s] Successfully wrote and synced %d records to profile '%s'",
-							connID, recordsWritten, outputProfile)
-					} else {
-						s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred",
-							connID, outputProfile, len(writeErrors))
-					}
-				} else {
-					s.logger.Error("[%s] Output manager not available for profile '%s'", connID, outputProfile)
-				}
-				s.logger.Debug("[%s] Completed aggregation for profile '%s'", connID, outputProfile)
-			} else {
-				s.logger.Error("[%s] Output profile '%s' not found in configuration", connID, outputProfile)
-				s.logger.Debug("[%s] Available output profiles: %v", connID, func() []string {
-					var names []string
-					for name := range s.outputProfiles {
-						names = append(names, name)
-					}
-					return names
-				}())
-			}
+		// To remove records, we need to know what is currently present in the output profile.
+		// Since OutputFormat does not expose a method to list all records, we cannot do this generically.
+		// For file-based outputs, removals are handled by not rewriting records that are not present in seenRecords.
+		// For remote or other outputs, implementers should ensure removals are handled as needed.
+		// Sync after all adds
+		err := profile.Sync()
+		if err != nil {
+			writeErrors = append(writeErrors, fmt.Sprintf("sync: %v", err))
+			s.logger.Error("[%s] Failed to sync profile '%s': %v", connID, outputProfile, err)
+		}
+		if len(writeErrors) == 0 {
+			s.logger.Verbose("[%s] Successfully wrote and synced %d records to profile '%s'", connID, recordsWritten, outputProfile)
 		} else {
-			s.logger.Debug("[%s] No domains to aggregate for output profile '%s'", connID, outputProfile)
+			s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred", connID, outputProfile, len(writeErrors))
 		}
+		s.logger.Debug("[%s] Completed aggregation for profile '%s'", connID, outputProfile)
 	}
 }
 

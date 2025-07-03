@@ -9,6 +9,7 @@ import (
 	"herald/pkg/output/common"
 
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -57,8 +58,17 @@ func (j *JSONFormat) Sync() error {
 
 // serializeJSON handles JSON-specific serialization
 func (j *JSONFormat) serializeJSON(domain string, export *common.ExportData) ([]byte, error) {
-	// Update last_updated timestamp before serialization
 	export.Metadata.LastUpdated = time.Now().UTC()
+	// Add comment field to each record
+	for _, d := range export.Domains {
+		for _, r := range d.Records {
+			if !r.CreatedAt.IsZero() {
+				r.Comment = fmt.Sprintf("created_at: %s input: %s", r.CreatedAt.Format(time.RFC3339), r.Source)
+			} else {
+				r.Comment = fmt.Sprintf("input: %s", r.Source)
+			}
+		}
+	}
 	// Use simple JSON marshalling with indentation
 	return json.MarshalIndent(export, "", "  ")
 }
