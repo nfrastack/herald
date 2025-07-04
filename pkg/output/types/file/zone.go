@@ -230,11 +230,12 @@ func (z *ZoneFormat) generateSOARecord(domain string) ([]string, error) {
 
 	var lines []string
 	lines = append(lines, fmt.Sprintf("%-20s %-6d %-4s %-5s %s %s (", "@", 300, "IN", "SOA", soa.PrimaryNS, adminEmail))
-	lines = append(lines, fmt.Sprintf("                              %-12s ; Serial", newSerial))
-	lines = append(lines, fmt.Sprintf("                              %-12d ; Refresh", soa.Refresh))
-	lines = append(lines, fmt.Sprintf("                              %-12d ; Retry", soa.Retry))
-	lines = append(lines, fmt.Sprintf("                              %-12d ; Expire", soa.Expire))
-	lines = append(lines, fmt.Sprintf("                              %-12d ) ; Minimum", soa.Minimum))
+	lines = append(lines, fmt.Sprintf("                              %-12s   ; Serial", newSerial))
+	lines = append(lines, fmt.Sprintf("                              %-12d   ; Refresh", soa.Refresh))
+	lines = append(lines, fmt.Sprintf("                              %-12d   ; Retry", soa.Retry))
+	lines = append(lines, fmt.Sprintf("                              %-12d   ; Expire", soa.Expire))
+	lines = append(lines, fmt.Sprintf("                              %-12d   ; Minimum", soa.Minimum))
+	lines = append(lines, "                              )")
 
 	return lines, nil
 }
