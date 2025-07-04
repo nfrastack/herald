@@ -13,7 +13,7 @@ import (
 	"herald/pkg/output"
 	"herald/pkg/util"
 
-	_ "herald/pkg/output/types/dns/providers"
+	"herald/pkg/output/types/dns/providers"
 	_ "herald/pkg/output/types/remote" // Register remote output provider
 
 	"encoding/json"
@@ -33,6 +33,9 @@ var (
 
 	// BuildTime is when the application was built
 	BuildTime = "unknown"
+
+	// Force package inclusion to register providers
+	_ = providers.PowerDNSProviderName
 )
 
 // String returns a string representation of the version information

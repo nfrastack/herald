@@ -181,6 +181,38 @@ outputs:
     # timeout: 30                  # If custom timeouts are needed
 ```
 
+## Implemented Providers
+
+Herald currently supports the following DNS providers:
+
+### Cloudflare
+- **Configuration**: `provider: cloudflare`
+- **Authentication**: API token
+- **Features**: Full DNS record management, proxied records
+- **API**: Cloudflare API v4
+
+### PowerDNS
+- **Configuration**: `provider: powerdns`
+- **Authentication**: API token (X-API-Key header)
+- **Features**: Full DNS record management, TLS support
+- **API**: PowerDNS API v1
+- **TLS Options**: CA certificate, client certificates, skip verification
+
+```yaml
+# PowerDNS configuration example
+powerdns_dns:
+  type: dns
+  provider: powerdns
+  api_host: "http://powerdns.example.com:8081/api/v1"
+  api_token: "your-powerdns-api-token"
+  server_id: "localhost"  # Optional, defaults to "localhost"
+  tls:
+    ca: "/path/to/ca.pem"           # Optional CA certificate
+    cert: "/path/to/client.pem"     # Optional client certificate
+    key: "/path/to/client.key"      # Optional client private key
+    skip_verify: false              # Optional, skip TLS verification
+```
+
 ## Submission Checklist
 
 Before submitting your implementation:

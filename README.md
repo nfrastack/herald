@@ -1124,6 +1124,7 @@ Output providers handle where DNS records are sent. This includes live DNS provi
 Live DNS providers use `type: dns` and manage records directly with DNS services:
 
 - **cloudflare**: Manage DNS records via Cloudflare API
+- **powerdns**: Manage DNS records via PowerDNS API
 
 ```yaml
 outputs:
@@ -1132,6 +1133,20 @@ outputs:
     type: dns
     provider: cloudflare
     token: "your-cloudflare-token"
+    log_level: info
+
+  # Live PowerDNS API
+  powerdns_dns:
+    type: dns
+    provider: powerdns
+    api_host: "http://powerdns.example.com:8081/api/v1"
+    api_token: "your-powerdns-api-token"
+    server_id: "localhost"  # Optional, defaults to "localhost"
+    tls:
+      ca: "/path/to/ca.pem"           # Optional CA certificate
+      cert: "/path/to/client.pem"     # Optional client certificate
+      key: "/path/to/client.key"      # Optional client private key
+      skip_verify: false              # Optional, skip TLS verification
     log_level: info
 ```
 

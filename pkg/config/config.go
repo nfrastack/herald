@@ -306,6 +306,13 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 	log.Trace("[config/output] Starting output manager initialization")
 
 	if outputConfigs != nil {
+		// Log all output profile names found in config
+		profileNames := make([]string, 0, len(outputConfigs))
+		for k := range outputConfigs {
+			profileNames = append(profileNames, k)
+		}
+		log.Debug("[config/output] Output profiles found in config: %v", profileNames)
+
 		// Create a set for faster lookup
 		enabledSet := make(map[string]bool)
 		for _, profile := range enabledProfiles {
@@ -414,6 +421,9 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 	} else {
 		log.Debug("[config/output] No outputs configuration found")
 	}
+
+	// After all profiles processed, log registered profiles
+	log.Debug("[config/output] Registered output profiles: %v", outputManager.ListProfileNames())
 
 	output.SetGlobalOutputManager(outputManager)
 	return nil

@@ -161,6 +161,22 @@
           log_level = "info";
         };
 
+        # Live PowerDNS API
+        powerdns_dns = {
+          type = "dns";
+          provider = "powerdns";
+          api_host = "http://powerdns.example.com:8081/api/v1";
+          api_token = "your-powerdns-api-token";
+          server_id = "localhost";
+          tls = {
+            ca = "/path/to/ca.pem";
+            cert = "/path/to/client.pem";
+            key = "/path/to/client.key";
+            skip_verify = false;
+          };
+          log_level = "info";
+        };
+
         # JSON backup files
         json_backup = {
           type = "file";
