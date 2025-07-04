@@ -53,7 +53,7 @@ type HostsRecord struct {
 var hostsReentrancyGuard sync.Map
 
 // NewHostsFormat creates a new hosts file format instance
-// domainArg should be the real DNS domain (e.g., tiredofit.ca), profileName is the output profile name (e.g., hosts_pub)
+// domainArg should be the real DNS domain (e.g., example.com), profileName is the output profile name (e.g., hosts_pub)
 func NewHostsFormat(domainArg, profileName string, config map[string]interface{}) (OutputFormat, error) {
 	commonFormat, err := common.NewCommonFormat(profileName, "hosts", config)
 	if err != nil {

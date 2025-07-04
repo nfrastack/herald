@@ -1,4 +1,7 @@
-## 2.1.0beta19 2025-07-04 <code at nfrastack dot com>
+## 2.1.0beta20 2025-07-04 <code at nfrastack dot com>
+
+   ### Added
+   - PowerDNS Output Provider support
 
    ### Changed
    - (domain) Log that an Input Provider is overriding an IP Address properly

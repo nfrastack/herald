@@ -107,7 +107,6 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 			log.Debug("[output/manager] Successfully removed record from profile '%s'", profileName)
 			removedCount++
 
-			// PATCH: Mark this profile as changed for this source (so sync will reflect removals)
 			om.changesMutex.Lock()
 			if om.changedProfiles[source] == nil {
 				om.changedProfiles[source] = make(map[string]bool)
@@ -122,4 +121,15 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 	}
 
 	return nil
+}
+
+// ListProfileNames returns a slice of all registered output profile names
+func (om *OutputManager) ListProfileNames() []string {
+	om.mutex.RLock()
+	defer om.mutex.RUnlock()
+	profileNames := make([]string, 0, len(om.profiles))
+	for name := range om.profiles {
+		profileNames = append(profileNames, name)
+	}
+	return profileNames
 }

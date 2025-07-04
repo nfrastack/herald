@@ -538,7 +538,7 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, expo
 				path = p
 			}
 		}
-		// PATCH: Use expandTagsWithUnderscore for all file outputs to normalize %domain% in filenames
+		// Use expandTagsWithUnderscore for all file outputs to normalize %domain% in filenames
 		filename := path
 		if strings.Contains(path, "%domain%") || strings.Contains(path, "%domain_underscore%") {
 			filename = expandTagsWithUnderscore(path, domain, c.GetProfile())

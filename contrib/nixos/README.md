@@ -116,20 +116,41 @@ Here are the available options for the NixOS module (services.herald):
     * `filter` (list): Advanced filtering configuration.
     * `log_level` (str): Provider-specific log level override.
 * `output` (attrs): Output configurations for exporting DNS records.
+  * `cloudflare_dns` (attrs):
+    * `type` (str): "dns"
+    * `provider` (str): "cloudflare"
+    * `token` (str): Cloudflare API token (or `api_token`).
+    * `log_level` (str): Provider-specific log level override.
+  * `powerdns_dns` (attrs):
+    * `type` (str): "dns"
+    * `provider` (str): "powerdns"
+    * `api_host` (str): PowerDNS API host URL.
+    * `api_token` (str): PowerDNS API token.
+    * `server_id` (str): PowerDNS server ID (optional, defaults to "localhost").
+    * `tls` (attrs): TLS configuration for PowerDNS API.
+      * `ca` (str): Path to CA certificate file.
+      * `cert` (str): Path to client certificate file.
+      * `key` (str): Path to client private key file.
+      * `skip_verify` (bool): Skip TLS certificate verification.
+    * `log_level` (str): Provider-specific log level override.
   * `hosts_export` (attrs):
+    * `type` (str): "file"
     * `format` (str): "hosts"
     * `path` (str): Path to the hosts file output.
-    * `domains` (list): List of domains to include (["all"] for all domains).
     * `user` (str): File owner (username or UID).
     * `group` (str): File group (group name or GID).
     * `mode` (int): File permissions (e.g., 420 for 0644).
     * `enable_ipv4` (bool): Write IPv4 A records.
     * `enable_ipv6` (bool): Write IPv6 AAAA records.
     * `header_comment` (str): Custom header comment.
+    * `flatten_cnames` (bool): Convert CNAME records to A records.
+    * `dns_server` (str): DNS server for resolution.
+    * `resolve_external` (bool): Use external DNS resolution.
+    * `ip_override` (str): Override resolved IPs with this address.
   * `json_export` (attrs):
+    * `type` (str): "file"
     * `format` (str): "json"
     * `path` (str): Path to the JSON file output.
-    * `domains` (list): List of domains to include.
     * `user` (str): File owner.
     * `group` (str): File group.
     * `mode` (int): File permissions.
@@ -138,9 +159,9 @@ Here are the available options for the NixOS module (services.herald):
     * `comment` (str): Global comment for the export.
     * `indent` (bool): Pretty print JSON output.
   * `yaml_export` (attrs):
+    * `type` (str): "file"
     * `format` (str): "yaml"
     * `path` (str): Path to the YAML file output.
-    * `domains` (list): List of domains to include.
     * `user` (str): File owner.
     * `group` (str): File group.
     * `mode` (int): File permissions.
@@ -148,35 +169,35 @@ Here are the available options for the NixOS module (services.herald):
     * `hostname` (str): Hostname identifier for this export.
     * `comment` (str): Global comment for the export.
   * `zone_export` (attrs):
+    * `type` (str): "file"
     * `format` (str): "zone"
     * `path` (str): Path to the zone file output.
-    * `domains` (list): List of domains to include.
     * `user` (str): File owner.
     * `group` (str): File group.
     * `mode` (int): File permissions.
     * `default_ttl` (int): Default TTL for zone records.
     * `soa` (attrs): SOA record configuration.
+      * `primary_ns` (str): Primary nameserver.
+      * `admin_email` (str): Administrator email.
+      * `serial` (str): Serial number ("auto" for automatic).
+      * `refresh` (int): Refresh interval in seconds.
+      * `retry` (int): Retry interval in seconds.
+      * `expire` (int): Expire time in seconds.
+      * `minimum` (int): Minimum TTL in seconds.
     * `ns_records` (list): List of authoritative nameservers.
   * `remote_api` (attrs):
-    * `format` (str): "remote"
+    * `type` (str): "remote"
     * `url` (str): Remote aggregator URL.
-    * `domains` (list): List of domains to include.
     * `client_id` (str): Unique client identifier.
     * `token` (str): Bearer authentication token.
     * `timeout` (str): HTTP request timeout.
     * `data_format` (str): Data format ("json" or "yaml").
     * `log_level` (str): Output-specific log level override.
     * `tls` (attrs): TLS configuration for HTTPS.
-  * `dns_provider` (attrs):
-    * `type` (str): "dns"
-    * `provider` (str): DNS provider type ("cloudflare").
-    * `api_token` (str): API token for Cloudflare/DigitalOcean/Linode.
-    * `api_email` (str): Cloudflare API email (for Global API Key method).
-    * `api_key` (str): Cloudflare Global API Key.
-    * `aws_access_key_id` (str): AWS Access Key ID for Route53.
-    * `aws_secret_access_key` (str): AWS Secret Access Key for Route53.
-    * `aws_region` (str): AWS region for Route53.
-    * `aws_profile` (str): AWS profile name (alternative to keys).
+      * `verify` (bool): Verify TLS certificates.
+      * `ca` (str): Path to CA certificate file.
+      * `cert` (str): Path to client certificate file.
+      * `key` (str): Path to client private key file.
 * `domains` (attrs): Domain configurations mapping domain keys to DNS providers.
   * `example_com` (attrs):
     * `name` (str): Actual domain name.

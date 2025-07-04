@@ -21,7 +21,7 @@ type RemoteFormat struct {
 	clientID string
 	token    string
 	records  map[string]*RemoteRecord
-	removals map[string]*RemoteRecord // PATCH: track removals for explicit API delete
+	removals map[string]*RemoteRecord
 	logger   *log.ScopedLogger
 }
 
@@ -65,7 +65,7 @@ func NewRemoteFormat(profileName string, config map[string]interface{}) (common.
 		clientID: clientID,
 		token:    token,
 		records:  make(map[string]*RemoteRecord),
-		removals: make(map[string]*RemoteRecord), // PATCH: initialize removals
+		removals: make(map[string]*RemoteRecord),
 		logger:   scopedLogger,
 	}, nil
 }
@@ -104,10 +104,9 @@ func (r *RemoteFormat) RemoveRecord(domain, hostname, recordType string) error {
 	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
 	if rec, exists := r.records[key]; exists {
 		delete(r.records, key)
-		r.removals[key] = rec // PATCH: queue for removal
+		r.removals[key] = rec
 		r.logger.Debug("Removed record: %s.%s (%s) [queued for API removal]", hostname, domain, recordType)
 	} else {
-		// PATCH: If not in records, still queue a removal stub
 		r.removals[key] = &RemoteRecord{
 			Domain:     domain,
 			Hostname:   hostname,
