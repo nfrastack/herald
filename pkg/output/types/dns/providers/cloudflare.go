@@ -85,7 +85,6 @@ func NewCloudflareProviderWithProfile(profileName string, config map[string]stri
 	return provider, nil
 }
 
-// Register Cloudflare provider in the same registry as PowerDNS
 func NewCloudflareProvider(config map[string]string) (interface{}, error) {
 	return NewCloudflareProviderWithProfile("default", config)
 }
