@@ -26,6 +26,19 @@ func expandTags(s, domain, profile string) string {
 	return replacer.Replace(s)
 }
 
+// expandTagsWithUnderscore is like expandTags, but always replaces %domain% with underscores for filenames
+func expandTagsWithUnderscore(s, domain, profile string) string {
+	domainUnderscore := strings.ReplaceAll(domain, ".", "_")
+	now := time.Now().Format("20060102-150405") // yyyymmdd-hhmmss
+	replacer := strings.NewReplacer(
+		"%domain%", domainUnderscore,
+		"%domain_underscore%", domainUnderscore,
+		"%date%", now,
+		"%profile%", profile,
+	)
+	return replacer.Replace(s)
+}
+
 // OutputFormat defines the interface to avoid import cycle
 type OutputFormat = common.OutputFormat
 
