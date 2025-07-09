@@ -10,7 +10,15 @@ import (
 
 	"encoding/json"
 	"fmt"
+	"os"
+	"sync"
 	"time"
+)
+
+// Track which JSON files have been loaded to avoid repeated loading
+var (
+	loadedJSONFiles = make(map[string]bool)
+	loadedJSONMutex sync.RWMutex
 )
 
 // JSONFormat implements OutputFormat for JSON export
@@ -90,6 +98,30 @@ func (j *JSONFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 	defer func() {
 		j.logger.Debug("WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
 	}()
+
+	// Load existing records from file before making any changes (once per file)
+	filePath := j.GetFilePath()
+	loadKey := filePath + "|" + domain
+
+	loadedJSONMutex.RLock()
+	loaded := loadedJSONFiles[loadKey]
+	loadedJSONMutex.RUnlock()
+
+	if !loaded {
+		if _, err := os.Stat(filePath); err == nil {
+			j.logger.Debug("Loading existing records from JSON file: %s", filePath)
+			if err := j.LoadExistingData(json.Unmarshal); err != nil {
+				j.logger.Warn("Failed to load existing records from %s: %v", filePath, err)
+			} else {
+				j.logger.Debug("Successfully loaded existing records from %s", filePath)
+			}
+		}
+
+		loadedJSONMutex.Lock()
+		loadedJSONFiles[loadKey] = true
+		loadedJSONMutex.Unlock()
+	}
+
 	return j.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
 }
 

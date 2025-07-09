@@ -487,6 +487,7 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID string, removals map[st
 			s.logger.Error("[%s] Output profile '%s' not found in configuration", connID, outputProfile)
 			continue
 		}
+
 		// --- Process explicit removals for this output profile ---
 		if removals != nil {
 			for domain, recs := range removals {
