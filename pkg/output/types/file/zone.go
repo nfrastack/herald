@@ -13,7 +13,14 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+)
+
+// Track which domains have been loaded from files to avoid repeated loading
+var (
+	loadedZoneDomains = make(map[string]bool)
+	loadedZoneMutex   sync.RWMutex
 )
 
 // ZoneFormat implements OutputFormat for DNS zone files
@@ -127,6 +134,28 @@ func (z *ZoneFormat) Sync() error {
 
 // WriteOrUpdateRecordWithSource adds or updates a record in the file and memory
 func (z *ZoneFormat) WriteOrUpdateRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
+	// Load existing records from file before making any changes (once per domain)
+	loadKey := domain + "|" + z.GetFilePath()
+	loadedZoneMutex.RLock()
+	loaded := loadedZoneDomains[loadKey]
+	loadedZoneMutex.RUnlock()
+
+	if !loaded {
+		filePath := z.GetFilePath()
+		if fileExists(filePath) {
+			z.GetLogger().Debug("Loading existing records from zone file: %s", filePath)
+			if err := z.loadManagedRecordsFromFile(domain, filePath); err != nil {
+				z.GetLogger().Warn("Failed to load existing records from %s: %v", filePath, err)
+			} else {
+				z.GetLogger().Debug("Successfully loaded existing records from %s", filePath)
+			}
+		}
+
+		loadedZoneMutex.Lock()
+		loadedZoneDomains[loadKey] = true
+		loadedZoneMutex.Unlock()
+	}
+
 	// Update in-memory (sets CreatedAt if new)
 	_ = z.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
 	return z.SyncDomain(domain)
@@ -162,7 +191,19 @@ func (z *ZoneFormat) SyncDomain(domain string) error {
 
 	z.GetLogger().Trace("SyncDomain: Generated content (%d bytes) for domain=%s", len(content), domain)
 
-	// Write the zone file
+	// Check if the file exists and compare content
+	existingContent, readErr := os.ReadFile(filePath)
+	if readErr == nil {
+		if string(existingContent) == content {
+			z.GetLogger().Trace("SyncDomain: No changes detected for %s, skipping write", filePath)
+			return nil // No changes, do not overwrite
+		}
+	} else if !os.IsNotExist(readErr) {
+		z.GetLogger().Error("SyncDomain: Failed to read existing file %s: %v", filePath, readErr)
+		// Continue to write new content if file is unreadable for other reasons
+	}
+
+	// Write the zone file only if content changed or file does not exist
 	err = os.WriteFile(filePath, []byte(content), 0644)
 	if err != nil {
 		z.GetLogger().Error("SyncDomain: Failed to write file %s: %v", filePath, err)
@@ -171,6 +212,107 @@ func (z *ZoneFormat) SyncDomain(domain string) error {
 	}
 
 	return err
+}
+
+// fileExists checks if a file exists
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// loadManagedRecordsFromFile parses the managed records from the zone file and loads them into the in-memory state
+func (z *ZoneFormat) loadManagedRecordsFromFile(domain, filePath string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	inManaged := false
+	var records []*common.BaseRecord
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "; Managed Records" {
+			inManaged = true
+			continue
+		}
+		if !inManaged {
+			continue
+		}
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, ";") {
+			continue
+		}
+		// Parse record line: hostname TTL IN TYPE TARGET [; ...]
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue // Need at least hostname, TTL, IN, TYPE, TARGET
+		}
+
+		// Handle both formats: with and without comments
+		rec := &common.BaseRecord{
+			Hostname: fields[0],
+			TTL:      uint32(parseTTL(fields[1])),
+			Type:     fields[3],
+			Target:   fields[4],
+			Source:   "manual", // Default source for records without comments
+		}
+
+		// Optionally parse source from comment
+		if idx := strings.Index(line, "; input: "); idx != -1 {
+			source := strings.TrimSpace(line[idx+9:])
+			if i := strings.Index(source, " "); i != -1 {
+				source = source[:i]
+			}
+			rec.Source = source
+		} else if idx := strings.Index(line, ";"); idx != -1 {
+			// Try to parse other comment formats or just mark as existing
+			rec.Source = "existing"
+		}
+
+		// Optionally parse created_at from comment
+		if idx := strings.Index(line, "; created_at: "); idx != -1 {
+			created := strings.TrimSpace(line[idx+13:])
+			if i := strings.Index(created, " "); i != -1 {
+				created = created[:i]
+			}
+			if t, err := time.Parse(time.RFC3339, created); err == nil {
+				rec.CreatedAt = t
+			}
+		}
+		records = append(records, rec)
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	export := z.GetExportData()
+	if export.Domains == nil {
+		export.Domains = make(map[string]*common.BaseDomain)
+	}
+
+	// Use CommonFormat.WriteRecordWithSource to properly merge loaded records
+	// This ensures deduplication and proper handling of existing records
+	for _, rec := range records {
+		if rec.Hostname != "" && rec.Type != "" && rec.Target != "" {
+			// Use WriteRecordWithSource to merge, but don't trigger a file sync
+			err := z.CommonFormat.WriteRecordWithSource(domain, rec.Hostname, rec.Target, rec.Type, int(rec.TTL), rec.Source)
+			if err != nil {
+				z.GetLogger().Warn("Failed to merge loaded record %s.%s (%s): %v", rec.Hostname, domain, rec.Type, err)
+			}
+		}
+	}
+	return nil
+}
+
+// parseTTL parses a TTL string to int
+func parseTTL(s string) int {
+	ttl, err := strconv.Atoi(s)
+	if err != nil {
+		return 300
+	}
+	return ttl
 }
 
 // generateZoneFileContent generates the complete zone file content
@@ -348,7 +490,7 @@ func (z *ZoneFormat) generateNSRecords(domain string) []string {
 	return lines
 }
 
-// generateManagedRecords generates the managed DNS records
+// generateManagedRecords generates the managed DNS records from in-memory state merged with existing file records
 func (z *ZoneFormat) generateManagedRecords(domain string) []string {
 	var lines []string
 
@@ -358,17 +500,38 @@ func (z *ZoneFormat) generateManagedRecords(domain string) []string {
 	}
 
 	domainData, ok := export.Domains[domain]
-	if !ok || domainData == nil || len(domainData.Records) == 0 {
+	if !ok || domainData == nil {
 		return lines
 	}
 
+	// Create a map to track all records by unique key (hostname + type)
+	recordMap := make(map[string]*common.BaseRecord)
+
+	// First, load existing records from the file to preserve manual records
+	filePath := z.GetFilePath()
+	if fileExists(filePath) {
+		existingRecords := z.loadRecordsFromManagedSection(domain, filePath)
+		for _, record := range existingRecords {
+			key := record.Hostname + ":" + record.Type
+			recordMap[key] = record
+		}
+		z.GetLogger().Debug("generateManagedRecords: Loaded %d existing records from file for domain %s", len(existingRecords), domain)
+	}
+
+	// Then overlay/update with in-memory records from Herald providers
 	for _, record := range domainData.Records {
+		key := record.Hostname + ":" + record.Type
+		recordMap[key] = record // This will overwrite existing records with same hostname+type
+	}
+	z.GetLogger().Debug("generateManagedRecords: Final record count for domain %s: %d", domain, len(recordMap))
+
+	// Generate output lines from the merged record map
+	for _, record := range recordMap {
 		hostname := record.Hostname
 		if hostname == "" || hostname == "@" {
 			hostname = "@"
 		}
 
-		// Create comment with created_at and input only
 		comment := ""
 		if !record.CreatedAt.IsZero() {
 			comment = fmt.Sprintf("; created_at: %s input: %s",
@@ -391,6 +554,46 @@ func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 	defer func() {
 		z.GetLogger().Debug("WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
 	}()
+
+	// Load existing records from file before making any changes (once per domain)
+	loadKey := domain + "|" + z.GetFilePath()
+	loadedZoneMutex.RLock()
+	loaded := loadedZoneDomains[loadKey]
+	loadedZoneMutex.RUnlock()
+
+	// Count current records before loading
+	export := z.GetExportData()
+	currentCount := 0
+	if export != nil && export.Domains != nil {
+		if domainData, ok := export.Domains[domain]; ok && domainData != nil {
+			currentCount = len(domainData.Records)
+		}
+	}
+	z.GetLogger().Debug("WriteRecordWithSource: domain=%s, loaded=%v, currentRecords=%d", domain, loaded, currentCount)
+
+	if !loaded {
+		filePath := z.GetFilePath()
+		if fileExists(filePath) {
+			z.GetLogger().Info("Loading existing records from zone file: %s (currentRecords=%d)", filePath, currentCount)
+			if err := z.loadManagedRecordsFromFile(domain, filePath); err != nil {
+				z.GetLogger().Warn("Failed to load existing records from %s: %v", filePath, err)
+			} else {
+				// Count records after loading
+				afterCount := 0
+				if export != nil && export.Domains != nil {
+					if domainData, ok := export.Domains[domain]; ok && domainData != nil {
+						afterCount = len(domainData.Records)
+					}
+				}
+				z.GetLogger().Info("Successfully loaded existing records from %s (before=%d, after=%d)", filePath, currentCount, afterCount)
+			}
+		}
+
+		loadedZoneMutex.Lock()
+		loadedZoneDomains[loadKey] = true
+		loadedZoneMutex.Unlock()
+	}
+
 	return z.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
 }
 
@@ -413,5 +616,82 @@ func (z *ZoneFormat) ClearRecords(domain string) {
 		if d, ok := export.Domains[domain]; ok && d != nil {
 			d.Records = nil
 		}
+	}
+}
+
+// loadRecordsFromManagedSection loads records specifically from the managed section of the zone file
+func (z *ZoneFormat) loadRecordsFromManagedSection(domain, filePath string) []*common.BaseRecord {
+	var records []*common.BaseRecord
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		z.GetLogger().Warn("Failed to read zone file %s: %v", filePath, err)
+		return records
+	}
+
+	lines := strings.Split(string(content), "\n")
+	inManagedSection := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Check for managed section markers
+		if strings.Contains(line, "; Managed Records") {
+			inManagedSection = true
+			continue
+		}
+		if strings.Contains(line, "; End Managed Records") {
+			inManagedSection = false
+			continue
+		}
+
+		// Skip non-managed sections and empty/comment lines
+		if !inManagedSection || line == "" || strings.HasPrefix(line, ";") {
+			continue
+		}
+
+		// Parse the record line
+		if record := z.parseRecordLine(line, domain); record != nil {
+			records = append(records, record)
+		}
+	}
+
+	return records
+}
+
+// parseRecordLine parses a single DNS record line and returns a BaseRecord
+func (z *ZoneFormat) parseRecordLine(line, domain string) *common.BaseRecord {
+	// Handle typical zone file format: hostname TTL class type target [comment]
+	fields := strings.Fields(line)
+	if len(fields) < 5 {
+		return nil
+	}
+
+	hostname := fields[0]
+	ttl, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return nil
+	}
+
+	// fields[2] should be "IN" (class)
+	recordType := fields[3]
+	target := fields[4]
+
+	// Determine source from comment if available
+	source := "manual" // default for records without source info
+	for i := 5; i < len(fields); i++ {
+		if strings.Contains(fields[i], "input:") && i+1 < len(fields) {
+			source = fields[i+1]
+			break
+		}
+	}
+
+	return &common.BaseRecord{
+		Hostname:  hostname,
+		Type:      recordType,
+		Target:    target,
+		TTL:       uint32(ttl),
+		Source:    source,
+		CreatedAt: time.Now(), // Set current time for parsed records
 	}
 }

@@ -1,3 +1,9 @@
+## 2.1.1 2025-07-08 <code at nfrastack dot com>
+
+   ### Changed
+   -
+
+
 ## 2.1.0 2025-07-08 <code at nfrastack dot com>
 
    ### Added

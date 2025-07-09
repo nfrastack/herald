@@ -9,10 +9,18 @@ import (
 	"herald/pkg/output/common"
 
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
+)
+
+// Track which YAML files have been loaded to avoid repeated loading
+var (
+	loadedYAMLFiles = make(map[string]bool)
+	loadedYAMLMutex sync.RWMutex
 )
 
 // YAMLFormat implements OutputFormat for YAML export
@@ -97,6 +105,30 @@ func (y *YAMLFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 	defer func() {
 		log.Debug("[output/yaml] WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
 	}()
+
+	// Load existing records from file before making any changes (once per file)
+	filePath := y.GetFilePath()
+	loadKey := filePath + "|" + domain
+
+	loadedYAMLMutex.RLock()
+	loaded := loadedYAMLFiles[loadKey]
+	loadedYAMLMutex.RUnlock()
+
+	if !loaded {
+		if _, err := os.Stat(filePath); err == nil {
+			log.Debug("[output/yaml] Loading existing records from YAML file: %s", filePath)
+			if err := y.LoadExistingData(yaml.Unmarshal); err != nil {
+				log.Warn("[output/yaml] Failed to load existing records from %s: %v", filePath, err)
+			} else {
+				log.Debug("[output/yaml] Successfully loaded existing records from %s", filePath)
+			}
+		}
+
+		loadedYAMLMutex.Lock()
+		loadedYAMLFiles[loadKey] = true
+		loadedYAMLMutex.Unlock()
+	}
+
 	return y.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
 }
 
