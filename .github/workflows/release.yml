@@ -29,7 +29,7 @@ jobs:
 
       - name: Build Binary
         run: |
-          GOARCH=${{ matrix.arch }} GOOS=linux go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o herald_${{ matrix.arch }} ./cmd/herald
+          CGO_ENABLED=0 GOARCH=${{ matrix.arch }} GOOS=linux go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o herald_${{ matrix.arch }} ./cmd/herald
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4

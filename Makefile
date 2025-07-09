@@ -15,7 +15,7 @@ build-release:
 	$(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME) $(BUILD_DIR)
 
 build-all:
-	GOOS=linux GOARCH=amd64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME)_x86_64 $(BUILD_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME)_x86_64 $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME)_aarch64 $(BUILD_DIR)
 
 clean:
