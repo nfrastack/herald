@@ -1,4 +1,4 @@
-## 2.1.0beta20 2025-07-04 <code at nfrastack dot com>
+## 2.1.0 2025-07-08 <code at nfrastack dot com>
 
    ### Added
    - PowerDNS Output Provider support
