@@ -2,7 +2,6 @@
   description = "Herald - Dynamic DNS management for Docker, Traefik, Files, Remote sources, Tailscale, and ZeroTier/ZT-Net networks";
 
   inputs = { nixpkgs.url = "nixpkgs/nixos-unstable"; };
-
   outputs = { self, nixpkgs }:
     let
       version = "2.1.1";

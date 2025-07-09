@@ -1,8 +1,8 @@
-## 2.1.1 2025-07-08 <code at nfrastack dot com>
+## 2.1.1 2025-07-09 <code at nfrastack dot com>
 
    ### Changed
-   -
-
+   - (output/*) Don't clobber existing records - update existing and add comment
+   - (build) Remove dependency to C libraries, allowing musl support
 
 ## 2.1.0 2025-07-08 <code at nfrastack dot com>
 
