@@ -423,7 +423,7 @@ inputs:
 
 Herald supports two methods for specifying DNS records:
 
-1. **Direct DNS Labels**: Using `nfrastack.dns.*` labels
+1. **Direct DNS Labels**: Using `nfrastack.herald.*` labels
 2. **Traefik Host Rules**: Automatically detecting domains from Traefik HTTP router rules
 
 The tool will prioritize explicit DNS labels over Traefik Host rules.
@@ -434,10 +434,10 @@ The tool will prioritize explicit DNS labels over Traefik Host rules.
 
 ```bash
 docker run -d \
-  --label nfrastack.dns.host=myservice \
-  --label nfrastack.dns.domain=example.com \
-  --label nfrastack.dns.record.type=A \
-  --label nfrastack.dns.record.ttl=300 \
+  --label nfrastack.herald.host=myservice \
+  --label nfrastack.herald.domain=example.com \
+  --label nfrastack.herald.record.type=A \
+  --label nfrastack.herald.record.ttl=300 \
   tiredofit/nginx
 ```
 
@@ -453,28 +453,28 @@ docker run -d \
 
 ```bash
 docker run -d \
-  --label nfrastack.dns=false \
+  --label nfrastack.herald=false \
   --label traefik.http.routers.myservice.rule="Host(`service.example.com`)" \
   nginx
 ```
 
 ###### Docker Label Configuration
 
-The Docker provider supports automatic DNS record creation by using container labels. The following `nfrastack.dns` labels are supported:
+The Docker provider supports automatic DNS record creation by using container labels. The following `nfrastack.herald` labels are supported:
 
 ####### Core Labels
 
-- `nfrastack.dns.enable`: Enable or disable DNS record creation for a container
+- `nfrastack.herald.enable`: Enable or disable DNS record creation for a container
   - Values: `true`, `false`, `1`, `0`
   - If omitted, defaults to the value of `expose_containers` in the provider configuration
 
-- `nfrastack.dns.host`: The full hostname to register (e.g., `app.example.com`)
+- `nfrastack.herald.host`: The full hostname to register (e.g., `app.example.com`)
   - This is the primary label used for DNS configuration
   - Format: `<hostname>.<domain>` or just `<domain>` for apex records
 
 ##### Optional Record Configuration
 
-You can specify the DNS record type using the `nfrastack.dns.record.type` label or config option. Supported values: `A`, `AAAA`, `CNAME`.
+You can specify the DNS record type using the `nfrastack.herald.record.type` label or config option. Supported values: `A`, `AAAA`, `CNAME`.
 
 If not specified, the system will auto-detect:
 
@@ -490,49 +490,49 @@ If not specified, the system will auto-detect:
 
 ```yaml
 labels:
-  nfrastack.dns.enable: "true"
-  nfrastack.dns.host: "webapp.example.com"
+  nfrastack.herald.enable: "true"
+  nfrastack.herald.host: "webapp.example.com"
 ```
 
 **Custom DNS configuration:**
 
 ```yaml
 labels:
-  nfrastack.dns.enable: "true"
-  nfrastack.dns.host: "db.example.com"
-  nfrastack.dns.record.type: "CNAME"
-  nfrastack.dns.target: "database.internal"
-  nfrastack.dns.record.ttl: "3600"
-  nfrastack.dns.record.overwrite: "false"
+  nfrastack.herald.enable: "true"
+  nfrastack.herald.host: "db.example.com"
+  nfrastack.herald.record.type: "CNAME"
+  nfrastack.herald.target: "database.internal"
+  nfrastack.herald.record.ttl: "3600"
+  nfrastack.herald.record.overwrite: "false"
 ```
 
 ###### Example: AAAA Record (IPv6)
 
 ```yaml
 labels:
-  nfrastack.dns.enable: "true"
-  nfrastack.dns.host: "ipv6host.example.com"
-  nfrastack.dns.target: "2001:db8::1"
-  nfrastack.dns.record.type: "AAAA"
+  nfrastack.herald.enable: "true"
+  nfrastack.herald.host: "ipv6host.example.com"
+  nfrastack.herald.target: "2001:db8::1"
+  nfrastack.herald.record.type: "AAAA"
 ```
 
 ###### Example: Auto-detect AAAA Record
 
 ```yaml
 labels:
-  nfrastack.dns.enable: "true"
-  nfrastack.dns.host: "ipv6auto.example.com"
-  nfrastack.dns.target: "2001:db8::2"
-  # nfrastack.dns.record.type not set, will auto-detect AAAA
+  nfrastack.herald.enable: "true"
+  nfrastack.herald.host: "ipv6auto.example.com"
+  nfrastack.herald.target: "2001:db8::2"
+  # nfrastack.herald.record.type not set, will auto-detect AAAA
 ```
 
 ###### Example: Multiple A/AAAA Record Labels
 
 ```yaml
 labels:
-  nfrastack.dns.enable: "true"
-  nfrastack.dns.host: "multi.example.com"
-  nfrastack.dns.target: "192.0.2.10"
+  nfrastack.herald.enable: "true"
+  nfrastack.herald.host: "multi.example.com"
+  nfrastack.herald.target: "192.0.2.10"
   allow_multiple: "true"
 ```
 
@@ -542,7 +542,7 @@ The Docker provider also automatically detects Traefik Host rules and creates DN
 
 ```yaml
 labels:
-  nfrastack.dns.enable: "true"
+  nfrastack.herald.enable: "true"
   traefik.http.routers.myapp.rule: "Host(`app.example.com`)"
 ```
 

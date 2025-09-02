@@ -859,9 +859,9 @@ func (p *DockerProvider) processSpecificContainer(containerID string) {
 	// Check if container is running and should be processed
 	if container.State.Running && p.shouldProcessContainer(container) {
 		// Only log label override here, not in shouldProcessContainer
-		enableDNS, hasLabel := container.Config.Labels["nfrastack.dns.enable"]
+		enableDNS, hasLabel := container.Config.Labels["nfrastack.herald.enable"]
 		if hasLabel && (strings.ToLower(enableDNS) == "true" || enableDNS == "1") && !p.config.ExposeContainers {
-			p.logger.Verbose("Processing container '%s' because it has 'nfrastack.dns.enable=true' label (overriding expose_containers=false)", containerName)
+			p.logger.Verbose("Processing container '%s' because it has 'nfrastack.herald.enable=true' label (overriding expose_containers=false)", containerName)
 		}
 		// Process this container's DNS records
 		p.processContainer(ctx, containerID)
@@ -928,9 +928,9 @@ func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 			// Only process if not already processed in this cycle
 			if _, already := processedIDs[container.ID]; !already {
 				// Only log label override here, not in shouldProcessContainer
-				enableDNS, hasLabel := containerDetails.Config.Labels["nfrastack.dns.enable"]
+				enableDNS, hasLabel := containerDetails.Config.Labels["nfrastack.herald.enable"]
 				if hasLabel && (strings.ToLower(enableDNS) == "true" || enableDNS == "1") && !p.config.ExposeContainers {
-					p.logger.Verbose("Processing container '%s' because it has 'nfrastack.dns.enable=true' label (overriding expose_containers=false)", getContainerName(containerDetails))
+					p.logger.Verbose("Processing container '%s' because it has 'nfrastack.herald.enable=true' label (overriding expose_containers=false)", getContainerName(containerDetails))
 				}
 				processedCount++
 				processedIDs[container.ID] = struct{}{}
@@ -983,12 +983,12 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 		return false
 	}
 
-	// Check if the container has the nfrastack.dns.enable label
-	enableDNS, hasLabel := container.Config.Labels["nfrastack.dns.enable"]
+	// Check if the container has the nfrastack.herald.enable label
+	enableDNS, hasLabel := container.Config.Labels["nfrastack.herald.enable"]
 
 	// If the label is explicitly set to "false", always skip the container
 	if hasLabel && (strings.ToLower(enableDNS) == "false" || enableDNS == "0") {
-		p.logger.Verbose("Skipping container '%s' because it has an explicit 'nfrastack.dns.enable=false' label", containerName)
+		p.logger.Verbose("Skipping container '%s' because it has an explicit 'nfrastack.herald.enable=false' label", containerName)
 		return false
 	}
 
@@ -1000,7 +1000,7 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 
 	// If expose_containers is false and no label exists, skip the container due to config
 	if !hasLabel {
-		p.logger.Debug("Skipping container '%s' because 'expose_containers=false' in config and no 'nfrastack.dns.enable' label exists", containerName)
+		p.logger.Debug("Skipping container '%s' because 'expose_containers=false' in config and no 'nfrastack.herald.enable' label exists", containerName)
 		return false
 	}
 
@@ -1010,7 +1010,7 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 	}
 
 	// If we get here, label exists but is not true or false (some other value)
-	p.logger.Warn("Skipping container '%s' because it has 'nfrastack.dns.enable=%s' (not 'true') and 'expose_containers=false'", containerName, enableDNS)
+	p.logger.Warn("Skipping container '%s' because it has 'nfrastack.herald.enable=%s' (not 'true') and 'expose_containers=false'", containerName, enableDNS)
 	return false
 }
 
@@ -1206,9 +1206,9 @@ func (p *DockerProvider) GetContainersForDomain(domain string) ([]ContainerInfo,
 		// Check if the container has the DNS configuration
 		labels := container.Config.Labels
 
-		// Logic for nfrastack.dns.enable based on expose_containers config
+		// Logic for nfrastack.herald.enable based on expose_containers config
 		enableDNS := false
-		if dnsEnable, ok := labels["nfrastack.dns.enable"]; ok {
+		if dnsEnable, ok := labels["nfrastack.herald.enable"]; ok {
 			// Explicitly set in labels
 			enableDNS = strings.ToLower(dnsEnable) == "true"
 		} else if p.config.ExposeContainers {
@@ -1255,8 +1255,8 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 	shouldRegister := false
 	hostnames := []string{}
 
-	// Check through nfrastack.dns.host label for the domain
-	if hostLabel, exists := labels["nfrastack.dns.host"]; exists && hostLabel != "" {
+	// Check through nfrastack.herald.host label for the domain
+	if hostLabel, exists := labels["nfrastack.herald.host"]; exists && hostLabel != "" {
 		// Support multiple hostnames separated by comma or space
 		splitFunc := func(r rune) bool {
 			return r == ',' || r == ' ' || r == '\t' || r == '\n'
@@ -1308,13 +1308,13 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 
 	// Get record type from label or default
 	recordType := ""
-	if rt, exists := labels["nfrastack.dns.record.type"]; exists && rt != "" {
+	if rt, exists := labels["nfrastack.herald.record.type"]; exists && rt != "" {
 		recordType = rt
 	}
 
 	// Get target from label or default to container IP
 	target := ""
-	if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
+	if t, exists := labels["nfrastack.herald.target"]; exists && t != "" {
 		target = t
 	}
 
@@ -1327,7 +1327,7 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 
 	// Get TTL from label or default
 	ttl := 0 // No default TTL
-	if ttlStr, exists := labels["nfrastack.dns.record.ttl"]; exists && ttlStr != "" {
+	if ttlStr, exists := labels["nfrastack.herald.record.ttl"]; exists && ttlStr != "" {
 		parsed, err := strconv.Atoi(ttlStr)
 		if err == nil {
 			ttl = parsed
@@ -1336,7 +1336,7 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 
 	// Check for overwrite flag
 	overwrite := false // No default overwrite
-	if overwriteStr, exists := labels["nfrastack.dns.record.overwrite"]; exists {
+	if overwriteStr, exists := labels["nfrastack.herald.record.overwrite"]; exists {
 		if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
 			overwrite = true
 		}
@@ -1407,29 +1407,29 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 		return entries
 	}
 
-	// Check for nfrastack.dns.enable label
-	dnsLabel, hasDNSLabel := labels["nfrastack.dns.enable"]
+	// Check for nfrastack.herald.enable label
+	dnsLabel, hasDNSLabel := labels["nfrastack.herald.enable"]
 	if hasDNSLabel {
 		val := strings.ToLower(dnsLabel)
 		if val == "false" || val == "0" {
-			log.Verbose("%s Skipping container '%s' due to 'nfrastack.dns.enable' label set to false", p.logPrefix, containerName)
+			log.Verbose("%s Skipping container '%s' due to 'nfrastack.herald.enable' label set to false", p.logPrefix, containerName)
 			return entries
 		}
 		if val == "true" || val == "1" {
 			// continue processing
 		} else {
-			log.Warn("%s Skipping container '%s' due to 'nfrastack.dns.enable' label set to unknown value '%s'", p.logPrefix, containerName, dnsLabel)
+			log.Warn("%s Skipping container '%s' due to 'nfrastack.herald.enable' label set to unknown value '%s'", p.logPrefix, containerName, dnsLabel)
 			return entries
 		}
 	} else if !p.config.ExposeContainers {
-		log.Debug("%s Skipping container '%s' because 'expose_containers=false' and no 'nfrastack.dns.enable' label is set", p.logPrefix, containerName)
+		log.Debug("%s Skipping container '%s' because 'expose_containers=false' and no 'nfrastack.herald.enable' label is set", p.logPrefix, containerName)
 		return entries
 	}
 
 	// 2. Hostname/domain extraction
 	var hostSource, hostValue string
-	if v, ok := labels["nfrastack.dns.host"]; ok && v != "" {
-		hostSource = "nfrastack.dns.host"
+	if v, ok := labels["nfrastack.herald.host"]; ok && v != "" {
+		hostSource = "nfrastack.herald.host"
 		hostValue = v
 	} else {
 		for k, v := range labels {
@@ -1511,42 +1511,42 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 		}
 	}
 
-	// 3. Other nfrastack.dns.* labels and config precedence
+	// 3. Other nfrastack.herald.* labels and config precedence
 	recordType := ""
-	if rt, exists := labels["nfrastack.dns.record.type"]; exists && rt != "" {
+	if rt, exists := labels["nfrastack.herald.record.type"]; exists && rt != "" {
 		recordType = rt
-		log.Verbose("%s Found label 'nfrastack.dns.record.type=%s' on container '%s'", p.logPrefix, rt, containerName)
+		log.Verbose("%s Found label 'nfrastack.herald.record.type=%s' on container '%s'", p.logPrefix, rt, containerName)
 	}
 	target := ""
-	if t, exists := labels["nfrastack.dns.target"]; exists && t != "" {
+	if t, exists := labels["nfrastack.herald.target"]; exists && t != "" {
 		target = t
-		log.Verbose("%s Found label 'nfrastack.dns.target=%s' on container '%s'", p.logPrefix, t, containerName)
+		log.Verbose("%s Found label 'nfrastack.herald.target=%s' on container '%s'", p.logPrefix, t, containerName)
 	}
 	ttl := 0
-	if ttlStr, exists := labels["nfrastack.dns.record.ttl"]; exists && ttlStr != "" {
+	if ttlStr, exists := labels["nfrastack.herald.record.ttl"]; exists && ttlStr != "" {
 		if parsed, err := strconv.Atoi(ttlStr); err == nil {
-			log.Verbose("%s Found label nfrastack.dns.record.ttl=%s on container '%s'", p.logPrefix, ttlStr, containerName)
+			log.Verbose("%s Found label nfrastack.herald.record.ttl=%s on container '%s'", p.logPrefix, ttlStr, containerName)
 			ttl = parsed
 		}
 	}
 	overwrite := false
-	if overwriteStr, exists := labels["nfrastack.dns.record.overwrite"]; exists {
+	if overwriteStr, exists := labels["nfrastack.herald.record.overwrite"]; exists {
 		if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
-			log.Verbose("%s Found label 'nfrastack.dns.record.overwrite=%s' on container '%s'", p.logPrefix, overwriteStr, containerName)
+			log.Verbose("%s Found label 'nfrastack.herald.record.overwrite=%s' on container '%s'", p.logPrefix, overwriteStr, containerName)
 			overwrite = true
 		}
 	}
 
 	// Per-container overrides for multiple A/AAAA record support
 	recordTypeAMultiple := false
-	if val, exists := labels["nfrastack.dns.record.type.a.multiple"]; exists && val != "" {
+	if val, exists := labels["nfrastack.herald.record.type.a.multiple"]; exists && val != "" {
 		recordTypeAMultiple = strings.ToLower(val) == "true" || val == "1"
-		log.Verbose("%s Found label 'nfrastack.dns.record.type.a.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
+		log.Verbose("%s Found label 'nfrastack.herald.record.type.a.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
 	}
 	recordTypeAAAAMultiple := false
-	if val, exists := labels["nfrastack.dns.record.type.aaaa.multiple"]; exists && val != "" {
+	if val, exists := labels["nfrastack.herald.record.type.aaaa.multiple"]; exists && val != "" {
 		recordTypeAAAAMultiple = strings.ToLower(val) == "true" || val == "1"
-		log.Verbose("%s Found label 'nfrastack.dns.record.type.aaaa.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
+		log.Verbose("%s Found label 'nfrastack.herald.record.type.aaaa.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
 	}
 
 	// Domain config fallback
@@ -1678,13 +1678,13 @@ func (p *DockerProvider) extractDNSEntriesFromService(service swarm.Service) ([]
 	dnsEnabled := p.config.ExposeContainers // Default based on config setting
 
 	// Check for explicit setting from service labels
-	if value, exists := labels["nfrastack.dns.enable"]; exists {
+	if value, exists := labels["nfrastack.herald.enable"]; exists {
 		explicitValue := strings.ToLower(value)
 		if explicitValue == "true" || explicitValue == "1" {
 			dnsEnabled = true
 		} else if explicitValue == "false" || explicitValue == "0" {
 			dnsEnabled = false
-			log.Debug("%s Service '%s' has 'nfrastack.dns.enable=false' label, skipping", p.logPrefix, serviceName)
+			log.Debug("%s Service '%s' has 'nfrastack.herald.enable=false' label, skipping", p.logPrefix, serviceName)
 			return entries, nil // Return empty entries list
 		}
 	}
