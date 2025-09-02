@@ -1,3 +1,13 @@
+## 2.2.0 2025-09-02 <code at nfrastack dot com>
+
+   ### Added
+   - (input/docker) parse multiple hosts per traefik label
+   - (output/zone) add sort option to sort by key (host,ip,input) ascending or descending
+
+   ### Changed
+   - (input/docker) change nfrastack.dns.* labels to nfrastack.herald.* labels
+   - (output/zone) respect loading old files and don't overwrite old input sources
+
 ## 2.1.1 2025-07-09 <code at nfrastack dot com>
 
    ### Changed
