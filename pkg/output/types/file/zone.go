@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -266,10 +267,8 @@ func (z *ZoneFormat) loadManagedRecordsFromFile(domain, filePath string) error {
 				source = source[:i]
 			}
 			rec.Source = source
-		} else if idx := strings.Index(line, ";"); idx != -1 {
-			// Try to parse other comment formats or just mark as existing
-			rec.Source = "existing"
 		}
+		// Do not overwrite with 'existing' if a source is already set
 
 		// Optionally parse created_at from comment
 		if idx := strings.Index(line, "; created_at: "); idx != -1 {
@@ -498,7 +497,6 @@ func (z *ZoneFormat) generateManagedRecords(domain string) []string {
 	if export == nil || export.Domains == nil {
 		return lines
 	}
-
 	domainData, ok := export.Domains[domain]
 	if !ok || domainData == nil {
 		return lines
@@ -525,13 +523,66 @@ func (z *ZoneFormat) generateManagedRecords(domain string) []string {
 	}
 	z.GetLogger().Debug("generateManagedRecords: Final record count for domain %s: %d", domain, len(recordMap))
 
-	// Generate output lines from the merged record map
+	// Convert map to slice for sorting
+	records := make([]*common.BaseRecord, 0, len(recordMap))
 	for _, record := range recordMap {
+		records = append(records, record)
+	}
+
+	// Sorting logic based on config
+	sortKey := "host"
+	sortOrder := "asc"
+	if z.CommonFormat != nil && z.CommonFormat.GetConfig() != nil {
+		if sortCfg, ok := z.CommonFormat.GetConfig()["sort"].(map[string]interface{}); ok {
+			if k, ok := sortCfg["key"].(string); ok && k != "" {
+				sortKey = k
+			}
+			if o, ok := sortCfg["order"].(string); ok && o != "" {
+				sortOrder = o
+			}
+		}
+	}
+	// Always default to host/asc if not set or invalid
+	if sortKey != "host" && sortKey != "ip" && sortKey != "input" {
+		sortKey = "host"
+	}
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "asc"
+	}
+	less := func(i, j int) bool { return false }
+	switch sortKey {
+	case "host":
+		less = func(i, j int) bool {
+			return records[i].Hostname < records[j].Hostname
+		}
+	case "ip":
+		less = func(i, j int) bool {
+			if sortOrder == "desc" {
+				return records[i].Target > records[j].Target
+			}
+			return records[i].Target < records[j].Target
+		}
+	case "input":
+		less = func(i, j int) bool {
+			if sortOrder == "desc" {
+				return records[i].Source > records[j].Source
+			}
+			return records[i].Source < records[j].Source
+		}
+	}
+	if sortKey == "host" || sortOrder == "asc" {
+		// Always sort host ascending by default
+		sort.Slice(records, func(i, j int) bool { return records[i].Hostname < records[j].Hostname })
+	} else if len(records) > 1 {
+		sort.Slice(records, less)
+	}
+
+	// Generate output lines from the sorted record slice
+	for _, record := range records {
 		hostname := record.Hostname
 		if hostname == "" || hostname == "@" {
 			hostname = "@"
 		}
-
 		comment := ""
 		if !record.CreatedAt.IsZero() {
 			comment = fmt.Sprintf("; created_at: %s input: %s",
@@ -539,12 +590,10 @@ func (z *ZoneFormat) generateManagedRecords(domain string) []string {
 		} else {
 			comment = fmt.Sprintf("; input: %s", record.Source)
 		}
-
 		line := fmt.Sprintf("%-20s %-6d %-4s %-5s %-15s %s",
 			hostname, record.TTL, "IN", record.Type, record.Target, comment)
 		lines = append(lines, line)
 	}
-
 	return lines
 }
 
