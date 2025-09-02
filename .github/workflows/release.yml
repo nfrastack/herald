@@ -98,7 +98,7 @@ jobs:
         run: |
           if [[ "${GITHUB_REF}" == refs/heads/* ]]; then
               if [[ "${GITHUB_REF}" == refs/heads/*/* ]] ; then
-                  git_branch="${GITHUB_REPOSITORY/docker-/}:$(echo $GITHUB_REF | sed "s|refs/heads/||g" | sed "s|/|-|g")"
+                  git_branch="${GITHUB_REPOSITORY/container-/}:$(echo $GITHUB_REF | sed "s|refs/heads/||g" | sed "s|/|-|g")"
               else
                   git_branch=${GITHUB_REF#refs/heads/}
               fi
@@ -114,7 +114,7 @@ jobs:
           fi
 
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-              git_tag="${GITHUB_REPOSITORY}:${PHP_BASE}-${DISTRO}-$(echo ${GITHUB_REF} | sed 's|refs/tags/||g')"
+              git_tag="${GITHUB_REPOSITORY}:$(echo ${GITHUB_REF} | sed 's|refs/tags/||g')"
           fi
 
           if [ -n "${branch_tag}" ] && [ -n "${git_tag}" ]; then
@@ -123,14 +123,14 @@ jobs:
               image_tags="${branch_tag}${git_tag}"
           fi
 
-          echo "dockerhub_repo=${GITHUB_REPOSITORY/docker-/}" >> $GITHUB_ENV
-          dockerhub_images=$(echo "${image_tags}" | sed "s|${GITHUB_REPOSITORY}|docker.io/${GITHUB_REPOSITORY/docker-/}|g")
+          echo "dockerhub_repo=${GITHUB_REPOSITORY/container-/}" >> $GITHUB_ENV
+          dockerhub_images=$(echo "${image_tags}" | sed "s|${GITHUB_REPOSITORY}|docker.io/${GITHUB_REPOSITORY/container-/}|g")
           ghcr_images=$(echo "${image_tags}" | sed "s|${GITHUB_REPOSITORY}|ghcr.io/${GITHUB_REPOSITORY}|g")
           echo "container_images=${dockerhub_images},${ghcr_images}" >> $GITHUB_OUTPUT
       - name: Label
         id: Label
         run: |
-          image_name=${GITHUB_REPOSITORY/docker-/}
+          image_name=${GITHUB_REPOSITORY/container-/}
           if [ -f "${{ env.build_file }}" ] ; then
               sed \
                     -i \
