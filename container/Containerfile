@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 ARG DISTRO=alpine
-ARG DISTRO_VARIANT=3.21
+ARG DISTRO_VARIANT=3.22
 
 FROM docker.io/nfrastack/container-base:${DISTRO}_${DISTRO_VARIANT}
 
@@ -22,10 +22,10 @@ ARG HERALD_VERSION \
     YQ_VERSION
 
 ENV CONTAINER_ENABLE_SCHEDULING=TRUE \
-    HERALD_VERSION=${HERALD_VERSION:-"2.1.1"} \
+    HERALD_VERSION=${HERALD_VERSION:-"2.2.0"} \
     HERALD_USER=herald \
     HERALD_GROUP=herald \
-    YQ_VERSION=${YQ_VERSION:-"v4.45.4"} \
+    YQ_VERSION=${YQ_VERSION:-"v4.47.1"} \
     YQ_REPO_URL=${YQ_REPO_URL:-"https://github.com/mikefarah/yq"} \
     IMAGE_VERSION=${HERALD_VERSION} \
     IMAGE_NAME="nfrastack/herald" \
