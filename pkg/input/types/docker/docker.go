@@ -1427,242 +1427,241 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container types.Containe
 	}
 
 	// 2. Hostname/domain extraction
-	var hostSource, hostValue string
+	var hostSource string
+	var hostValues []string
 	if v, ok := labels["nfrastack.herald.host"]; ok && v != "" {
 		hostSource = "nfrastack.herald.host"
-		hostValue = v
+		hostValues = []string{v}
 	} else {
 		for k, v := range labels {
 			if strings.HasPrefix(k, "traefik.http.routers.") && strings.Contains(k, ".rule") && strings.Contains(v, "Host(") {
 				hosts := extractHostsFromRule(v)
-				for _, host := range hosts {
-					hostValue = host
+				if len(hosts) > 0 {
 					hostSource = k
-					break
+					hostValues = append(hostValues, hosts...)
 				}
 			}
 		}
 	}
-	if hostValue == "" {
+	if len(hostValues) == 0 {
 		log.Debug("%s No hostname/domain found for container '%s', skipping", p.logPrefix, containerName)
 		return entries
 	}
-	log.Verbose("%s Using label '%s=%s' for hostname/domain extraction on container '%s'", p.logPrefix, hostSource, hostValue, containerName)
+	for _, hostValue := range hostValues {
+		log.Verbose("%s Using label '%s=%s' for hostname/domain extraction on container '%s'", p.logPrefix, hostSource, hostValue, containerName)
 
-	// Extract domain from FQDN - handle cases where FQDN might be just a hostname
-	if !strings.Contains(hostValue, ".") {
-		log.Debug("%s Host value '%s' has no domain part (no dots found), skipping container '%s'", p.logPrefix, hostValue, containerName)
-		return entries
-	}
-
-	parts := strings.Split(hostValue, ".")
-	if len(parts) < 2 {
-		log.Debug("%s Host value '%s' does not have enough parts for domain extraction, skipping container '%s'", p.logPrefix, hostValue, containerName)
-		return entries
-	}
-
-	domain := strings.Join(parts[len(parts)-2:], ".")
-	hostname := strings.Join(parts[:len(parts)-2], ".")
-	if hostname == "" {
-		hostname = "@"
-	}
-
-	log.Debug("%s Extracted from FQDN '%s': hostname='%s', domain='%s'", p.logPrefix, hostValue, hostname, domain)
-
-	if domain == "" {
-		log.Error("%s No domain extracted from FQDN '%s', skipping container '%s'", p.logPrefix, hostValue, containerName)
-		return entries
-	}
-
-	// Use the provider-aware domain extraction method instead of manual lookup
-	domainConfigKey, subdomain := config.ExtractDomainAndSubdomainForProvider(hostValue, p.profileName, p.logPrefix)
-	if domainConfigKey == "" {
-		log.Error("%s No domain config found for FQDN '%s', skipping container '%s'", p.logPrefix, hostValue, containerName)
-		return entries
-	}
-
-	log.Debug("%s Found matching domain config '%s' for domain '%s'", p.logPrefix, domainConfigKey, domain)
-
-	// Get the actual domain config from GlobalConfig
-	domainCfg, exists := config.GlobalConfig.Domains[domainConfigKey]
-	if !exists {
-		log.Error("%s Domain config '%s' not found in global config", p.logPrefix, domainConfigKey)
-		return entries
-	}
-
-	// Use the domain name from the config, not the extracted one
-	domain = domainCfg.Name
-	if subdomain != "" && subdomain != "@" {
-		hostname = subdomain
-	}
-	subdomain = hostname
-	if idx := strings.Index(hostname, "."); idx != -1 {
-		subdomain = hostname[:idx]
-	}
-	if len(domainCfg.IncludeSubdomains) > 0 {
-		if !matchesPattern(subdomain, domainCfg.IncludeSubdomains) {
-			log.Verbose("%s Skipping subdomain '%s' for domain '%s' (not in include_subdomains)", p.logPrefix, subdomain, domain)
-			return entries
+		// Extract domain from FQDN - handle cases where FQDN might be just a hostname
+		if !strings.Contains(hostValue, ".") {
+			log.Debug("%s Host value '%s' has no domain part (no dots found), skipping container '%s'", p.logPrefix, hostValue, containerName)
+			continue
 		}
-	} else if len(domainCfg.ExcludeSubdomains) > 0 {
-		if matchesPattern(subdomain, domainCfg.ExcludeSubdomains) {
-			log.Verbose("%s Skipping subdomain '%s' for domain '%s' (in exclude_subdomains)", p.logPrefix, subdomain, domain)
-			return entries
+
+		parts := strings.Split(hostValue, ".")
+		if len(parts) < 2 {
+			log.Debug("%s Host value '%s' does not have enough parts for domain extraction, skipping container '%s'", p.logPrefix, hostValue, containerName)
+			continue
 		}
-	}
-
-	// 3. Other nfrastack.herald.* labels and config precedence
-	recordType := ""
-	if rt, exists := labels["nfrastack.herald.record.type"]; exists && rt != "" {
-		recordType = rt
-		log.Verbose("%s Found label 'nfrastack.herald.record.type=%s' on container '%s'", p.logPrefix, rt, containerName)
-	}
-	target := ""
-	if t, exists := labels["nfrastack.herald.target"]; exists && t != "" {
-		target = t
-		log.Verbose("%s Found label 'nfrastack.herald.target=%s' on container '%s'", p.logPrefix, t, containerName)
-	}
-	ttl := 0
-	if ttlStr, exists := labels["nfrastack.herald.record.ttl"]; exists && ttlStr != "" {
-		if parsed, err := strconv.Atoi(ttlStr); err == nil {
-			log.Verbose("%s Found label nfrastack.herald.record.ttl=%s on container '%s'", p.logPrefix, ttlStr, containerName)
-			ttl = parsed
+		domain := strings.Join(parts[len(parts)-2:], ".")
+		hostname := strings.Join(parts[:len(parts)-2], ".")
+		if hostname == "" {
+			hostname = "@"
 		}
-	}
-	overwrite := false
-	if overwriteStr, exists := labels["nfrastack.herald.record.overwrite"]; exists {
-		if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
-			log.Verbose("%s Found label 'nfrastack.herald.record.overwrite=%s' on container '%s'", p.logPrefix, overwriteStr, containerName)
-			overwrite = true
+
+		log.Debug("%s Extracted from FQDN '%s': hostname='%s', domain='%s'", p.logPrefix, hostValue, hostname, domain)
+
+		if domain == "" {
+			log.Error("%s No domain extracted from FQDN '%s', skipping container '%s'", p.logPrefix, hostValue, containerName)
+			continue
 		}
-	}
 
-	// Per-container overrides for multiple A/AAAA record support
-	recordTypeAMultiple := false
-	if val, exists := labels["nfrastack.herald.record.type.a.multiple"]; exists && val != "" {
-		recordTypeAMultiple = strings.ToLower(val) == "true" || val == "1"
-		log.Verbose("%s Found label 'nfrastack.herald.record.type.a.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
-	}
-	recordTypeAAAAMultiple := false
-	if val, exists := labels["nfrastack.herald.record.type.aaaa.multiple"]; exists && val != "" {
-		recordTypeAAAAMultiple = strings.ToLower(val) == "true" || val == "1"
-		log.Verbose("%s Found label 'nfrastack.herald.record.type.aaaa.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
-	}
+		// Use the provider-aware domain extraction method instead of manual lookup
+		domainConfigKey, subdomain := config.ExtractDomainAndSubdomainForProvider(hostValue, p.profileName, p.logPrefix)
+		if domainConfigKey == "" {
+			log.Error("%s No domain config found for FQDN '%s', skipping container '%s'", p.logPrefix, hostValue, containerName)
+			continue
+		}
 
-	// Domain config fallback
-	// Use the correctly identified domain configuration for fallbacks, not the whole list.
-	if target == "" && domainCfg.Record.Target != "" {
-		log.Trace("%s Using domain config for '%s': value: 'target=%s'", p.logPrefix, domain, domainCfg.Record.Target)
-		target = domainCfg.Record.Target
-	}
-	if recordType == "" && domainCfg.Record.Type != "" {
-		log.Trace("%s Using domain config for '%s': value: 'record_type=%s'", p.logPrefix, domain, domainCfg.Record.Type)
-		recordType = domainCfg.Record.Type
-	}
-	if ttl == 0 && domainCfg.Record.TTL > 0 {
-		log.Trace("%s Using domain config for '%s': value: 'ttl=%d'", p.logPrefix, domain, domainCfg.Record.TTL)
-		ttl = domainCfg.Record.TTL
-	}
-	if !overwrite && domainCfg.Record.UpdateExisting {
-		log.Trace("%s Using domain config for '%s': value: 'record_update_existing=true'", p.logPrefix, domain)
-		overwrite = true
-	}
+		log.Debug("%s Found matching domain config '%s' for domain '%s'", p.logPrefix, domainConfigKey, domain)
 
-	// Global config fallback (if still unset)
-	if target == "" && p.options != nil {
-		if globalTarget, ok := p.options["dns_record_target"]; ok {
-			if strTarget, ok := globalTarget.(string); ok && strTarget != "" {
-				log.Debug("%s Using global config for '%s': value: 'target=%s'", p.logPrefix, domain, strTarget)
-				target = strTarget
+		// Get the actual domain config from GlobalConfig
+		domainCfg, exists := config.GlobalConfig.Domains[domainConfigKey]
+		if !exists {
+			log.Error("%s Domain config '%s' not found in global config", p.logPrefix, domainConfigKey)
+			continue
+		}
+
+		// Use the domain name from the config, not the extracted one
+		domain = domainCfg.Name
+		if subdomain != "" && subdomain != "@" {
+			hostname = subdomain
+		}
+		subdomain = hostname
+		if idx := strings.Index(hostname, "."); idx != -1 {
+			subdomain = hostname[:idx]
+		}
+		if len(domainCfg.IncludeSubdomains) > 0 {
+			if !matchesPattern(subdomain, domainCfg.IncludeSubdomains) {
+				log.Verbose("%s Skipping subdomain '%s' for domain '%s' (not in include_subdomains)", p.logPrefix, subdomain, domain)
+				continue
+			}
+		} else if len(domainCfg.ExcludeSubdomains) > 0 {
+			if matchesPattern(subdomain, domainCfg.ExcludeSubdomains) {
+				log.Verbose("%s Skipping subdomain '%s' for domain '%s' (in exclude_subdomains)", p.logPrefix, subdomain, domain)
+				continue
 			}
 		}
-	}
-	if recordType == "" && p.options != nil {
-		if globalType, ok := p.options["dns_record_type"]; ok {
-			if strType, ok := globalType.(string); ok && strType != "" {
-				log.Debug("%s Using global config for '%s': value: 'dns_record_type %s'", p.logPrefix, domain, strType)
-				recordType = strType
+
+		// 3. Other nfrastack.herald.* labels and config precedence
+		recordType := ""
+		if rt, exists := labels["nfrastack.herald.record.type"]; exists && rt != "" {
+			recordType = rt
+			log.Verbose("%s Found label 'nfrastack.herald.record.type=%s' on container '%s'", p.logPrefix, rt, containerName)
+		}
+		target := ""
+		if t, exists := labels["nfrastack.herald.target"]; exists && t != "" {
+			target = t
+			log.Verbose("%s Found label 'nfrastack.herald.target=%s' on container '%s'", p.logPrefix, t, containerName)
+		}
+		ttl := 0
+		if ttlStr, exists := labels["nfrastack.herald.record.ttl"]; exists && ttlStr != "" {
+			if parsed, err := strconv.Atoi(ttlStr); err == nil {
+				log.Verbose("%s Found label nfrastack.herald.record.ttl=%s on container '%s'", p.logPrefix, ttlStr, containerName)
+				ttl = parsed
 			}
 		}
-	}
-	if ttl == 0 && p.options != nil {
-		if globalTTL, ok := p.options["dns_record_ttl"]; ok {
-			if strTTL, ok := globalTTL.(string); ok && strTTL != "" {
-				if parsed, err := strconv.Atoi(strTTL); err == nil {
-					log.Debug("%s Using global config for '%s': value: 'dns_record_ttl=%d'", p.logPrefix, domain, parsed)
-					ttl = parsed
-				}
-			}
-		}
-	}
-	if !overwrite && p.options != nil {
-		if globalOverwrite, ok := p.options["record_updating_existing"]; ok {
-			if strOverwrite, ok := globalOverwrite.(string); ok && (strOverwrite == "true" || strOverwrite == "1") {
-				log.Debug("%s Using global config for '%s': value: 'record_update_existing=true'", p.logPrefix, domain)
+		overwrite := false
+		if overwriteStr, exists := labels["nfrastack.herald.record.overwrite"]; exists {
+			if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
+				log.Verbose("%s Found label 'nfrastack.herald.record.overwrite=%s' on container '%s'", p.logPrefix, overwriteStr, containerName)
 				overwrite = true
 			}
 		}
-	}
 
-	// --- AAAA record support and smart detection ---
-	// If recordType is not set, auto-detect based on target
-	if recordType == "" && target != "" {
-		ip := net.ParseIP(target)
-		if ip != nil {
-			if ip.To4() != nil {
-				recordType = "A"
-			} else if ip.To16() != nil {
-				recordType = "AAAA"
+		// Per-container overrides for multiple A/AAAA record support
+		recordTypeAMultiple := false
+		if val, exists := labels["nfrastack.herald.record.type.a.multiple"]; exists && val != "" {
+			recordTypeAMultiple = strings.ToLower(val) == "true" || val == "1"
+			log.Verbose("%s Found label 'nfrastack.herald.record.type.a.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
+		}
+		recordTypeAAAAMultiple := false
+		if val, exists := labels["nfrastack.herald.record.type.aaaa.multiple"]; exists && val != "" {
+			recordTypeAAAAMultiple = strings.ToLower(val) == "true" || val == "1"
+			log.Verbose("%s Found label 'nfrastack.herald.record.type.aaaa.multiple=%s' on container '%s'", p.logPrefix, val, containerName)
+		}
+
+		// Domain config fallback
+		if target == "" && domainCfg.Record.Target != "" {
+			log.Trace("%s Using domain config for '%s': value: 'target=%s'", p.logPrefix, domain, domainCfg.Record.Target)
+			target = domainCfg.Record.Target
+		}
+		if recordType == "" && domainCfg.Record.Type != "" {
+			log.Trace("%s Using domain config for '%s': value: 'record_type=%s'", p.logPrefix, domain, domainCfg.Record.Type)
+			recordType = domainCfg.Record.Type
+		}
+		if ttl == 0 && domainCfg.Record.TTL > 0 {
+			log.Trace("%s Using domain config for '%s': value: 'ttl=%d'", p.logPrefix, domain, domainCfg.Record.TTL)
+			ttl = domainCfg.Record.TTL
+		}
+		if !overwrite && domainCfg.Record.UpdateExisting {
+			log.Trace("%s Using domain config for '%s': value: 'record_update_existing=true'", p.logPrefix, domain)
+			overwrite = true
+		}
+
+		// Global config fallback (if still unset)
+		if target == "" && p.options != nil {
+			if globalTarget, ok := p.options["dns_record_target"]; ok {
+				if strTarget, ok := globalTarget.(string); ok && strTarget != "" {
+					log.Debug("%s Using global config for '%s': value: 'target=%s'", p.logPrefix, domain, strTarget)
+					target = strTarget
+				}
 			}
 		}
-		if recordType == "" {
-			recordType = "CNAME"
+		if recordType == "" && p.options != nil {
+			if globalType, ok := p.options["dns_record_type"]; ok {
+				if strType, ok := globalType.(string); ok && strType != "" {
+					log.Debug("%s Using global config for '%s': value: 'dns_record_type %s'", p.logPrefix, domain, strType)
+					recordType = strType
+				}
+			}
 		}
-	}
-
-	// Validate target for A and AAAA records
-	if recordType == "A" && target != "" {
-		if ip := net.ParseIP(target); ip == nil || ip.To4() == nil {
-			log.Error("%s Invalid target for A record: '%s' is not an IPv4 address. Skipping DNS entry '%s.%s'", p.logPrefix, target, hostname, domain)
-			return entries
+		if ttl == 0 && p.options != nil {
+			if globalTTL, ok := p.options["dns_record_ttl"]; ok {
+				if strTTL, ok := globalTTL.(string); ok && strTTL != "" {
+					if parsed, err := strconv.Atoi(strTTL); err == nil {
+						log.Debug("%s Using global config for '%s': value: 'dns_record_ttl=%d'", p.logPrefix, domain, parsed)
+						ttl = parsed
+					}
+				}
+			}
 		}
-	}
-	if recordType == "AAAA" && target != "" {
-		if ip := net.ParseIP(target); ip == nil || ip.To16() == nil || ip.To4() != nil {
-			log.Error("%s Invalid target for AAAA record: '%s' is not an IPv6 address. Skipping DNS entry '%s.%s'", p.logPrefix, target, hostname, domain)
-			return entries
+		if !overwrite && p.options != nil {
+			if globalOverwrite, ok := p.options["record_updating_existing"]; ok {
+				if strOverwrite, ok := globalOverwrite.(string); ok && (strOverwrite == "true" || strOverwrite == "1") {
+					log.Debug("%s Using global config for '%s': value: 'record_update_existing=true'", p.logPrefix, domain)
+					overwrite = true
+				}
+			}
 		}
+
+		// --- AAAA record support and smart detection ---
+		// If recordType is not set, auto-detect based on target
+		if recordType == "" && target != "" {
+			ip := net.ParseIP(target)
+			if ip != nil {
+				if ip.To4() != nil {
+					recordType = "A"
+				} else if ip.To16() != nil {
+					recordType = "AAAA"
+				}
+			}
+			if recordType == "" {
+				recordType = "CNAME"
+			}
+		}
+
+		// Validate target for A and AAAA records
+		if recordType == "A" && target != "" {
+			if ip := net.ParseIP(target); ip == nil || ip.To4() == nil {
+				log.Error("%s Invalid target for A record: '%s' is not an IPv4 address. Skipping DNS entry '%s.%s'", p.logPrefix, target, hostname, domain)
+				continue
+			}
+		}
+		if recordType == "AAAA" && target != "" {
+			if ip := net.ParseIP(target); ip == nil || ip.To16() == nil || ip.To4() != nil {
+				log.Error("%s Invalid target for AAAA record: '%s' is not an IPv6 address. Skipping DNS entry '%s.%s'", p.logPrefix, target, hostname, domain)
+				continue
+			}
+		}
+
+		if target == "" {
+			log.Warn("%s container '%s' has no target for domain '%s' (no label, domain, or global config set)", p.logPrefix, containerName, domain)
+			continue
+		}
+
+		// Construct the full FQDN for the Name field
+		var fqdn string
+		if hostname == "@" || hostname == "" {
+			fqdn = domain
+		} else {
+			fqdn = hostname + "." + domain
+		}
+
+		entries = append(entries, DNSEntry{
+			Name:                   fqdn,
+			Hostname:               hostname,
+			Domain:                 domain,
+			RecordType:             recordType,
+			Target:                 target,
+			TTL:                    ttl,
+			Overwrite:              overwrite,
+			RecordTypeAMultiple:    recordTypeAMultiple,
+			RecordTypeAAAAMultiple: recordTypeAAAAMultiple,
+			SourceName:             containerName,
+		})
+
+		log.Trace("%s Created DNS entry for container '%s': hostname='%s', domain='%s', fqdn='%s.%s', target='%s'",
+			p.logPrefix, containerName, hostname, domain, hostname, domain, target)
 	}
-
-	if target == "" {
-		log.Warn("%s container '%s' has no target for domain '%s' (no label, domain, or global config set)", p.logPrefix, containerName, domain)
-		return entries
-	}
-
-	// Construct the full FQDN for the Name field
-	var fqdn string
-	if hostname == "@" || hostname == "" {
-		fqdn = domain
-	} else {
-		fqdn = hostname + "." + domain
-	}
-
-	entries = append(entries, DNSEntry{
-		Name:                   fqdn,
-		Hostname:               hostname,
-		Domain:                 domain,
-		RecordType:             recordType,
-		Target:                 target,
-		TTL:                    ttl,
-		Overwrite:              overwrite,
-		RecordTypeAMultiple:    recordTypeAMultiple,
-		RecordTypeAAAAMultiple: recordTypeAAAAMultiple,
-		SourceName:             containerName,
-	})
-
-	log.Trace("%s Created DNS entry for container '%s': hostname='%s', domain='%s', fqdn='%s.%s', target='%s'",
-		p.logPrefix, containerName, hostname, domain, hostname, domain, target)
-
 	return entries
 }
 
