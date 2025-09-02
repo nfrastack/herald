@@ -1232,6 +1232,35 @@ outputs:
       - "ns2.example.com"
 ```
 
+## Zone File Sorting Options
+
+Herald supports configurable sorting of managed DNS records in zone file outputs. You can control the sort order using the `sort` option in your output profile configuration.
+
+#### Sort Keys
+- `host`: Sort by hostname (default)
+- `ip`: Sort by target IP address
+- `input`: Sort by input/source type
+
+
+#### Sort Order
+- `asc`: Ascending (A-Z, 0-9, default)
+- `desc`: Descending (Z-A, 9-0)
+
+#### Default Behavior
+If no `sort` section is provided, or if the configuration is invalid, Herald will always sort records by hostname in ascending order.
+
+#### Notes
+- Sorting is applied only to managed records in the zone file (not to SOA/NS records).
+- If you use the same hostname with multiple record types, sorting is by hostname, then by type.
+
+#### Example: Sort by Input Type Ascending
+```yaml
+sort:
+  key: input
+  order: asc
+```
+
+
 #### Remote Output
 
 Remote output providers use `type: remote` for sending records to remote Herald aggregation servers:
