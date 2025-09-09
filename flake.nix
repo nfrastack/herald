@@ -14,7 +14,12 @@
       nixpkgsFor = forAllSystems (system: import nixpkgs { inherit system; });
     in {
       packages = forAllSystems (system:
-        let pkgs = nixpkgsFor.${system};
+        let
+          pkgs = nixpkgsFor.${system};
+          buildDate = pkgs.runCommand "build-date" {} ''
+            date -u +%Y-%m-%dT%H:%M:%SZ > $out
+          '';
+          buildDateStr = builtins.readFile buildDate;
         in {
           herald = pkgs.buildGoModule {
             pname = "herald";
@@ -34,16 +39,12 @@
               ];
             };
 
-            preBuild = ''
-              export BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            '';
-
-           ldflags = [
-             "-s"
-             "-w"
-             "-X main.Version=${version}"
-             "-X main.BuildTime=$BUILD_DATE"
-           ];
+            ldflags = [
+              "-s"
+              "-w"
+              "-X main.Version=${version}"
+              "-X main.BuildTime=${buildDateStr}"
+            ];
 
             vendorHash = "sha256-/F74UUO1GoNEQKzQlz6KHJ6UiAa4lswIju2SvG41Pco=";
           };
