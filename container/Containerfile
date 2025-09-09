@@ -17,16 +17,16 @@ LABEL \
   org.opencontainers.image.vendor="Nfrastack <https://www.nfrastack.com>" \
   org.opencontainers.image.licenses="BSD-3-Clause"
 
-ARG HERALD_VERSION \
+ARG \
+    HERALD_VERSION=2.2.0 \
     GOLANG_VERSION \
-    YQ_VERSION
+    YQ_REPO_URL="https://github.com/mikefarah/yq" \
+    YQ_VERSION="v4.47.1"
 
-ENV CONTAINER_ENABLE_SCHEDULING=TRUE \
-    HERALD_VERSION=${HERALD_VERSION:-"2.2.0"} \
+ENV \
+    CONTAINER_ENABLE_SCHEDULING=TRUE \
     HERALD_USER=herald \
     HERALD_GROUP=herald \
-    YQ_VERSION=${YQ_VERSION:-"v4.47.1"} \
-    YQ_REPO_URL=${YQ_REPO_URL:-"https://github.com/mikefarah/yq"} \
     IMAGE_VERSION=${HERALD_VERSION} \
     IMAGE_NAME="nfrastack/herald" \
     IMAGE_REPO_URL="https://github.com/nfrastack/herald"
