@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-ARG DISTRO=alpine
-ARG DISTRO_VARIANT=3.22
+ARG BASE_IMAGE
+ARG DISTRO
+ARG DISTRO_VARIANT
 
-FROM docker.io/nfrastack/container-base:${DISTRO}_${DISTRO_VARIANT}
+FROM ${BASE_IMAGE}:${DISTRO}_${DISTRO_VARIANT}
 
 LABEL \
   org.opencontainers.image.title="Herald" \
@@ -18,7 +19,7 @@ LABEL \
   org.opencontainers.image.licenses="BSD-3-Clause"
 
 ARG \
-    HERALD_VERSION=2.2.0 \
+    HERALD_VERSION=2.3.0 \
     GOLANG_VERSION \
     YQ_REPO_URL="https://github.com/mikefarah/yq" \
     YQ_VERSION="v4.47.1"

@@ -627,6 +627,29 @@ inputs:
 - Use label filtering to target only containers that should be managed by Herald.
 - Combine multiple filters for fine-grained control.
 
+##### Docker Per-Provider Disable Label
+
+You can prevent Herald from acting on a specific input provider (profile) for a container.
+
+```
+labels:
+  - nfrastack.herald.disable.<profile>=true
+```
+
+Replace `<profile>` with the name of your input provider (e.g., `docker_pub`, `docker_int`).
+
+**Example:**
+```yaml
+services:
+  myservice:
+    image: ...
+    labels:
+      - nfrastack.herald.disable.docker_pub=true
+```
+
+This will prevent the `docker_pub` input provider from processing this container, even if other filters match. Other providers (e.g., `docker_int`) will still process the container unless also disabled.
+
+
 #### File Input Provider
 
 The file provider allows you to manage DNS records by reading from YAML, JSON, hosts, or zone files. It supports real-time file watching (default) or interval-based polling.

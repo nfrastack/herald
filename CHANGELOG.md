@@ -1,3 +1,8 @@
+## 2.3.0 2025-09-21 <code at nfrastack dot com>
+
+   ### Added
+   - (input/docker) add capabilities to 'disable' an input provider if being called multiple times
+
 ## 2.2.0 2025-09-02 <code at nfrastack dot com>
 
    ### Added
