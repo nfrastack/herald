@@ -184,7 +184,7 @@ jobs:
         with:
           builder: ${{ steps.buildx.outputs.name }}
           context: .
-          file: ./${{ env.build_file }}
+          file: ${{ env.build_file }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.prep.outputs.container_images }}
