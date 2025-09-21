@@ -992,6 +992,16 @@ func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) b
 		return false
 	}
 
+	// Check for per-provider disable label
+	disableLabelKey := "nfrastack.herald.disable." + p.profileName
+	if disableVal, hasDisable := container.Config.Labels[disableLabelKey]; hasDisable {
+		val := strings.ToLower(disableVal)
+		if val == "true" || val == "1" {
+			p.logger.Verbose("Skipping container '%s' because it has '%s=%s' label (disabling this provider)", containerName, disableLabelKey, disableVal)
+			return false
+		}
+	}
+
 	// If expose_containers is true, process all containers unless explicitly disabled above
 	if p.config.ExposeContainers {
 		p.logger.Debug("Processing container '%s' because 'expose_containers=true' in config", containerName)
