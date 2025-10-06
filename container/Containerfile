@@ -2,11 +2,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-ARG BASE_IMAGE
-ARG DISTRO
-ARG DISTRO_VARIANT
+ARG \
+     BASE_IMAGE
 
-FROM ${BASE_IMAGE}:${DISTRO}_${DISTRO_VARIANT}
+FROM ${BASE_IMAGE}
 
 LABEL \
   org.opencontainers.image.title="Herald" \
@@ -19,10 +18,10 @@ LABEL \
   org.opencontainers.image.licenses="BSD-3-Clause"
 
 ARG \
-    HERALD_VERSION=2.3.0 \
+    HERALD_VERSION="2.3.0" \
     GOLANG_VERSION \
     YQ_REPO_URL="https://github.com/mikefarah/yq" \
-    YQ_VERSION="v4.47.1"
+    YQ_VERSION="v4.47.2"
 
 ENV \
     CONTAINER_ENABLE_SCHEDULING=TRUE \
@@ -55,7 +54,7 @@ RUN echo "" && \
                                                 /usr/src/container/ \
                                                 && \
     \
-    container_build_log && \
+    container_build_log image && \
     \
     create_user "${HERALD_USER}" 1000 "${HERALD_GROUP}" 1000 /dev/null && \
     package update && \
@@ -72,8 +71,8 @@ RUN echo "" && \
     ln -sf /usr/local/go/bin/gfmt /usr/local/bin/ ;  \
     \
     clone_git_repo \
-                    "${YQ_REPO_URL}" \
-                    "${YQ_VERSION}" \
+                        "${YQ_REPO_URL}" \
+                        "${YQ_VERSION}" \
                     /usr/src/yq && \
     \
     go build \
@@ -84,6 +83,7 @@ RUN echo "" && \
                           " \
                 -o /usr/local/bin/yq \
                 && \
+    container_build_log add "YQ" "${YQ_VERSION}" "${YQ_REPO_URL}" && \
     \
     cd /usr/src/herald && \
     \
@@ -104,6 +104,7 @@ RUN echo "" && \
                 /usr/src/herald/container/rootfs/*  \
             / && \
     \
+    container_build_log add "Herald" "${HERALD_VERSION}" "${HERALD_REPO_URL}" && \
     package remove \
                     HERALD_BUILD_DEPS \
                     && \

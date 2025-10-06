@@ -89,8 +89,7 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     env:
-      DISTRO: "alpine"
-      DISTRO_VARIANT: "3.22"
+      BASE_IMAGE: "ghcr.io/nfrastack/container-base:alpine_3.22"
       build_file: ./container/Containerfile
     steps:
       - name: Prepare
@@ -130,27 +129,20 @@ jobs:
       - name: Label
         id: Label
         run: |
-          image_name=${GITHUB_REPOSITORY/container-/}
+          image_name=${GITHUB_REPOSITORY/${GITHUB_REPOSITORY_OWNER}\/container-/image.}
           if [ -f "${{ env.build_file }}" ] ; then
-              sed \
-                    -i \
-                    -e "/FROM .*/a LABEL ${image_name}.git_repository=\"https://github.com/${GITHUB_REPOSITORY}\"" \
-                    -e "/FROM .*/a LABEL ${image_name}.git_commit=\"${GITHUB_SHA}\"" \
-                    -e "/FROM .*/a LABEL ${image_name}.git_committed_by=\"${GITHUB_ACTOR}\"" \
-                    -e "/FROM .*/a LABEL ${image_name}.image_build_date=\"$(date +'%Y-%m-%d %H:%M:%S')\"" \
-                    -e "/FROM .*/a LABEL org.opencontainers.image.source https://github.com/${GITHUB_REPOSITORY}"  \
-                    ${{ env.build_file }}
-
-              if [ -f "CHANGELOG.md" ] ; then
-                  sed -i "/FROM .*/a LABEL ${image_name}.git_changelog_version=\"$(head -n1 ./CHANGELOG.md | awk '{print $2}')\"" ${{ env.build_file }}
-              fi
+              sed -i "/FROM .*/a LABEL nfrastack.${image_name}.git_repository=\"https://github.com/${GITHUB_REPOSITORY}\"" ${{ env.build_file }}
+              sed -i "/FROM .*/a LABEL nfrastack.${image_name}.git_commit=\"${GITHUB_SHA}\"" ${{ env.build_file }}
+              sed -i "/FROM .*/a LABEL nfrastack.${image_name}.git_committed_by=\"${GITHUB_ACTOR}\"" ${{ env.build_file }}
+              sed -i "/FROM .*/a LABEL nfrastack.${image_name}.image_build_date=\"$(date +'%Y-%m-%d %H:%M:%S')\"" ${{ env.build_file }}
+              sed -i "/FROM .*/a LABEL org.opencontainers.image.source=\"https://github.com/${GITHUB_REPOSITORY}\""  ${{ env.build_file }}
 
               if [[ $GITHUB_REF == refs/tags/* ]]; then
-                  sed -i "/FROM .*/a LABEL ${image_name}.git_tag=\"${GITHUB_REF#refs/tags/v}\"" ${{ env.build_file }}
+                sed -i "/FROM .*/a LABEL nfrastack.${image_name}.git_tag=\"${GITHUB_REF#refs/tags/v}\"" ${{ env.build_file }}
               fi
 
               if [[ $GITHUB_REF == refs/heads/* ]]; then
-                  sed -i "/FROM .*/a LABEL ${image_name}.git_branch=\"${GITHUB_REF#refs/heads/}\"" ${{ env.build_file }}
+                sed -i "/FROM .*/a LABEL nfrastack.${image_name}.git_branch=\"${GITHUB_REF#refs/heads/}\"" ${{ env.build_file }}
               fi
           fi
 
