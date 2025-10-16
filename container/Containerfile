@@ -35,7 +35,6 @@ COPY / /usr/src/herald
 
 RUN echo "" && \
     HERALD_BUILD_DEPS_ALPINE=" \
-                                #go \
                                 make \
                           " \
                           && \
@@ -62,13 +61,7 @@ RUN echo "" && \
     package install \
                     HERALD_BUILD_DEPS \
                     && \
-    \
-    mkdir -p /usr/local/go ; \
-    GOLANG_VERSION=${GOLANG_VERSION:-"$(curl -sSL https://golang.org/VERSION?m=text | head -n1 | sed "s|^go||g")"} ; \
-    curl -sSLk https://dl.google.com/go/go${GOLANG_VERSION}.linux-$(container_info arch alt).tar.gz | tar xvfz - --strip 1 -C /usr/local/go ; \
-    ln -sf /usr/local/go/bin/go /usr/local/bin/ ; \
-    ln -sf /usr/local/go/bin/godoc /usr/local/bin/ ; \
-    ln -sf /usr/local/go/bin/gfmt /usr/local/bin/ ;  \
+    package install go && \
     \
     clone_git_repo \
                         "${YQ_REPO_URL}" \
@@ -108,11 +101,5 @@ RUN echo "" && \
     package remove \
                     HERALD_BUILD_DEPS \
                     && \
-    package cleanup && \
-    rm -rf \
-            /root/go \
-            /tmp/* \
-            /usr/local/bin/gfmt* \
-            /usr/local/bin/go* \
-            /usr/local/go
+    package cleanup
 
