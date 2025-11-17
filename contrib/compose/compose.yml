@@ -1,6 +1,6 @@
 services:
   herald:
-    image: nfrastack/herald
+    image: docker.io/nfrastack/herald
     container_name: herald
     volumes:
       - ./logs:/logs

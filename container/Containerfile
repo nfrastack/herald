@@ -9,7 +9,7 @@ FROM ${BASE_IMAGE}
 
 LABEL \
   org.opencontainers.image.title="Herald" \
-  org.opencontainers.image.description="Manage DNS records based on DNS servers based on events from Docker or Traefik" \
+  org.opencontainers.image.description="Modern DNS manager" \
   org.opencontainers.image.url="https://hub.docker.com/r/nfrastack/herald" \
   org.opencontainers.image.documentation="https://github.com/nfrastack/herald/blob/main/README.md" \
   org.opencontainers.image.source="https://github.com/nfrastack/herald.git" \
@@ -19,9 +19,7 @@ LABEL \
 
 ARG \
     HERALD_VERSION="2.3.0" \
-    GOLANG_VERSION \
-    YQ_REPO_URL="https://github.com/mikefarah/yq" \
-    YQ_VERSION="v4.47.2"
+    GOLANG_VERSION
 
 ENV \
     CONTAINER_ENABLE_SCHEDULING=TRUE \
@@ -52,6 +50,10 @@ RUN echo "" && \
         /usr/src/herald/{CHANGELOG.md,LICENSE,README.md} \
                                                 /usr/src/container/ \
                                                 && \
+    cp \
+        /usr/src/herald/container/README.md \
+                                                /usr/src/container/container-README.md \
+                                                && \
     \
     container_build_log image && \
     \
@@ -61,22 +63,8 @@ RUN echo "" && \
     package install \
                     HERALD_BUILD_DEPS \
                     && \
-    package install go && \
-    \
-    clone_git_repo \
-                        "${YQ_REPO_URL}" \
-                        "${YQ_VERSION}" \
-                    /usr/src/yq && \
-    \
-    go build \
-                -ldflags "\
-                            -s \
-                            -w \
-                            -X github.com/mikefarah/yq/v4/version.Version=${YQ_VERSION} \
-                          " \
-                -o /usr/local/bin/yq \
-                && \
-    container_build_log add "YQ" "${YQ_VERSION}" "${YQ_REPO_URL}" && \
+    package build go && \
+    package build yq && \
     \
     cd /usr/src/herald && \
     \
