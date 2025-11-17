@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 source /container/base/functions/container/init
-prepare_service single
+prepare_service 10-herald
 SERVICE_NAME="herald"
 
 herald_bootstrap_filesystem

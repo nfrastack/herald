@@ -17,6 +17,8 @@ Container file to build a [Herald](https://github.com/nfrastack/herald) containe
 - [Table of Contents](#table-of-contents)
 - [Prerequisites and Assumptions](#prerequisites-and-assumptions)
 - [Installation](#installation)
+  - [Prebuilt Images](#prebuilt-images)
+  - [Multi-Architecture Support](#multi-architecture-support)
   - [Quick Start](#quick-start)
 - [Configuration](#configuration)
   - [Persistent Storage](#persistent-storage)
@@ -25,15 +27,15 @@ Container file to build a [Herald](https://github.com/nfrastack/herald) containe
     - [Provider Environment Variables](#provider-environment-variables)
     - [Domain Environment Variables](#domain-environment-variables)
     - [Integration Environment Variables](#integration-environment-variables)
+      - [Docker](#docker)
+      - [Caddy](#caddy)
+      - [Traefik](#traefik)
+      - [Cloudflare Environment Variables](#cloudflare-environment-variables)
 - [Maintenance](#maintenance)
   - [Shell Access](#shell-access)
-- [Support](#support)
-  - [Usage](#usage)
-  - [Bugfixes](#bugfixes)
-  - [Feature Requests](#feature-requests)
-  - [Updates](#updates)
-- [License](#license)
+- [Support & Maintenance](#support--maintenance)
 - [References](#references)
+- [License](#license)
 
 ## Prerequisites and Assumptions
 
@@ -42,21 +44,39 @@ Container file to build a [Herald](https://github.com/nfrastack/herald) containe
 
 ## Installation
 
-Automated builds of the image are available on [Docker Hub](https://hub.docker.com/r/nfrastack/herald)
+### Prebuilt Images
 
-```bash
-docker pull nfrastack/herald:(imagetag)
+Feature limited builds of the image are available on the [Github Container Registry](https://github.com/nfrastack/container-herald/pkgs/container/herald) and [Docker Hub](https://hub.docker.com/r/nfrastack/herald).
+
+To unlock advanced features, one must provide a code to be able to change specific environment variables from defaults. Support the development to gain access to a code.
+
+To get access to the image use your container orchestrator to pull from the following locations:
+
+```
+ghcr.io/nfrastack/herald:(image_tag)
+docker.io/nfrastack/herald:(image_tag)
 ```
 
-Builds of the image are also available on the [Github Container Registry](https://github.com/nfrastack/herald/pkgs/container/herald)
+Image tag syntax is:
 
-```
-docker pull ghcr.io/nfrastack/herald:(imagetag)
-```
+`<image>:<optional tag>-<optional_distribution>_<optional_distribution_variant>`
 
-The following image tags are available along with the repository Releases:
+Example:
 
-- `latest` - Most recent release of herald w/ Alpine Linux
+`ghcr.io/nfrastack/container-herald:latest` or
+
+`ghcr.io/nfrastack/container-herald:1.0` or
+
+- `latest` will be the most recent commit
+- An optional `tag` may exist that matches the [CHANGELOG](CHANGELOG.md) - These are the safest
+- If it is built for multiple distributions there may exist a value of `alpine` or `debian`
+- If there are multiple distribution variations it may include a version - see the registry for availability
+
+Have a look at the container registries and see what tags are available.
+
+#### Multi-Architecture Support
+
+Images are built for `amd64` by default, with optional support for `arm64` and other architectures.
 
 ### Quick Start
 
@@ -126,6 +146,8 @@ Below are the main environment variables supported by the image, as reflected in
 | `DOMAIN_01_RECORD_TTL`             | TTL for the domain record (alt)       | `300`               |
 | `DOMAIN_01_RECORD_TARGET`          | DNS record target (alt)               |                     |
 | `DOMAIN_01_UPDATE_EXISTING`        | Update existing records (alt)         | `TRUE`              |
+
+A limit of 3 domains can be configured when the containers advanced mode is disabled.
 
 #### Integration Environment Variables
 
@@ -200,33 +222,18 @@ For debugging and maintenance purposes you may want access the containers shell.
 docker exec -it herald bash
 ```
 
-## Support
+## Support & Maintenance
 
-These images were built to serve a specific need in a production environment and gradually have had more functionality added based on requests from the community.
-
-### Usage
-
-- The [Discussions board](../../discussions) is a great place for working with the community on tips and tricks of using this image.
-- [Contact](https://nfrastack.com) for personalized support
-
-### Bugfixes
-
-- Please, submit a [Bug Report](issues/new) if something isn't working as expected. I'll do my best to issue a fix in short order.
-
-### Feature Requests
-
-- Feel free to submit a feature request, however there is no guarantee that it will be added, or at what timeline.
-- [Contact](https://nfrastack.com) regarding development of features.
-
-### Updates
-
-- Best effort to track upstream changes, More priority if I am actively using the image in a production environment.
-- [Contact](https://nfrastack.com) for up to date releases.
-
-## License
-
-BSD-3-Clause. See [../LICENSE](LICENSE) for more details.
+- For community help, tips, and community discussions, visit the [Discussions board](/../../discussions).
+- For personalized support or a support agreement, see [Nfrastack Support](https://nfrastack.com/).
+- To report bugs, submit a [Bug Report](issues/new). Usage questions will be closed as not-a-bug.
+- Feature requests are welcome, but not guaranteed. For prioritized development, consider a support agreement.
+- Updates are best-effort, with priority given to active production use and support agreements.
 
 ## References
 
 - <https://github.com/tiredofit/docker-traefik-cloudflare-companion>
+
+## License
+
+BSD-3-Clause. See [../LICENSE](LICENSE) for more details.

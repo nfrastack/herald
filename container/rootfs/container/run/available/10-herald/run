@@ -5,7 +5,7 @@
 
 source /container/base/functions/container/init
 SERVICE_NAME="herald"
-prepare_service single
+prepare_service 10-herald
 check_container_initialized
 check_service_initialized init
 liftoff
