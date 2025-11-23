@@ -1,3 +1,9 @@
+## 2.3.1 2025-11-23 <code at nfrastack dot com>
+
+   ### Changed
+   - Updated go dependencies
+   - Modernized container image
+
 ## 2.3.0 2025-09-21 <code at nfrastack dot com>
 
    ### Added

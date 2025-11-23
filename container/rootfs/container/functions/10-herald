@@ -151,22 +151,22 @@ herald_generate_config() {
 
             if [ -n "${domain_name}" ]; then
                 domain_key="domain_${padded_i}"
-                modify_config ".domains.${domain_key} = {}" "${config_file}"
-                modify_config ".domains.${domain_key}.name = \"${domain_name}\"" "${config_file}"
+                ${modify_config} ".domains.${domain_key} = {}" "${config_file}"
+                ${modify_config} ".domains.${domain_key}.name = \"${domain_name}\"" "${config_file}"
 
                 # Set profiles section
-                modify_config ".domains.${domain_key}.profiles = {}" "${config_file}"
+                ${modify_config} ".domains.${domain_key}.profiles = {}" "${config_file}"
 
                 # Configure inputs (default to available input providers)
                 if [ -n "${domain_inputs}" ]; then
                     IFS=',' read -ra ADDR <<< "${domain_inputs}"
-                    modify_config ".domains.${domain_key}.profiles.inputs = []" "${config_file}"
+                    ${modify_config} ".domains.${domain_key}.profiles.inputs = []" "${config_file}"
                     for input in "${ADDR[@]}"; do
-                        modify_config ".domains.${domain_key}.profiles.inputs += [\"${input// /}\"]" "${config_file}"
+                        ${modify_config} ".domains.${domain_key}.profiles.inputs += [\"${input// /}\"]" "${config_file}"
                     done
                 else
                     # Default to all configured inputs
-                    modify_config ".domains.${domain_key}.profiles.inputs = []" "${config_file}"
+                    ${modify_config} ".domains.${domain_key}.profiles.inputs = []" "${config_file}"
                     [ -n "${DOCKER_API_URL}" ] && ${modify_config} ".domains.${domain_key}.profiles.inputs += [\"docker\"]" "${config_file}"
                     [ -n "${TRAEFIK_API_URL}" ] && ${modify_config} ".domains.${domain_key}.profiles.inputs += [\"traefik\"]" "${config_file}"
                     [ -n "${CADDY_API_URL}" ] && ${modify_config} ".domains.${domain_key}.profiles.inputs += [\"caddy\"]" "${config_file}"
@@ -176,18 +176,18 @@ herald_generate_config() {
                 if [ -n "${domain_outputs}" ]; then
                     # Convert comma-separated list to YAML array
                     IFS=',' read -ra ADDR <<< "${domain_outputs}"
-                    modify_config ".domains.${domain_key}.profiles.outputs = []" "${config_file}"
+                    ${modify_config} ".domains.${domain_key}.profiles.outputs = []" "${config_file}"
                     for output in "${ADDR[@]}"; do
-                        modify_config ".domains.${domain_key}.profiles.outputs += [\"${output// /}\"]" "${config_file}"
+                        ${modify_config} ".domains.${domain_key}.profiles.outputs += [\"${output// /}\"]" "${config_file}"
                     done
                 else
                     # Default to the provider for this domain
-                    modify_config ".domains.${domain_key}.profiles.outputs = [\"${domain_provider}\"]" "${config_file}"
+                    ${modify_config} ".domains.${domain_key}.profiles.outputs = [\"${domain_provider}\"]" "${config_file}"
                 fi
 
                 # Configure record settings
                 if [ -n "${domain_record_type}" ] || [ -n "${domain_record_ttl}" ] || [ -n "${domain_record_target}" ] || [ -n "${domain_update_existing}" ] || [ -n "${domain_allow_multiple}" ]; then
-                    modify_config ".domains.${domain_key}.record = {}" "${config_file}"
+                    ${modify_config} ".domains.${domain_key}.record = {}" "${config_file}"
                     [ -n "${domain_record_type}" ] && ${modify_config} ".domains.${domain_key}.record.type = \"${domain_record_type}\"" "${config_file}"
                     [ -n "${domain_record_ttl}" ] && ${modify_config} ".domains.${domain_key}.record.ttl = ${domain_record_ttl}" "${config_file}"
                     [ -n "${domain_record_target}" ] && ${modify_config} ".domains.${domain_key}.record.target = \"${domain_record_target}\"" "${config_file}"
