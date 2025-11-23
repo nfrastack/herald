@@ -4,7 +4,7 @@
   inputs = { nixpkgs.url = "nixpkgs/nixos-unstable"; };
   outputs = { self, nixpkgs }:
     let
-      version = "2.3.0";
+      version = "2.3.1";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -46,7 +46,8 @@
               "-X main.BuildTime=${buildDateStr}"
             ];
 
-            vendorHash = "sha256-/F74UUO1GoNEQKzQlz6KHJ6UiAa4lswIju2SvG41Pco=";
+#            vendorHash = "sha256-/F74UUO1GoNEQKzQlz6KHJ6UiAa4lswIju2SvG41Pco=";
+            vendorHash = "sha256-zUhjuSrYcTh+kPwYhJ2nZr4n/nptUJjx+hHNtxoImno=";
           };
         });
 
