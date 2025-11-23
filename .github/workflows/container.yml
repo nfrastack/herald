@@ -13,8 +13,10 @@ on:
       - '!LICENSE'
       - '!README.md'
 
-jobs:
+permissions:
+  contents: write
 
+jobs:
   container_build:
     name: Build and Push Container Image
     runs-on: ubuntu-latest
