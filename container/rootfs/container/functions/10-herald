@@ -140,10 +140,10 @@ herald_generate_config() {
             domain_name="${!domain_name_var}"
             domain_provider="${!domain_provider_var:-cloudflare}"
             domain_zone_id="${!domain_zone_id_var}"
-            domain_record_type="${!domain_record_type_var:-A}"
+            domain_record_type="${!domain_record_type_var:-CNAME}"
             domain_record_ttl="${!domain_record_ttl_var:-300}"
             domain_record_target="${!domain_record_target_var}"
-            domain_update_existing="${!domain_update_existing_var:-true}"
+            domain_update_existing="${!domain_update_existing_var:-false}"
             domain_allow_multiple="${!domain_allow_multiple_var:-false}"
             domain_proxied="${!domain_proxied_var}"
             domain_inputs="${!domain_inputs_var}"
@@ -187,6 +187,15 @@ herald_generate_config() {
 
                 # Configure record settings
                 if [ -n "${domain_record_type}" ] || [ -n "${domain_record_ttl}" ] || [ -n "${domain_record_target}" ] || [ -n "${domain_update_existing}" ] || [ -n "${domain_allow_multiple}" ]; then
+                    case "${domain_record_type^^}" in
+                        "A" | "AAAA" | "CNAME"  )
+                            sanity_var DOMAIN_${padded_i}_RECORD_TARGET "domain record target entered for your record type ${domain_record_type^^} record type"
+                        ;;
+                    esac
+                    if [ "${domain_record_type^^}" = "CNAME" ] && var_true "${domain_allow_multiple}"; then
+                        print_error "Can't set DOMAIN_${padded_i}_ALLOW_MULTIPLE=TRUE with DOMAIN_${padded_i}_RECORD_TYPE=TRUE"
+                        exit 1
+                    fi
                     ${modify_config} ".domains.${domain_key}.record = {}" "${config_file}"
                     [ -n "${domain_record_type}" ] && ${modify_config} ".domains.${domain_key}.record.type = \"${domain_record_type}\"" "${config_file}"
                     [ -n "${domain_record_ttl}" ] && ${modify_config} ".domains.${domain_key}.record.ttl = ${domain_record_ttl}" "${config_file}"
@@ -200,7 +209,7 @@ herald_generate_config() {
                 [ -n "${domain_proxied}" ] && ${modify_config} ".domains.${domain_key}.proxied = ${domain_proxied,,}" "${config_file}"
             fi
         }
-        floop $(printenv | sort | grep -cE '^DOMAIN_[0-9]+_NAME=') create_domain EMAN_XX_NIAMOD
+        floop "$(printenv | sort | grep -cE '^DOMAIN_[0-9]+_NAME=')" create_domain EMAN_XX_NIAMOD
     else
         print_info "Skipping configuration generation - using existing configuration file"
     fi

@@ -117,35 +117,30 @@ Below are the main environment variables supported by the image, as reflected in
 
 #### Provider Environment Variables
 
-| Variable                           | Description                      | Example/Default           |
-| ---------------------------------- | -------------------------------- | ------------------------- |
-| `PROVIDER_01_TYPE`                 | Provider type (e.g., cloudflare) | `cloudflare`              |
-| `PROVIDER_01_CLOUDFLARE_API_TOKEN` | Cloudflare API token             | (required for Cloudflare) |
-| `CLOUDFLARE_API_TOKEN`             | Global Cloudflare API token      | (optional)                |
-| `CLOUDFLARE_API_EMAIL`             | Cloudflare API email             | (optional)                |
-| `CLOUDFLARE_API_KEY`               | Cloudflare API key               | (optional)                |
+| Variable               | Description                 | Default    |
+| ---------------------- | --------------------------- | ---------- |
+| `CLOUDFLARE_API_TOKEN` | Global Cloudflare API token | (optional) |
+| `CLOUDFLARE_API_EMAIL` | Cloudflare API email        | (optional) |
+| `CLOUDFLARE_API_KEY`   | Cloudflare API key          | (optional) |
+
+>> Use either `CLOUDFLARE_API_EMAIL + _TOKEN` together or `CLOUDFLARE_API_KEY` on its own.
+
 
 #### Domain Environment Variables
 
-| Variable                           | Description                           | Example/Default     |
-| ---------------------------------- | ------------------------------------- | ------------------- |
-| `DOMAIN_NAME`                      | Domain name                           |                     |
-| `DOMAIN_01_NAME`                   | Domain name (legacy/compat)           | `example.com`       |
-| `DOMAIN_01_PROVIDER`               | Provider profile to use               | `cloudflare`        |
-| `DOMAIN_01_ZONE_ID`                | (optional) Zone ID for the domain     | `your_zone_id_here` |
-| `DOMAIN_01_RECORD_TYPE`            | DNS record type                       | `A`                 |
-| `DOMAIN_01_TTL`                    | TTL for the domain record             | `300`               |
-| `DOMAIN_01_TARGET`                 | DNS record target                     | `192.0.2.1`         |
-| `DOMAIN_01_UPDATE_EXISTING_RECORD` | Update existing records               | `TRUE` or `FALSE`   |
-| `DOMAIN_01_ALLOW_MULTIPLE`         | Allow multiple records                | `TRUE` or `FALSE`   |
-| `DOMAIN_01_INPUT`                  | Comma-separated list of inputs        | `docker`            |
-| `DOMAIN_01_OUTPUT`                 | Comma-separated list of outputs       | `cloudflare`        |
-| `DOMAIN_01_PROXIED`                | Enable Cloudflare proxying            | `FALSE`             |
-| `DOMAIN_01_INPUTS`                 | (alt) Comma-separated list of inputs  |                     |
-| `DOMAIN_01_OUTPUTS`                | (alt) Comma-separated list of outputs |                     |
-| `DOMAIN_01_RECORD_TTL`             | TTL for the domain record (alt)       | `300`               |
-| `DOMAIN_01_RECORD_TARGET`          | DNS record target (alt)               |                     |
-| `DOMAIN_01_UPDATE_EXISTING`        | Update existing records (alt)         | `TRUE`              |
+| Variable                           | Description                                                                | Default             |
+| ---------------------------------- | -------------------------------------------------------------------------- | ------------------- |
+| `DOMAIN_01_NAME`                   | Domain name                                                                | `example.com`       |
+| `DOMAIN_01_PROVIDER`               | Provider profile to use                                                    | `cloudflare`        |
+| `DOMAIN_01_ZONE_ID`                | (optional) Zone ID for the domain                                          | `your_zone_id_here` |
+|                                    | Needed with `CLOUDFLARE_API_EMAIL` & `CLOUDFLARE_API_TOKEN`                |                     |
+| `DOMAIN_01_INPUTS`                 | Comma-separated list of inputs eg `docker,traefik`                         |                     |
+| `DOMAIN_01_OUTPUTS`                | Comma-separated list of outputs eg `cloudflare`                            |                     |
+| `DOMAIN_01_RECORD_PROXIED`         | Enable Cloudflare proxying                                                 | `FALSE`             |
+| `DOMAIN_01_RECORD_TARGET`          | DNS record target eg `192.0.2.1` for `A` or `host.example.com` for `CNAME` |                     |
+| `DOMAIN_01_RECORD_TTL`             | TTL for the domain record                                                  | `300`               |
+| `DOMAIN_01_RECORD_TYPE`            | DNS record type eg `A` or `CNAME`                                          | `CNAME`             |
+| `DOMAIN_01_RECORD_UPDATE_EXISTING` | Update existing records                                                    | `FALSE`             |
 
 A limit of 3 domains can be configured when the containers advanced mode is disabled.
 
