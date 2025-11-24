@@ -13,4 +13,4 @@ liftoff
 print_start "Starting Herald $(herald -version | awk '{print $1}')"
 exec s6-setuidgid "${HERALD_USER}" \
                                 /usr/local/bin/herald -container \
-                                    -config "${CONFIG_PATH}/${CONFIG_FILE}"
+                                    -config "${CONFIG_PATH%/}/${CONFIG_FILE}"
