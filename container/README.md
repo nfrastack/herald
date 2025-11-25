@@ -109,7 +109,7 @@ Below are the main environment variables supported by the image, as reflected in
 | `HERALD_USER`       | User to run as (`root` needed for docker.sock) | `herald`     |
 | `LOG_TYPE`          | Log to `console`, `file`, or `both`            | `console`    |
 | `LOG_LEVEL`         | Logging level (`info`, `verbose`, etc)         | `info`       |
-| `LOG_PATH`          | Log file directory                             | `/logs`      |
+| `LOG_PATH`          | Log file directory                             | `/logs/`     |
 | `LOG_FILE`          | Log file name                                  | `herald.log` |
 | `LOG_TIMESTAMPS`    | Show timestamps in logs (`TRUE`/`FALSE`)       | `TRUE`       |
 | `CONFIG_PATH`       | Config file directory                          | `/config/`   |
@@ -125,7 +125,6 @@ Below are the main environment variables supported by the image, as reflected in
 
 >> Use either `CLOUDFLARE_API_EMAIL + _TOKEN` together or `CLOUDFLARE_API_KEY` on its own.
 
-
 #### Domain Environment Variables
 
 | Variable                           | Description                                                                | Default             |
@@ -135,12 +134,14 @@ Below are the main environment variables supported by the image, as reflected in
 | `DOMAIN_01_ZONE_ID`                | (optional) Zone ID for the domain                                          | `your_zone_id_here` |
 |                                    | Needed with `CLOUDFLARE_API_EMAIL` & `CLOUDFLARE_API_TOKEN`                |                     |
 | `DOMAIN_01_INPUTS`                 | Comma-separated list of inputs eg `docker,traefik`                         |                     |
-| `DOMAIN_01_OUTPUTS`                | Comma-separated list of outputs eg `cloudflare`                            |                     |
+| `DOMAIN_01_OUTPUTS`                | Comma-separated list of outputs eg `cloudflare`                            | `cloudflare`        |
 | `DOMAIN_01_RECORD_PROXIED`         | Enable Cloudflare proxying                                                 | `FALSE`             |
 | `DOMAIN_01_RECORD_TARGET`          | DNS record target eg `192.0.2.1` for `A` or `host.example.com` for `CNAME` |                     |
 | `DOMAIN_01_RECORD_TTL`             | TTL for the domain record                                                  | `300`               |
 | `DOMAIN_01_RECORD_TYPE`            | DNS record type eg `A` or `CNAME`                                          | `CNAME`             |
 | `DOMAIN_01_RECORD_UPDATE_EXISTING` | Update existing records                                                    | `FALSE`             |
+
+>> If you don't set DOMAIN_XX_INPUTS it will automatically generate the values if you have `TRAEFIK_API_URL`, `CADDY_API_URL`, `DOCKER_API_URL` set
 
 A limit of 3 domains can be configured when the containers advanced mode is disabled.
 
