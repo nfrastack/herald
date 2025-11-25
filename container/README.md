@@ -150,7 +150,7 @@ These variables control integration with Docker, Caddy, and Traefik. Prefixes ar
 
 ##### Docker
 
-| Variable                       | Description                            | Default/Example               |
+| Variable                       | Description                            | Default                       |
 | ------------------------------ | -------------------------------------- | ----------------------------- |
 | `DOCKER_API_URL`               | Docker socket path                     | `unix:///var/run/docker.sock` |
 | `DOCKER_API_AUTH_USER`         | Docker API auth username               |                               |
@@ -167,35 +167,35 @@ These variables control integration with Docker, Caddy, and Traefik. Prefixes ar
 
 ##### Caddy
 
-| Variable                      | Description                               | Default/Example |
-| ----------------------------- | ----------------------------------------- | --------------- |
-| `CADDY_API_AUTH_PASS`         | Caddy API auth password                   |                 |
-| `CADDY_API_AUTH_USER`         | Caddy API auth username                   |                 |
-| `CADDY_API_URL`               | Caddy API URL                             |                 |
-| `CADDY_INTERVAL`              | Poll interval for Caddy (seconds)         | `60`            |
-| `CADDY_LOG_LEVEL`             | Log level for Caddy integration           |                 |
-| `CADDY_PROCESS_EXISTING`      | Process existing Caddy configs on startup | `TRUE`          |
-| `CADDY_RECORD_REMOVE_ON_STOP` | Remove DNS records on config removal      | `FALSE`         |
-| `CADDY_TLS_CA_FILE`           | Path to Caddy CA cert                     |                 |
-| `CADDY_TLS_CERT_FILE`         | Path to Caddy client cert                 |                 |
-| `CADDY_TLS_KEY_FILE`          | Path to Caddy client key                  |                 |
-| `CADDY_TLS_VERIFY`            | Enable Caddy TLS verification             | `TRUE`          |
+| Variable                      | Description                               | Default |
+| ----------------------------- | ----------------------------------------- | ------- |
+| `CADDY_API_AUTH_PASS`         | Caddy API auth password                   |         |
+| `CADDY_API_AUTH_USER`         | Caddy API auth username                   |         |
+| `CADDY_API_URL`               | Caddy API URL                             |         |
+| `CADDY_INTERVAL`              | Poll interval for Caddy (seconds)         | `60`    |
+| `CADDY_LOG_LEVEL`             | Log level for Caddy integration           |         |
+| `CADDY_PROCESS_EXISTING`      | Process existing Caddy configs on startup | `TRUE`  |
+| `CADDY_RECORD_REMOVE_ON_STOP` | Remove DNS records on config removal      | `FALSE` |
+| `CADDY_TLS_CA_FILE`           | Path to Caddy CA cert                     |         |
+| `CADDY_TLS_CERT_FILE`         | Path to Caddy client cert                 |         |
+| `CADDY_TLS_KEY_FILE`          | Path to Caddy client key                  |         |
+| `CADDY_TLS_VERIFY`            | Enable Caddy TLS verification             | `TRUE`  |
 
 ##### Traefik
 
-| Variable                        | Description                                 | Default/Example |
-| ------------------------------- | ------------------------------------------- | --------------- |
-| `TRAEFIK_API_AUTH_PASS`         | Traefik API auth password                   |                 |
-| `TRAEFIK_API_AUTH_USER`         | Traefik API auth username                   |                 |
-| `TRAEFIK_API_URL`               | Traefik API URL                             |                 |
-| `TRAEFIK_INTERVAL`              | Poll interval for Traefik (seconds)         | `60`            |
-| `TRAEFIK_LOG_LEVEL`             | Log level for Traefik integration           |                 |
-| `TRAEFIK_PROCESS_EXISTING`      | Process existing Traefik routers on startup | `TRUE`          |
-| `TRAEFIK_RECORD_REMOVE_ON_STOP` | Remove DNS records on router removal        | `FALSE`         |
-| `TRAEFIK_TLS_CA_FILE`           | Path to Traefik CA cert                     |                 |
-| `TRAEFIK_TLS_CERT_FILE`         | Path to Traefik client cert                 |                 |
-| `TRAEFIK_TLS_KEY_FILE`          | Path to Traefik client key                  |                 |
-| `TRAEFIK_TLS_VERIFY`            | Enable Traefik TLS verification             | `TRUE`          |
+| Variable                        | Description                                 | Default |
+| ------------------------------- | ------------------------------------------- | ------- |
+| `TRAEFIK_API_AUTH_PASS`         | Traefik API auth password                   |         |
+| `TRAEFIK_API_AUTH_USER`         | Traefik API auth username                   |         |
+| `TRAEFIK_API_URL`               | Traefik API URL                             |         |
+| `TRAEFIK_INTERVAL`              | Poll interval for Traefik (seconds)         | `60`    |
+| `TRAEFIK_LOG_LEVEL`             | Log level for Traefik integration           |         |
+| `TRAEFIK_PROCESS_EXISTING`      | Process existing Traefik routers on startup | `TRUE`  |
+| `TRAEFIK_RECORD_REMOVE_ON_STOP` | Remove DNS records on router removal        | `FALSE` |
+| `TRAEFIK_TLS_CA_FILE`           | Path to Traefik CA cert                     |         |
+| `TRAEFIK_TLS_CERT_FILE`         | Path to Traefik client cert                 |         |
+| `TRAEFIK_TLS_KEY_FILE`          | Path to Traefik client key                  |         |
+| `TRAEFIK_TLS_VERIFY`            | Enable Traefik TLS verification             | `TRUE`  |
 
 #### Cloudflare Environment Variables
 
