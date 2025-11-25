@@ -8,7 +8,7 @@ herald_bootstrap_filesystem() {
     case "${LOG_TYPE,,}" in
         "file" | "both" )
             create_folder "${CONFIG_PATH}" "${HERALD_USER}":"${HERALD_GROUP}" 750
-            create_logrotate herald "${LOG_PATH}"/"${LOG_FILE}" herald "${HERALD_USER}" "${HERALD_GROUP}"
+            create_logrotate herald "${LOG_PATH%/}"/"${LOG_FILE}" herald "${HERALD_USER}" "${HERALD_GROUP}"
         ;;
     esac
 }
@@ -130,9 +130,9 @@ herald_generate_config() {
             domain_record_type_var="DOMAIN_${padded_i}_RECORD_TYPE"
             domain_record_ttl_var="DOMAIN_${padded_i}_RECORD_TTL"
             domain_record_target_var="DOMAIN_${padded_i}_RECORD_TARGET"
-            domain_update_existing_var="DOMAIN_${padded_i}_UPDATE_EXISTING"
-            domain_allow_multiple_var="DOMAIN_${padded_i}_ALLOW_MULTIPLE"
-            domain_proxied_var="DOMAIN_${padded_i}_PROXIED"
+            domain_update_existing_var="DOMAIN_${padded_i}_RECORD_UPDATE_EXISTING"
+            domain_allow_multiple_var="DOMAIN_${padded_i}_RECORD_ALLOW_MULTIPLE"
+            domain_proxied_var="DOMAIN_${padded_i}_RECORD_PROXIED"
             domain_inputs_var="DOMAIN_${padded_i}_INPUTS"
             domain_outputs_var="DOMAIN_${padded_i}_OUTPUTS"
 
