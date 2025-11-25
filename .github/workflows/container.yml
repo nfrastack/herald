@@ -23,7 +23,7 @@ jobs:
     name: Build and Push Container Image
     runs-on: ubuntu-latest
     env:
-      BASE_IMAGE: "ghcr.io/nfrastack/container-base:alpine_3.22"
+      BASE_IMAGE: ghcr.io/nfrastack/container-base:alpine_3.22
       build_file: container/Containerfile
     steps:
       - name: Checkout Code
