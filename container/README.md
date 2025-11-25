@@ -107,7 +107,7 @@ Below are the main environment variables supported by the image, as reflected in
 | `TIMEZONE`          | Set container timezone                         | `UTC`        |
 | `HERALD_SETUP_TYPE` | `auto` to generate config, `manual` for custom | `auto`       |
 | `HERALD_USER`       | User to run as (`root` needed for docker.sock) | `herald`     |
-| `LOG_TYPE`          | Log to `console`, `file`, or `both`            | `console`    |
+| `LOG_TYPE`          | Log to `console`, `file`, or `both` or `none`  | `console`    |
 | `LOG_LEVEL`         | Logging level (`info`, `verbose`, etc)         | `info`       |
 | `LOG_PATH`          | Log file directory                             | `/logs/`     |
 | `LOG_FILE`          | Log file name                                  | `herald.log` |
