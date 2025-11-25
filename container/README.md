@@ -123,7 +123,7 @@ Below are the main environment variables supported by the image, as reflected in
 | `CLOUDFLARE_API_EMAIL` | Cloudflare API email        | (optional) |
 | `CLOUDFLARE_API_KEY`   | Cloudflare API key          | (optional) |
 
->> Use either `CLOUDFLARE_API_EMAIL + _TOKEN` together or `CLOUDFLARE_API_KEY` on its own.
+>> Use either `CLOUDFLARE_API_EMAIL + _KEY` together or `CLOUDFLARE_API_TOKEN` on its own.
 
 #### Domain Environment Variables
 
