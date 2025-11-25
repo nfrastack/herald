@@ -101,7 +101,11 @@ herald_generate_config() {
         fi
 
         # Cloudflare DNS output configuration
-        if [ -n "${CLOUDFLARE_API_TOKEN}" ] || [ -n "${CLOUDFLARE_EMAIL}" ]; then
+        if [ -n "${CLOUDFLARE_API_TOKEN}" ] || [ -n "${CLOUDFLARE_EMAIL}" ] || [ -n "${CLOUDFLARE_API_KEY}" ]; then
+            if { [ -n "${CLOUDFLARE_EMAIL}" ] && [ -z "${CLOUDFLARE_API_KEY}" ]; } || { [ -z "${CLOUDFLARE_EMAIL}" ] && [ -n "${CLOUDFLARE_API_KEY}" ]; }; then
+                print_error "Both CLOUDFLARE_EMAIL and CLOUDFLARE_API_KEY must be set together for global API key authentication."
+                exit 1
+            fi
             ${modify_config} '.outputs.cloudflare = {"type": "dns", "provider": "cloudflare"}' "${config_file}"
             [ -n "${CLOUDFLARE_API_TOKEN}" ] && ${modify_config} ".outputs.cloudflare.api_token = \"${CLOUDFLARE_API_TOKEN}\"" "${config_file}"
             [ -n "${CLOUDFLARE_EMAIL}" ] && ${modify_config} ".outputs.cloudflare.api_email = \"${CLOUDFLARE_EMAIL}\"" "${config_file}"
