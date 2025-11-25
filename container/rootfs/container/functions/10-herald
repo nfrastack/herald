@@ -161,7 +161,9 @@ herald_generate_config() {
                 # Set profiles section
                 ${modify_config} ".domains.${domain_key}.profiles = {}" "${config_file}"
 
-                # Configure inputs (default to available input providers)
+                # Configure inputs (default to input providers)
+                if [ -v DOMAIN_${padded_i}_INPUT ]; then print_warn "DOMAIN_${padded_i}_INPUT detected - did you mean DOMAIN_${padded_i}_INPUTS?" ; fi
+                if [ -v DOMAIN_${padded_i}_OUTPUT ]; then print_warn "DOMAIN_${padded_i}_OUTPUT detected - did you mean DOMAIN_${padded_i}_OUTPUTS?" ; fi
                 if [ -n "${domain_inputs}" ]; then
                     IFS=',' read -ra ADDR <<< "${domain_inputs}"
                     ${modify_config} ".domains.${domain_key}.profiles.inputs = []" "${config_file}"

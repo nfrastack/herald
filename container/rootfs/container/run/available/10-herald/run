@@ -10,7 +10,25 @@ check_container_initialized
 check_service_initialized init
 liftoff
 
+case "${LOG_TYPE,,}" in
+    "file" )
+        hlog="${LOG_PATH%/}/${LOG_FILE}"
+        prefix=silent
+    ;;
+    "both")
+        hlog="${LOG_PATH%/}/${LOG_FILE}"
+    ;;
+    "console" )
+        hlog="/dev/null"
+    ;;
+    none )
+        prefix=silent
+    ;;
+esac
+
 print_start "Starting Herald $(herald -version | awk '{print $1}')"
 exec s6-setuidgid "${HERALD_USER}" \
                                 /usr/local/bin/herald -container \
-                                    -config "${CONFIG_PATH%/}/${CONFIG_FILE}"
+                                    -config "${CONFIG_PATH%/}/${CONFIG_FILE}" \
+                                    2>&1 | ${prefix} sudo -u "${HERALD_USER}" tee -a ${hlog}
+
