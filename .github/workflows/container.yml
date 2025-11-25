@@ -2,14 +2,16 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - '**'
     tags-ignore:
       - "*"
     paths:
       - '**'
-      - '!/CHANGELOG.md'
-      - '!/contrib/*'
-      - '!/docs/*'
-      - '!/examples/*'
+      - '!CHANGELOG.md'
+      - '!contrib/**'
+      - '!docs/**'
+      - '!examples/**'
       - '!LICENSE'
       - '!README.md'
 
