@@ -6,6 +6,7 @@ package providers
 
 import (
 	"herald/pkg/log"
+	"herald/pkg/output/types/dns"
 	"herald/pkg/util"
 
 	"context"
@@ -25,7 +26,7 @@ type CloudflareProvider struct {
 	logger      *log.ScopedLogger
 	retries     int
 	timeout     time.Duration
-	profileName string // NEW: store profile name
+	profileName string
 }
 
 // NewCloudflareProviderWithProfile creates a new Cloudflare DNS provider
@@ -90,29 +91,27 @@ func NewCloudflareProvider(config map[string]string) (interface{}, error) {
 }
 
 func init() {
-	RegisterProvider("cloudflare", NewCloudflareProvider)
+	dns.RegisterProvider("cloudflare", NewCloudflareProvider)
 }
 
 // CreateOrUpdateRecord creates or updates a DNS record
-func (c *CloudflareProvider) CreateOrUpdateRecord(domain, recordType, name, target string, ttl int, proxied bool) error {
-	return c.CreateOrUpdateRecordWithSource(domain, recordType, name, target, ttl, proxied, "", "herald")
+func (c *CloudflareProvider) CreateOrUpdateRecord(domain, recordType, name, target string, ttl int, proxied bool, overwrite bool) error {
+	return c.CreateOrUpdateRecordWithSource(domain, recordType, name, target, ttl, proxied, "", "herald", overwrite)
 }
 
 // CreateOrUpdateRecordWithSource creates or updates a DNS record with source information
-func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, name, target string, ttl int, proxied bool, comment, source string) error {
+func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, name, target string, ttl int, proxied bool, comment, source string, overwrite bool) error {
 	logPrefix := getDomainLogPrefix(c.profileName, domain)
-	c.logger.Debug("%s Creating/updating record: %s.%s %s -> %s (TTL: %d, Proxied: %t)", logPrefix, name, domain, recordType, target, ttl, proxied)
+	c.logger.Debug("%s Creating/updating record: %s.%s %s -> %s (TTL: %d, Proxied: %t, Overwrite: %t)", logPrefix, name, domain, recordType, target, ttl, proxied, overwrite)
 
 	ctx := context.Background()
 
-	// Get zone ID
 	zoneID, err := c.getZoneID(ctx, domain)
 	if err != nil {
 		c.logger.Error("%s Failed to get zone ID for domain %s: %v", logPrefix, domain, err)
 		return fmt.Errorf("failed to get zone ID for domain %s: %v", domain, err)
 	}
 
-	// Format the full hostname
 	fullName := name
 	if name != "@" && name != "" && !strings.HasSuffix(name, "."+domain) {
 		fullName = name + "." + domain
@@ -120,91 +119,18 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 		fullName = domain
 	}
 
-	// --- Robust replace logic: check for conflicting records ---
-	conflictingTypes := []string{"A", "AAAA", "CNAME"}
-	for _, t := range conflictingTypes {
-		if t == recordType {
-			continue // skip the type we're about to create
-		}
-		params := cloudflare.ListDNSRecordsParams{
-			Name: fullName,
-			Type: t,
-		}
-		records, _, err := c.client.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), params)
-		if err != nil {
-			c.logger.Error("%s Error searching for conflicting record: %v", logPrefix, err)
-			return fmt.Errorf("failed to search for conflicting DNS records: %v", err)
-		}
-		for _, rec := range records {
-			c.logger.Warn("%s Conflicting record exists and will be deleted: [type=%s] [name=%s] [content=%s] [id=%s]", logPrefix, rec.Type, rec.Name, rec.Content, rec.ID)
-			// Always log full record at trace level (Trace() will only output if enabled)
-			c.logger.Trace("%s Full conflicting record: %+v", logPrefix, rec)
-			err := c.client.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), rec.ID)
-			if err != nil {
-				c.logger.Error("%s Failed to delete conflicting record [type=%s] [name=%s] [id=%s]: %v", logPrefix, rec.Type, rec.Name, rec.ID, err)
-				return fmt.Errorf("failed to delete conflicting DNS record: %v", err)
-			}
-			c.logger.Info("%s Deleted conflicting record [type=%s] [name=%s] [id=%s] before creating new record", logPrefix, rec.Type, rec.Name, rec.ID)
-			// Verify deletion
-			verifyParams := cloudflare.ListDNSRecordsParams{Name: rec.Name, Type: rec.Type}
-			verifyRecords, _, verr := c.client.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), verifyParams)
-			if verr != nil {
-				c.logger.Warn("%s Could not verify deletion of record [type=%s] [name=%s]: %v", logPrefix, rec.Type, rec.Name, verr)
-			} else if len(verifyRecords) == 0 {
-				c.logger.Debug("%s Verified deletion of record [type=%s] [name=%s]", logPrefix, rec.Type, rec.Name)
-			} else {
-				c.logger.Warn("%s Record [type=%s] [name=%s] still exists after deletion attempt!", logPrefix, rec.Type, rec.Name)
-				c.logger.Trace("%s Remaining record(s): %+v", logPrefix, verifyRecords)
-			}
-
-			// Wait for Cloudflare to propagate deletion (retry up to 5 times, 200ms each)
-			for i := 0; i < 5; i++ {
-				time.Sleep(200 * time.Millisecond)
-				verifyRecords, _, verr := c.client.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), verifyParams)
-				if verr != nil {
-					c.logger.Warn("%s Could not verify deletion of record [type=%s] [name=%s] (retry %d): %v", logPrefix, rec.Type, rec.Name, i+1, verr)
-					break
-				}
-				if len(verifyRecords) == 0 {
-					c.logger.Debug("%s Verified deletion of record [type=%s] [name=%s] after %d retries", logPrefix, rec.Type, rec.Name, i+1)
-					break
-				}
-				if i == 4 {
-					c.logger.Warn("%s Record [type=%s] [name=%s] still exists after %d retries!", logPrefix, rec.Type, rec.Name, i+1)
-					c.logger.Trace("%s Remaining record(s): %+v", logPrefix, verifyRecords)
-				}
-			}
-		}
-	}
-	// --- End robust replace logic ---
-
-	// Look for existing record of the same type
-	existingRecord, err := c.findExistingRecord(ctx, zoneID, fullName, recordType)
+	// Perform record lookup to mitigate Cloudflare's eventual consistency issues
+	c.logger.Trace("%s Starting record lookup for existing record", logPrefix)
+	existingRecord, err := c.checkExistingRecord(ctx, zoneID, fullName, recordType)
 	if err != nil {
-		c.logger.Error("%s Failed to search for existing record: %v", logPrefix, err)
-		return fmt.Errorf("failed to search for existing record: %v", err)
+		c.logger.Error("%s Record lookup failed: %v", logPrefix, err)
+		return fmt.Errorf("record lookup failed: %v", err)
 	}
 
-	if existingRecord == nil {
-		c.logger.Trace("%s No existing record found for update: %s %s %s", logPrefix, fullName, recordType, target)
-	}
-
-	// Prepare record data
-	recordParams := cloudflare.CreateDNSRecordParams{
-		Type:    recordType,
-		Name:    fullName,
-		Content: target,
-		TTL:     ttl,
-		Proxied: &proxied,
-	}
-
-	// Create resource container for the zone
-	rc := cloudflare.ZoneIdentifier(zoneID)
-
-	// Update or create record
+	// If found, update and return
 	if existingRecord != nil {
-		c.logger.Debug("%s Updating existing record %s", logPrefix, existingRecord.ID)
-
+		c.logger.Info("%s Found existing record, updating: id=%s", logPrefix, existingRecord.ID)
+		c.logger.Trace("%s Existing record details: id=%s type=%s name=%s content=%s ttl=%d proxied=%v", logPrefix, existingRecord.ID, existingRecord.Type, existingRecord.Name, existingRecord.Content, existingRecord.TTL, existingRecord.Proxied)
 		updateParams := cloudflare.UpdateDNSRecordParams{
 			Type:    recordType,
 			Name:    fullName,
@@ -212,65 +138,165 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 			TTL:     ttl,
 			Proxied: &proxied,
 		}
-
 		if comment != "" {
 			updateParams.Comment = &comment
 		}
 		updateParams.ID = existingRecord.ID
-		_, err = c.client.UpdateDNSRecord(ctx, rc, updateParams)
-		if err != nil {
-			return fmt.Errorf("failed to update DNS record: %v", err)
+		_, uerr := c.client.UpdateDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), updateParams)
+		if uerr != nil {
+			return fmt.Errorf("failed to update DNS record: %v", uerr)
+		}
+		c.logger.Info("%s Updated DNS record: %s %s -> %s", logPrefix, fullName, recordType, target)
+		return nil
+	}
+
+	// No existing record found after lookup
+	c.logger.Info("%s No existing record found, proceeding with create", logPrefix)
+
+	recordParams := cloudflare.CreateDNSRecordParams{Type: recordType, Name: fullName, Content: target, TTL: ttl, Proxied: &proxied}
+	rc := cloudflare.ZoneIdentifier(zoneID)
+
+	attempts := 3
+	for i := 1; i <= attempts; i++ {
+		_, cerr := c.client.CreateDNSRecord(ctx, rc, recordParams)
+		if cerr == nil {
+			c.logger.Info("%s Created DNS record: %s %s -> %s", logPrefix, fullName, recordType, target)
+			return nil
 		}
 
-		c.logger.Info("%s Updated DNS record: %s %s -> %s", logPrefix, fullName, recordType, target)
-	} else {
-		c.logger.Debug("%s Creating new record", logPrefix)
+		// If Cloudflare reports that an identical record already exists (81058), treat as success
+		cerrStr := cerr.Error()
+		if strings.Contains(cerrStr, "81058") || strings.Contains(strings.ToLower(cerrStr), "identical record") {
+			c.logger.Info("%s CreateDNSRecord reported an identical record already exists; treating as success: %v", logPrefix, cerr)
+			return nil
+		}
 
-		// Try to create the DNS record, with retry logic for common Cloudflare conflict (81053)
-		attempts := 3
-		for i := 1; i <= attempts; i++ {
-			_, err = c.client.CreateDNSRecord(ctx, rc, recordParams)
-			if err == nil {
-				c.logger.Info("%s Created DNS record: %s %s -> %s", logPrefix, fullName, recordType, target)
-				break
-			}
-
-			// If conflict error (existing record of same host/type), log and attempt to resolve
-			errStr := err.Error()
-			if strings.Contains(errStr, "81053") || strings.Contains(errStr, "already exists") {
-				c.logger.Warn("%s Cloudflare conflict creating record (attempt %d/%d): %v", logPrefix, i, attempts, err)
-				// List all records for this name to help diagnosis and possibly remove conflicts
-				listParams := cloudflare.ListDNSRecordsParams{Name: fullName}
-				recs, _, lerr := c.client.ListDNSRecords(ctx, rc, listParams)
-				if lerr != nil {
-					c.logger.Error("%s Failed to list records for %s after create conflict: %v", logPrefix, fullName, lerr)
-				} else {
-					for _, r := range recs {
-						c.logger.Warn("%s Existing record: [type=%s] [name=%s] [content=%s] [id=%s]", logPrefix, r.Type, r.Name, r.Content, r.ID)
-						// If record types conflict (A/AAAA vs CNAME), remove them to enforce replacement
-						if (r.Type == "A" || r.Type == "AAAA" || r.Type == "CNAME") && r.Name == fullName {
-							c.logger.Info("%s Removing conflicting record %s (%s) to allow create", logPrefix, r.ID, r.Type)
-							derr := c.client.DeleteDNSRecord(ctx, rc, r.ID)
-							if derr != nil {
-								c.logger.Error("%s Failed to delete conflicting record %s: %v", logPrefix, r.ID, derr)
-							} else {
-								// small sleep for propagation
-								time.Sleep(250 * time.Millisecond)
-							}
-						}
-					}
-				}
-				// retry after a short sleep
-				time.Sleep(time.Duration(i) * 300 * time.Millisecond)
-				continue
-			}
-
-			// Other errors: return immediately
-			return fmt.Errorf("failed to create DNS record: %v", err)
+		// For other errors, log and return
+		c.logger.Error("%s Failed to create DNS record (attempt %d/%d): %v", logPrefix, i, attempts, cerr)
+		if i < attempts {
+			time.Sleep(time.Duration(i) * 500 * time.Millisecond)
 		}
 	}
 
-	return nil
+	return fmt.Errorf("failed to create DNS record after %d attempts: %s", attempts, fullName)
+}
+
+// fetchRecordsMerged returns DNS records for a given name using the client List and raw HTTP fallback, merging results
+// fetchRecordsMerged was removed; use client-only fetch instead.
+
+// checkExistingRecord performs multiple queries with backoff to ensure we get consistent results from Cloudflare
+// This helps mitigate eventual consistency issues that cause intermittent lookup failures
+func (c *CloudflareProvider) checkExistingRecord(ctx context.Context, zoneID, name, recordType string) (*cloudflare.DNSRecord, error) {
+	logPrefix := getDomainLogPrefix(c.profileName, name)
+	maxAttempts := 5
+	baseDelay := 200 * time.Millisecond
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		c.logger.Trace("%s Record lookup attempt %d/%d: querying for name=%s, type=%s", logPrefix, attempt, maxAttempts, name, recordType)
+
+		// Use direct client call for most reliable results
+		rc := cloudflare.ZoneIdentifier(zoneID)
+		params := cloudflare.ListDNSRecordsParams{Name: name, Type: recordType}
+		recs, _, err := c.client.ListDNSRecords(ctx, rc, params)
+
+		if err != nil {
+			c.logger.Trace("%s Record lookup attempt %d failed with error: %v", logPrefix, attempt, err)
+			if attempt < maxAttempts {
+				time.Sleep(baseDelay * time.Duration(attempt))
+				continue
+			}
+			return nil, fmt.Errorf("record lookup failed after %d attempts: %v", maxAttempts, err)
+		}
+
+		c.logger.Trace("%s Record lookup attempt %d returned %d records", logPrefix, attempt, len(recs))
+		for i, r := range recs {
+			c.logger.Trace("%s Record lookup result %d: id=%s type=%s name=%s content=%s ttl=%d proxied=%v", logPrefix, i+1, r.ID, r.Type, r.Name, r.Content, r.TTL, r.Proxied)
+		}
+
+		if len(recs) > 0 {
+			// Found records - look for exact match
+			for _, r := range recs {
+				if r.Type == recordType && r.Name == name {
+					c.logger.Trace("%s Record lookup found exact match on attempt %d: id=%s", logPrefix, attempt, r.ID)
+					return &r, nil
+				}
+			}
+			// Return first record if no exact match
+			c.logger.Trace("%s Record lookup found records but no exact match on attempt %d, returning first", logPrefix, attempt)
+			return &recs[0], nil
+		}
+
+		// No records found this attempt
+		c.logger.Trace("%s Record lookup attempt %d found no records", logPrefix, attempt)
+		if attempt < maxAttempts {
+			c.logger.Trace("%s Record lookup sleeping %v before retry", logPrefix, baseDelay*time.Duration(attempt))
+			time.Sleep(baseDelay * time.Duration(attempt))
+		}
+	}
+
+	c.logger.Trace("%s Record lookup completed %d attempts, no records found", logPrefix, maxAttempts)
+	return nil, nil
+}
+
+// fetchRecordsClientOnly returns DNS records for a given name using only the cloudflare-go client
+// It tries normalized name variants to improve hit rates (no raw HTTP calls)
+func (c *CloudflareProvider) fetchRecordsClientOnly(ctx context.Context, zoneID, name, recordType string) []cloudflare.DNSRecord {
+	rc := cloudflare.ZoneIdentifier(zoneID)
+	var merged []cloudflare.DNSRecord
+
+	// Candidate name variants
+	candidates := []string{name}
+	nameNoDot := strings.TrimSuffix(name, ".")
+	if nameNoDot != name {
+		candidates = append(candidates, nameNoDot)
+	} else {
+		candidates = append(candidates, name+".")
+	}
+	lower := strings.ToLower(name)
+	if lower != name {
+		candidates = append(candidates, lower)
+	}
+	if strings.Contains(nameNoDot, ".") {
+		hostOnly := strings.SplitN(nameNoDot, ".", 2)[0]
+		if hostOnly != "" && hostOnly != nameNoDot {
+			candidates = append(candidates, hostOnly)
+			candidates = append(candidates, hostOnly+".")
+		}
+	}
+
+	// First try type-specific lookups
+	if recordType != "" {
+		for _, cName := range candidates {
+			params := cloudflare.ListDNSRecordsParams{Name: cName, Type: recordType}
+			recs, _, err := c.client.ListDNSRecords(ctx, rc, params)
+			if err == nil && len(recs) > 0 {
+				merged = append(merged, recs...)
+			}
+		}
+		if len(merged) > 0 {
+			return merged
+		}
+	}
+
+	// Broader search (any type)
+	for _, cName := range candidates {
+		params := cloudflare.ListDNSRecordsParams{Name: cName}
+		recs, _, err := c.client.ListDNSRecords(ctx, rc, params)
+		if err == nil && len(recs) > 0 {
+			merged = append(merged, recs...)
+		}
+	}
+
+	// Deduplicate by ID
+	unique := make(map[string]cloudflare.DNSRecord)
+	for _, r := range merged {
+		unique[r.ID] = r
+	}
+	out := make([]cloudflare.DNSRecord, 0, len(unique))
+	for _, r := range unique {
+		out = append(out, r)
+	}
+	return out
 }
 
 // DeleteRecord deletes a DNS record
@@ -295,7 +321,7 @@ func (c *CloudflareProvider) DeleteRecord(domain, recordType, name string) error
 	}
 
 	// Find the record to delete
-	existingRecord, err := c.findExistingRecord(ctx, zoneID, fullName, recordType)
+	existingRecord, err := c.checkExistingRecord(ctx, zoneID, fullName, recordType)
 	if err != nil {
 		return fmt.Errorf("failed to search for existing record: %v", err)
 	}
@@ -332,36 +358,6 @@ func (c *CloudflareProvider) getZoneID(ctx context.Context, domain string) (stri
 
 	// Return the first matching zone
 	return zones[0].ID, nil
-}
-
-// findExistingRecord searches for an existing DNS record
-func (c *CloudflareProvider) findExistingRecord(ctx context.Context, zoneID, name, recordType string) (*cloudflare.DNSRecord, error) {
-	logPrefix := getDomainLogPrefix(c.profileName, name)
-	// Create resource container for the zone
-	rc := cloudflare.ZoneIdentifier(zoneID)
-
-	// Search for records with matching name and type
-	params := cloudflare.ListDNSRecordsParams{
-		Name: name,
-		Type: recordType,
-	}
-
-	c.logger.Trace("%s Searching for existing record: zoneID=%s, name=%s, type=%s", logPrefix, zoneID, name, recordType)
-
-	records, _, err := c.client.ListDNSRecords(ctx, rc, params)
-	if err != nil {
-		c.logger.Error("%s Error searching DNS records: %v", logPrefix, err)
-		return nil, fmt.Errorf("failed to search DNS records: %v", err)
-	}
-
-	c.logger.Trace("%s Found %d records for name=%s, type=%s", logPrefix, len(records), name, recordType)
-
-	if len(records) == 0 {
-		return nil, nil // No existing record found
-	}
-
-	// Return the first matching record
-	return &records[0], nil
 }
 
 // GetName returns the provider name

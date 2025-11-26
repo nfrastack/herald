@@ -97,12 +97,12 @@ func newPowerDNSHTTPClient(cfg PowerDNSConfig) (*http.Client, error) {
 }
 
 // CreateOrUpdateRecord creates or updates a DNS record
-func (p *PowerDNSProvider) CreateOrUpdateRecord(domain, recordType, hostname, target string, ttl int, proxied bool) error {
-	return p.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, proxied, "", "herald")
+func (p *PowerDNSProvider) CreateOrUpdateRecord(domain, recordType, hostname, target string, ttl int, proxied bool, overwrite bool) error {
+	return p.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, proxied, "", "herald", overwrite)
 }
 
 // CreateOrUpdateRecordWithSource creates or updates a DNS record with source/comment
-func (p *PowerDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostname, target string, ttl int, proxied bool, comment, source string) error {
+func (p *PowerDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostname, target string, ttl int, proxied bool, comment, source string, overwrite bool) error {
 	p.logger.Debug("Creating/updating record: domain=%s, type=%s, hostname=%s, target=%s, ttl=%d", domain, recordType, hostname, target, ttl)
 
 	zoneID := p.config.ServerID

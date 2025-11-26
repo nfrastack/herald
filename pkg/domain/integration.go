@@ -205,7 +205,7 @@ func ProcessRecordWithDomainValidation(inputProviderName, domainName, hostname, 
 	// Send to output profiles with domain validation
 	outputManager := output.GetOutputManager()
 	if outputManager != nil {
-		err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainName, hostname, target, recordType, ttl, inputProviderName, proxiedFlag, GlobalDomainManager)
+		err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainName, hostname, target, recordType, ttl, inputProviderName, proxiedFlag, false, GlobalDomainManager)
 		if err != nil {
 			log.Error("[domain/%s] Failed to send record to output profiles: %v", domainName, err)
 			return err
@@ -327,7 +327,7 @@ func IntegrateDomain(domainConfigKey string, domainConfig *DomainConfig) error {
 			// Determine proxied flag for integration-time update (only record-level proxied supported)
 			proxiedFlag := record.Proxied
 			// When integrating a domain, create/update the apex record (hostname="@")
-			if err := dnsProvider.CreateOrUpdateRecord(domainConfig.Name, record.Type, "@", record.Target, record.TTL, proxiedFlag); err != nil {
+			if err := dnsProvider.CreateOrUpdateRecord(domainConfig.Name, record.Type, "@", record.Target, record.TTL, proxiedFlag, record.UpdateExisting); err != nil {
 				logger.Error("%s DNS record update failed: %v", logPrefix, err)
 				return err
 			}
@@ -343,10 +343,9 @@ func IntegrateDomain(domainConfigKey string, domainConfig *DomainConfig) error {
 	logger.Info("%s Sending to output profiles: %v", logPrefix, domainConfig.GetOutputs())
 	outputManager := output.GetOutputManager()
 	if outputManager != nil {
-		// Determine proxied flag for outputs (only record-level proxied supported)
 		proxiedFlag := domainConfig.Record.Proxied
 		for _, profile := range domainConfig.GetOutputs() {
-			if err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainConfig.Name, "", "", "", 0, "", proxiedFlag, GlobalDomainManager); err != nil {
+			if err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainConfig.Name, "", "", "", 0, "", proxiedFlag, false, GlobalDomainManager); err != nil {
 				logger.Error("%s Failed to send to output profile '%s': %v", logPrefix, profile, err)
 				return err
 			}

@@ -27,7 +27,7 @@ func (m *OutputManager) RouteRecords(domainConfigKey, domain string, records []c
 }
 
 // WriteRecordToOutputs writes a DNS record to the specified list of output profiles.
-func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, hostname, target, recordType string, ttl int, source string, proxied bool) error {
+func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool) error {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
 
@@ -43,7 +43,7 @@ func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, h
 
 	for _, outputProfile := range allowedOutputs {
 		if profile, exists := om.profiles[outputProfile]; exists {
-			written, errStr := om.writeToProfile(outputProfile, profile, domain, hostname, target, recordType, ttl, source, proxied)
+			written, errStr := om.writeToProfile(outputProfile, profile, domain, hostname, target, recordType, ttl, source, proxied, overwrite)
 			if errStr != "" {
 				errors = append(errors, errStr)
 			} else if written {
