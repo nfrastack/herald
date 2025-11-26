@@ -1,8 +1,12 @@
- ## 2.3.2 2025-11-23 <code at nfrastack dot com>
+## 2.3.2 2025-11-23 <code at nfrastack dot com>
 
-    ### Changed
+   ### Changed
     - (container) Changed environment variables and simplified container usage.
     - (domain) Change domain.proxied option to -> domain.record.proxied
+    - (input/docker) Fix condition where process_existing wasn't recognized
+    - (output/dns/cloudflare) remove duplicate registrations
+    - (output/dns/cloudflare) introduce retries for records lookups due to sluggish api
+    - (output/dns/cloudflare) cleanup some 1.x leftovers
 
 ## 2.3.1 2025-11-23 <code at nfrastack dot com>
 
