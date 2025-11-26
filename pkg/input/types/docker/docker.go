@@ -788,7 +788,16 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 		p.removalCache[containerID] = time.Now()
 		p.removalCacheMutex.Unlock()
 
-		// Container stopped - remove its DNS records only
+		// Container stopped - remove its DNS records only if configured
+		if !p.recordRemoveOnStop {
+			if event.Action == "destroy" {
+				p.logger.Debug("Container destroyed: %s (%s) but record_remove_on_stop=false, skipping DNS removal", containerName, event.Actor.ID[:12])
+			} else {
+				p.logger.Info("Container stopped: %s (%s) but record_remove_on_stop=false, skipping DNS removal", containerName, event.Actor.ID[:12])
+			}
+			return
+		}
+
 		if event.Action == "destroy" {
 			p.logger.Debug("Container destroyed: %s (%s), removing DNS records", containerName, event.Actor.ID[:12])
 		} else {
@@ -813,9 +822,6 @@ func (p *DockerProvider) handleServiceEvent(ctx context.Context, event events.Me
 		serviceName = serviceID[:12]
 	}
 
-	// Note: Logging is now handled by the shared connection manager
-	// to avoid duplicate log messages
-
 	// Process based on event action
 	switch event.Action {
 	case "create", "update":
@@ -834,8 +840,12 @@ func (p *DockerProvider) handleServiceEvent(ctx context.Context, event events.Me
 			return
 		}
 		if len(entries) > 0 {
-			log.Info("%s Removing %d DNS entries for service %s", p.logPrefix, len(entries), serviceName)
-			p.processDNSEntries(entries, true)
+			if !p.recordRemoveOnStop {
+				log.Info("%s Service '%s' removed but record_remove_on_stop=false, skipping DNS removal (%d entries)", p.logPrefix, serviceName, len(entries))
+			} else {
+				log.Info("%s Removing %d DNS entries for service %s", p.logPrefix, len(entries), serviceName)
+				p.processDNSEntries(entries, true)
+			}
 		} else {
 			log.Debug("%s No DNS entries found for service '%s' to remove", p.logPrefix, serviceName)
 		}
