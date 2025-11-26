@@ -180,7 +180,8 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 		return fmt.Errorf("output writer not provided")
 	}
 
-	outputErr := outputWriter.WriteRecordToOutputs(domainConfig.GetOutputs(), domain, hostname, target, recordType, ttl, state.SourceType)
+	proxiedFlag := domainConfig.Record.Proxied
+	outputErr := outputWriter.WriteRecordToOutputs(domainConfig.GetOutputs(), domain, hostname, target, recordType, ttl, state.SourceType, proxiedFlag)
 	if outputErr != nil {
 		log.Error("[domain/%s/%s] Failed to write to output system: %v", domainConfigKey, domain, outputErr)
 		return outputErr
@@ -432,13 +433,6 @@ func (d *Domain) SyncRecords(records []common.Record) error {
 	logPrefix := GetDomainLogPrefix(d.ConfigKey, d.Name)
 	d.logger.Info("%s Syncing %d records", logPrefix, len(records))
 
-	// define err if used
-	var err error
-
-	if err != nil {
-		d.logger.Error("%s Failed to sync records: %v", logPrefix, err)
-		return err
-	}
 	d.logger.Info("%s Successfully synced records", logPrefix)
 	return nil
 }

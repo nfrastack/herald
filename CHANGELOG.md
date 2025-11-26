@@ -1,3 +1,9 @@
+ ## 2.3.2 2025-11-23 <code at nfrastack dot com>
+
+    ### Changed
+    - (container) Changed environment variables and simplified container usage.
+    - (domain) Change domain.proxied option to -> domain.record.proxied
+
 ## 2.3.1 2025-11-23 <code at nfrastack dot com>
 
    ### Changed

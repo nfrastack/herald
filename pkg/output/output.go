@@ -44,6 +44,43 @@ func getGlobalConfigForOutput() GlobalConfigForOutput {
 	return nil
 }
 
+// writeToProfile writes a single record to a profile, handling DNS special-case and change tracking.
+// Returns (written, errorString).
+func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat, domain, hostname, target, recordType string, ttl int, source string, proxied bool) (bool, string) {
+	if df, ok := profile.(*dns.DNSOutputFormat); ok {
+		if df.Provider == nil {
+			return false, fmt.Sprintf("profile '%s': dns provider not initialized", profileName)
+		}
+		applyProxied := false
+		if proxied {
+			pname := strings.ToLower(df.Provider.GetName())
+			// Janky, but I am not aware of any other providers right now that would support this
+			if pname == "cloudflare" || strings.Contains(pname, "cloudflare") {
+				applyProxied = true
+			}
+		}
+		if err := df.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, applyProxied, "", source); err != nil {
+			return false, fmt.Sprintf("profile '%s': %v", profileName, err)
+		}
+		log.Debug("[output/manager] Successfully wrote record to DNS profile '%s' (proxied=%t)", profileName, applyProxied)
+	} else {
+		if err := profile.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source); err != nil {
+			return false, fmt.Sprintf("profile '%s': %v", profileName, err)
+		}
+		log.Debug("[output/manager] Successfully wrote record to profile '%s'", profileName)
+	}
+
+	// Mark this profile as changed for this source
+	om.changesMutex.Lock()
+	if om.changedProfiles[source] == nil {
+		om.changedProfiles[source] = make(map[string]bool)
+	}
+	om.changedProfiles[source][profileName] = true
+	om.changesMutex.Unlock()
+
+	return true, ""
+}
+
 // init automatically registers all output types when the package is imported
 func init() {
 	log.Debug("[output] Auto-registering core output types")
@@ -207,7 +244,7 @@ func GetGlobalOutputManager() *OutputManager {
 
 // WriteRecordWithSourceAndDomainFilter writes a DNS record with source and domain filtering
 // Now requires domainConfigKey for strict config-based routing
-func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType string, ttl int, source string, domainManager interface{}) error {
+func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType string, ttl int, source string, proxied bool, domainManager interface{}) error {
 	// Use domainConfigKey to get the correct domain config and allowed outputs
 	var allowedOutputs []string
 
@@ -250,7 +287,7 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 		return nil
 	}
 
-	log.Debug("[output/manager] Routing record write: domainConfigKey='%s', domain='%s', hostname='%s', target='%s', recordType='%s', ttl=%d, source='%s', allowedOutputs=%v", domainConfigKey, domain, hostname, target, recordType, ttl, source, allowedOutputs)
+	log.Debug("[output/manager] Routing record write: domainConfigKey='%s', domain='%s', hostname='%s', target='%s', recordType='%s', ttl=%d, source='%s', proxied=%t, allowedOutputs=%v", domainConfigKey, domain, hostname, target, recordType, ttl, source, proxied, allowedOutputs)
 
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
@@ -260,21 +297,12 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 
 	for _, outputProfile := range allowedOutputs {
 		if profile, exists := om.profiles[outputProfile]; exists {
-			if err := profile.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source); err != nil {
-				errors = append(errors, fmt.Sprintf("profile '%s': %v", outputProfile, err))
-			} else {
-				log.Debug("[output/manager] Successfully wrote record to profile '%s'", outputProfile)
+			written, errStr := om.writeToProfile(outputProfile, profile, domain, hostname, target, recordType, ttl, source, proxied)
+			if errStr != "" {
+				errors = append(errors, errStr)
+			} else if written {
 				writtenCount++
-
-				// Mark this profile as changed for this source
-				om.changesMutex.Lock()
-				if om.changedProfiles[source] == nil {
-					om.changedProfiles[source] = make(map[string]bool)
-				}
-				om.changedProfiles[source][outputProfile] = true
-				// Debug: print changedProfiles for this source
 				log.Debug("[output/manager] changedProfiles[%s] after WriteRecordWithSourceAndDomainFilter: %v", source, om.changedProfiles[source])
-				om.changesMutex.Unlock()
 			}
 		} else {
 			log.Warn("[output/manager] Output profile '%s' not found (referenced by domain config key '%s')", outputProfile, domainConfigKey)

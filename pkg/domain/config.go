@@ -29,6 +29,7 @@ type DomainConfig struct {
 		Target         string `yaml:"target" json:"target"`
 		UpdateExisting bool   `yaml:"update_existing" json:"update_existing"`
 		AllowMultiple  bool   `yaml:"allow_multiple" json:"allow_multiple"`
+		Proxied        bool   `yaml:"proxied" json:"proxied"`
 	} `yaml:"record" json:"record"`
 	LogLevel string `yaml:"log_level" json:"log_level"`
 }

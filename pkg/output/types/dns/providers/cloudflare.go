@@ -226,12 +226,48 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 	} else {
 		c.logger.Debug("%s Creating new record", logPrefix)
 
-		_, err = c.client.CreateDNSRecord(ctx, rc, recordParams)
-		if err != nil {
+		// Try to create the DNS record, with retry logic for common Cloudflare conflict (81053)
+		attempts := 3
+		for i := 1; i <= attempts; i++ {
+			_, err = c.client.CreateDNSRecord(ctx, rc, recordParams)
+			if err == nil {
+				c.logger.Info("%s Created DNS record: %s %s -> %s", logPrefix, fullName, recordType, target)
+				break
+			}
+
+			// If conflict error (existing record of same host/type), log and attempt to resolve
+			errStr := err.Error()
+			if strings.Contains(errStr, "81053") || strings.Contains(errStr, "already exists") {
+				c.logger.Warn("%s Cloudflare conflict creating record (attempt %d/%d): %v", logPrefix, i, attempts, err)
+				// List all records for this name to help diagnosis and possibly remove conflicts
+				listParams := cloudflare.ListDNSRecordsParams{Name: fullName}
+				recs, _, lerr := c.client.ListDNSRecords(ctx, rc, listParams)
+				if lerr != nil {
+					c.logger.Error("%s Failed to list records for %s after create conflict: %v", logPrefix, fullName, lerr)
+				} else {
+					for _, r := range recs {
+						c.logger.Warn("%s Existing record: [type=%s] [name=%s] [content=%s] [id=%s]", logPrefix, r.Type, r.Name, r.Content, r.ID)
+						// If record types conflict (A/AAAA vs CNAME), remove them to enforce replacement
+						if (r.Type == "A" || r.Type == "AAAA" || r.Type == "CNAME") && r.Name == fullName {
+							c.logger.Info("%s Removing conflicting record %s (%s) to allow create", logPrefix, r.ID, r.Type)
+							derr := c.client.DeleteDNSRecord(ctx, rc, r.ID)
+							if derr != nil {
+								c.logger.Error("%s Failed to delete conflicting record %s: %v", logPrefix, r.ID, derr)
+							} else {
+								// small sleep for propagation
+								time.Sleep(250 * time.Millisecond)
+							}
+						}
+					}
+				}
+				// retry after a short sleep
+				time.Sleep(time.Duration(i) * 300 * time.Millisecond)
+				continue
+			}
+
+			// Other errors: return immediately
 			return fmt.Errorf("failed to create DNS record: %v", err)
 		}
-
-		c.logger.Info("%s Created DNS record: %s %s -> %s", logPrefix, fullName, recordType, target)
 	}
 
 	return nil

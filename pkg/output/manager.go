@@ -27,7 +27,7 @@ func (m *OutputManager) RouteRecords(domainConfigKey, domain string, records []c
 }
 
 // WriteRecordToOutputs writes a DNS record to the specified list of output profiles.
-func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, hostname, target, recordType string, ttl int, source string) error {
+func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, hostname, target, recordType string, ttl int, source string, proxied bool) error {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
 
@@ -36,26 +36,18 @@ func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, h
 		return nil
 	}
 
-	log.Debug("[output/manager] Routing record write: domain='%s', hostname='%s', target='%s', recordType='%s', ttl=%d, source='%s', allowedOutputs=%v", domain, hostname, target, recordType, ttl, source, allowedOutputs)
+	log.Debug("[output/manager] Routing record write: domain='%s', hostname='%s', target='%s', recordType='%s', ttl=%d, source='%s', proxied=%t, allowedOutputs=%v", domain, hostname, target, recordType, ttl, source, proxied, allowedOutputs)
 
 	writtenCount := 0
 	var errors []string
 
 	for _, outputProfile := range allowedOutputs {
 		if profile, exists := om.profiles[outputProfile]; exists {
-			if err := profile.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source); err != nil {
-				errors = append(errors, fmt.Sprintf("profile '%s': %v", outputProfile, err))
-			} else {
-				log.Debug("[output/manager] Successfully wrote record to profile '%s'", outputProfile)
+			written, errStr := om.writeToProfile(outputProfile, profile, domain, hostname, target, recordType, ttl, source, proxied)
+			if errStr != "" {
+				errors = append(errors, errStr)
+			} else if written {
 				writtenCount++
-
-				// Mark this profile as changed for this source
-				om.changesMutex.Lock()
-				if om.changedProfiles[source] == nil {
-					om.changedProfiles[source] = make(map[string]bool)
-				}
-				om.changedProfiles[source][outputProfile] = true
-				om.changesMutex.Unlock()
 			}
 		} else {
 			log.Warn("[output/manager] Output profile '%s' not found", outputProfile)

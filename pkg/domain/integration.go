@@ -100,7 +100,7 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 				if recordType, ok := recordRaw["type"].(string); ok {
 					domainConfig.Record.Type = recordType
 				} else {
-					domainConfig.Record.Type = "" // allow autodetection if not set
+					domainConfig.Record.Type = ""
 				}
 				if ttl, ok := recordRaw["ttl"].(int); ok {
 					domainConfig.Record.TTL = ttl
@@ -113,6 +113,9 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 				}
 				if allowMultiple, ok := recordRaw["allow_multiple"].(bool); ok {
 					domainConfig.Record.AllowMultiple = allowMultiple
+				}
+				if proxied, ok := recordRaw["proxied"].(bool); ok {
+					domainConfig.Record.Proxied = proxied
 				}
 			}
 		} else {
@@ -185,35 +188,24 @@ func ProcessRecordWithDomainValidation(inputProviderName, domainName, hostname, 
 
 	log.Trace("[domain/%s] Processing record from input provider '%s': %s.%s (%s) -> %s",
 		domainName, inputProviderName, hostname, domainName, recordType, target)
+	// Determine proxied flag once for use by both DNS provider and output manager
+	proxiedFlag := domainConfig.Record.Proxied
+	// Log where proxied came from for easier debugging
+	if domainConfig.Record.Proxied {
+		log.Debug("[domain/%s] Proxied set from record config (record.proxied=true)", domainConfigKey)
+	} else {
+		log.Trace("[domain/%s] Proxied not set for this domain/record", domainConfigKey)
+	}
 
 	// Send to DNS provider (if configured)
-	if domainConfig.Provider != "" && domainConfig.Provider != "none" {
-		log.Trace("[domain/%s] Sending record to DNS provider '%s'", domainName, domainConfig.Provider)
-
-		// Get the DNS provider instance
-		if GlobalDNSProviders != nil {
-			if dnsProvider, exists := GlobalDNSProviders[domainConfig.Provider]; exists {
-				// Use the domain's record configuration for update_existing
-				updateExisting := domainConfig.Record.UpdateExisting
-				err := dnsProvider.CreateOrUpdateRecord(domainName, hostname, target, recordType, ttl, updateExisting)
-				if err != nil {
-					log.Error("[domain/%s] Failed to create/update DNS record via provider '%s': %v", domainName, domainConfig.Provider, err)
-					return err
-				}
-				log.Trace("[domain/%s] Successfully sent record to DNS provider '%s'", domainName, domainConfig.Provider)
-			} else {
-				log.Error("[domain/%s] DNS provider '%s' not found in global providers", domainName, domainConfig.Provider)
-				return fmt.Errorf("DNS provider '%s' not available", domainConfig.Provider)
-			}
-		} else {
-			log.Trace("[domain/%s] No global DNS providers available, skipping DNS update", domainName)
-		}
-	}
+	// DNS provider writes are handled by the output manager to avoid duplicate writes.
+	// The output manager will route to DNS output profiles (including the configured provider)
+	// and honor the domain-level proxied flag. This avoids calling providers twice.
 
 	// Send to output profiles with domain validation
 	outputManager := output.GetOutputManager()
 	if outputManager != nil {
-		err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainName, hostname, target, recordType, ttl, inputProviderName, GlobalDomainManager)
+		err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainName, hostname, target, recordType, ttl, inputProviderName, proxiedFlag, GlobalDomainManager)
 		if err != nil {
 			log.Error("[domain/%s] Failed to send record to output profiles: %v", domainName, err)
 			return err
@@ -223,7 +215,7 @@ func ProcessRecordWithDomainValidation(inputProviderName, domainName, hostname, 
 	return nil
 }
 
-// GetDomainConfig retrieves a domain configuration (convenience function)
+// GetDomainConfig retrieves a domain configuration
 func GetDomainConfig(domainName string) (*DomainConfig, bool) {
 	if GlobalDomainManager == nil {
 		return nil, false
@@ -332,7 +324,10 @@ func IntegrateDomain(domainConfigKey string, domainConfig *DomainConfig) error {
 		if dnsProvider, exists := GlobalDNSProviders[domainConfig.Provider]; exists {
 			// Only one record supported in this config structure
 			record := domainConfig.Record
-			if err := dnsProvider.CreateOrUpdateRecord(domainConfig.Name, record.Type, record.Target, record.Type, record.TTL, record.UpdateExisting); err != nil {
+			// Determine proxied flag for integration-time update (only record-level proxied supported)
+			proxiedFlag := record.Proxied
+			// When integrating a domain, create/update the apex record (hostname="@")
+			if err := dnsProvider.CreateOrUpdateRecord(domainConfig.Name, record.Type, "@", record.Target, record.TTL, proxiedFlag); err != nil {
 				logger.Error("%s DNS record update failed: %v", logPrefix, err)
 				return err
 			}
@@ -348,8 +343,10 @@ func IntegrateDomain(domainConfigKey string, domainConfig *DomainConfig) error {
 	logger.Info("%s Sending to output profiles: %v", logPrefix, domainConfig.GetOutputs())
 	outputManager := output.GetOutputManager()
 	if outputManager != nil {
+		// Determine proxied flag for outputs (only record-level proxied supported)
+		proxiedFlag := domainConfig.Record.Proxied
 		for _, profile := range domainConfig.GetOutputs() {
-			if err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainConfig.Name, "", "", "", 0, "", GlobalDomainManager); err != nil {
+			if err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainConfig.Name, "", "", "", 0, "", proxiedFlag, GlobalDomainManager); err != nil {
 				logger.Error("%s Failed to send to output profile '%s': %v", logPrefix, profile, err)
 				return err
 			}
