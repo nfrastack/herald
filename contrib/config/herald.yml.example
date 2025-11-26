@@ -327,6 +327,7 @@ defaults:
     ttl: 300
     update_existing: true
     allow_multiple: false
+    proxied: false
 
 # Include additional configuration files
 # include:

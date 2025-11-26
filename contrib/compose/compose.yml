@@ -51,13 +51,14 @@ services:
 
       # Domain example
       - DOMAIN_01_NAME=example.com
-      #- DOMAIN_01_ZONE_ID=your_zone_id_here   # Only needed for Cloudflare with Global API Key
+      #- DOMAIN_01_ZONE_ID=your_zone_id_here    # Only needed for Cloudflare with Global API Key
       - DOMAIN_01_RECORD_TYPE=A
       - DOMAIN_01_RECORD_TTL=300
       - DOMAIN_01_RECORD_TARGET=192.0.2.1
       - DOMAIN_01_RECORD_UPDATE_EXISTING_RECORD=TRUE
       - DOMAIN_01_RECORD_ALLOW_MULTIPLE=FALSE
-      - DOMAIN_01_INPUT=docker                 # Comma seperate list of inputs, docker, traefik, caddy
+      #- DOMAIN_01_RECORD_PROXIED=FALSE         # Cloudflare only, set to TRUE to enable proxying
+      #- DOMAIN_01_INPUT=docker                 # Comma seperate list of inputs, docker, traefik, caddy
       #- DOMAIN_01_OUTPUT=cloudflare            # Comma separate list of outputs, cloudflare
     networks:
       - services
