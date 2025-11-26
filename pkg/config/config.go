@@ -73,6 +73,7 @@ type RecordConfig struct {
 	Target         string `yaml:"target"`
 	UpdateExisting bool   `yaml:"update_existing"`
 	AllowMultiple  bool   `yaml:"allow_multiple"`
+	Proxied        bool   `yaml:"proxied"`
 }
 
 type InputProviderConfig struct {

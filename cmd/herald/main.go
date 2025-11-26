@@ -206,6 +206,7 @@ func main() {
 			recordMap["target"] = v.Record.Target
 			recordMap["update_existing"] = v.Record.UpdateExisting
 			recordMap["allow_multiple"] = v.Record.AllowMultiple
+			recordMap["proxied"] = v.Record.Proxied
 			domainMap["record"] = recordMap
 		}
 

@@ -160,11 +160,31 @@ func (d *DNSOutputFormat) GetName() string {
 }
 
 func (d *DNSOutputFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
-	return d.Provider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, false)
+	proxied := false
+	if d.Config != nil {
+		if p, ok := d.Config["proxied"].(bool); ok {
+			proxied = p
+		} else if ps, ok := d.Config["proxied"].(string); ok {
+			if strings.ToLower(ps) == "true" {
+				proxied = true
+			}
+		}
+	}
+	return d.Provider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, proxied)
 }
 
 func (d *DNSOutputFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	return d.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, false, "", source)
+	proxied := false
+	if d.Config != nil {
+		if p, ok := d.Config["proxied"].(bool); ok {
+			proxied = p
+		} else if ps, ok := d.Config["proxied"].(string); ok {
+			if strings.ToLower(ps) == "true" {
+				proxied = true
+			}
+		}
+	}
+	return d.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, proxied, "", source)
 }
 
 func (d *DNSOutputFormat) RemoveRecord(domain, hostname, recordType string) error {

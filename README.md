@@ -197,6 +197,7 @@ Domains define per-domain configuration, including which input/output profiles t
   - `target` (string): The value for the DNS record (e.g., IP address or CNAME target).
   - `update_existing` (bool): Whether to update existing records for this domain.
   - `allow_multiple` (bool): Allow multiple A/AAAA records for this domain.
+  - `proxied` (bool): Set proxied flag (Cloudflare DNS only)
 - `include_subdomains` (list of strings): Subdomains to explicitly include for DNS management.
 - `exclude_subdomains` (list of strings): Subdomains to exclude from DNS management.
 
@@ -233,6 +234,7 @@ domains:
       target: 192.0.2.1
       update_existing: true
       allow_multiple: true
+      proxied: true
     include_subdomains:
       - api
       - internal

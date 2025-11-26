@@ -238,7 +238,6 @@ func (sc *SharedConnection) distributeEvent(event events.Message) {
 	}
 }
 
-
 // Stop stops the shared connection
 func (sc *SharedConnection) Stop() {
 	if !sc.running {
