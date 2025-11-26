@@ -1128,6 +1128,7 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 			Name:       p.profileName,
 			Service:    entry.Target,
 			RecordType: entry.RecordType,
+			Overwrite:  entry.Overwrite,
 		}
 
 		// Construct the proper FQDN for BatchProcessor

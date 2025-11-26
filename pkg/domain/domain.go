@@ -21,6 +21,7 @@ type RouterState struct {
 	SourceType           string // e.g. "container", "router", "file", "remote", etc.
 	RecordType           string // DNS record type (A, AAAA, CNAME) - from input provider
 	ForceServiceAsTarget bool   // When true, always use Service field as target (for VPN providers)
+	Overwrite            bool   // When true, allow overwriting conflicting records
 }
 
 // getDomainLogger creates a scoped logger for domain-specific operations
@@ -181,7 +182,7 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 	}
 
 	proxiedFlag := domainConfig.Record.Proxied
-	outputErr := outputWriter.WriteRecordToOutputs(domainConfig.GetOutputs(), domain, hostname, target, recordType, ttl, state.SourceType, proxiedFlag)
+	outputErr := outputWriter.WriteRecordToOutputs(domainConfig.GetOutputs(), domain, hostname, target, recordType, ttl, state.SourceType, proxiedFlag, state.Overwrite)
 	if outputErr != nil {
 		log.Error("[domain/%s/%s] Failed to write to output system: %v", domainConfigKey, domain, outputErr)
 		return outputErr

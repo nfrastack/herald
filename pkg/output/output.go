@@ -46,7 +46,7 @@ func getGlobalConfigForOutput() GlobalConfigForOutput {
 
 // writeToProfile writes a single record to a profile, handling DNS special-case and change tracking.
 // Returns (written, errorString).
-func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat, domain, hostname, target, recordType string, ttl int, source string, proxied bool) (bool, string) {
+func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool) (bool, string) {
 	if df, ok := profile.(*dns.DNSOutputFormat); ok {
 		if df.Provider == nil {
 			return false, fmt.Sprintf("profile '%s': dns provider not initialized", profileName)
@@ -59,7 +59,7 @@ func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat
 				applyProxied = true
 			}
 		}
-		if err := df.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, applyProxied, "", source); err != nil {
+		if err := df.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, applyProxied, "", source, overwrite); err != nil {
 			return false, fmt.Sprintf("profile '%s': %v", profileName, err)
 		}
 		log.Debug("[output/manager] Successfully wrote record to DNS profile '%s' (proxied=%t)", profileName, applyProxied)
@@ -244,7 +244,7 @@ func GetGlobalOutputManager() *OutputManager {
 
 // WriteRecordWithSourceAndDomainFilter writes a DNS record with source and domain filtering
 // Now requires domainConfigKey for strict config-based routing
-func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType string, ttl int, source string, proxied bool, domainManager interface{}) error {
+func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool, domainManager interface{}) error {
 	// Use domainConfigKey to get the correct domain config and allowed outputs
 	var allowedOutputs []string
 
@@ -297,7 +297,7 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 
 	for _, outputProfile := range allowedOutputs {
 		if profile, exists := om.profiles[outputProfile]; exists {
-			written, errStr := om.writeToProfile(outputProfile, profile, domain, hostname, target, recordType, ttl, source, proxied)
+			written, errStr := om.writeToProfile(outputProfile, profile, domain, hostname, target, recordType, ttl, source, proxied, overwrite)
 			if errStr != "" {
 				errors = append(errors, errStr)
 			} else if written {
