@@ -18,7 +18,7 @@ LABEL \
   org.opencontainers.image.licenses="BSD-3-Clause"
 
 ARG \
-    HERALD_VERSION="2.3.1" \
+    HERALD_VERSION="2.3.2" \
     GOLANG_VERSION
 
 ENV \
