@@ -49,7 +49,7 @@ nfrastack <code@nfrastack.com>
 
 ### From Source
 
-Clone this repository and compile with [GoLang 1.23 or later](https://golang.org):
+Clone this repository and compile with [GoLang 1.24 or later](https://golang.org):
 
 ```bash
 go build -o bin/herald ./cmd/herald

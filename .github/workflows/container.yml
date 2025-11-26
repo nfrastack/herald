@@ -1,4 +1,5 @@
-name: Build and Release
+name: Build Container Image
+
 
 on:
   push:
@@ -14,16 +15,18 @@ on:
       - '!examples/**'
       - '!LICENSE'
       - '!README.md'
+      - '!container/README.md'
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   container_build:
     name: Build and Push Container Image
     runs-on: ubuntu-latest
     env:
-      BASE_IMAGE: ghcr.io/nfrastack/container-base:alpine_3.22
+      BASE_IMAGE: docker.io/nfrastack/base:alpine_3.22
       build_file: container/Containerfile
     steps:
       - name: Checkout Code
@@ -111,8 +114,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           builder: ${{ steps.buildx.outputs.name }}
-          context: ./container
-          file: ${{ env.build_file }}
+          #context: /
+          file: container/Containerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.prep.outputs.container_images }}
