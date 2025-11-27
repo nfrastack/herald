@@ -5,9 +5,9 @@ on:
     tags:
       - "*"
 
-permissions:
-  contents: write
-  packages: write
+#permissions:
+#  contents: write
+#   packages: write
 
 jobs:
   build:
