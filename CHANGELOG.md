@@ -1,4 +1,9 @@
-## 2.3.2 2025-11-23 <code at nfrastack dot com>
+## 2.3.3 2025-11-27 <code at nfrastack dot com>
+
+   ### Changed
+    - (container) Fixed DOMAIN_XX_RECORD_PROXIED not taking effect
+
+## 2.3.2 2025-11-26 <code at nfrastack dot com>
 
    ### Changed
     - (container) Changed environment variables and simplified container usage.
