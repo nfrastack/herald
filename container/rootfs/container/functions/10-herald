@@ -212,7 +212,7 @@ herald_generate_config() {
 
                 # Cloudflare-specific settings
                 [ -n "${domain_zone_id}" ] && ${modify_config} ".domains.${domain_key}.zone_id = \"${domain_zone_id}\"" "${config_file}"
-                [ -n "${domain_proxied}" ] && ${modify_config} ".domains.${domain_key}.proxied = ${domain_proxied,,}" "${config_file}"
+                [ -n "${domain_proxied}" ] && ${modify_config} ".domains.${domain_key}.record.proxied = ${domain_proxied,,}" "${config_file}"
             fi
         }
         floop "$(printenv | sort | grep -cE '^DOMAIN_[0-9]+_NAME=')" create_domain EMAN_XX_NIAMOD
