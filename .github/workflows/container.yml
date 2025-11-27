@@ -17,9 +17,9 @@ on:
       - '!README.md'
       - '!container/README.md'
 
-#permissions:
-#  contents: write
-#  packages: write
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   container_build:
