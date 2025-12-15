@@ -41,12 +41,12 @@ jobs:
 
     steps:
       - name: Download Build Artifacts (AMD64)
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: herald_amd64
 
       - name: Download Build Artifacts (ARM64)
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: herald_arm64
 
