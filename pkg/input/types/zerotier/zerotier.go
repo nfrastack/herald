@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -651,16 +652,16 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	}
 	p.logger.Trace("ZT-Net members API response: %s", string(body))
 	var members []struct {
-		Name            string   `json:"name"`
-		LastSeen        string   `json:"lastSeen"` // ISO timestamp for ZT-Net
-		Online          bool     `json:"online"`
-		IPs             []string `json:"ipAssignments"`
-		Authorized      bool     `json:"authorized"`
-		Tags            []string `json:"tags"`
-		ID              string   `json:"id"`
-		Address         string   `json:"address"`
-		NodeID          int      `json:"nodeid"`
-		PhysicalAddress string   `json:"physicalAddress"`
+		Name            string      `json:"name"`
+		LastSeen        string      `json:"lastSeen"` // ISO timestamp for ZT-Net
+		Online          bool        `json:"online"`
+		IPs             []string    `json:"ipAssignments"`
+		Authorized      bool        `json:"authorized"`
+		Tags            StringArray `json:"tags"`
+		ID              string      `json:"id"`
+		Address         string      `json:"address"`
+		NodeID          int         `json:"nodeid"`
+		PhysicalAddress string      `json:"physicalAddress"`
 	}
 	if err := json.Unmarshal(body, &members); err != nil {
 		return nil, fmt.Errorf("failed to parse ZT-Net members response: %w", err)
@@ -776,18 +777,85 @@ type ZerotierCentralMember struct {
 	Address       string   `json:"address"`
 }
 
+// StringArray is a helper type that unmarshals from either a JSON string or
+// a JSON array of strings (or nested numeric arrays) into a Go []string.
+type StringArray []string
+
+func (sa *StringArray) UnmarshalJSON(b []byte) error {
+	// Try single string
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*sa = StringArray{s}
+		return nil
+	}
+
+	// Try array of strings
+	var strs []string
+	if err := json.Unmarshal(b, &strs); err == nil {
+		*sa = StringArray(strs)
+		return nil
+	}
+
+	// Try a generic array (could be array of arrays like [[1,1],[2,1]] or mixed types)
+	var arr []interface{}
+	if err := json.Unmarshal(b, &arr); err == nil {
+		out := make([]string, 0, len(arr))
+		for _, el := range arr {
+			switch v := el.(type) {
+			case string:
+				out = append(out, v)
+			case float64:
+				if v == math.Trunc(v) {
+					out = append(out, fmt.Sprintf("%d", int64(v)))
+				} else {
+					out = append(out, fmt.Sprintf("%v", v))
+				}
+			case []interface{}:
+				if len(v) >= 2 {
+					a := formatInterfaceValue(v[0])
+					b := formatInterfaceValue(v[1])
+					out = append(out, fmt.Sprintf("%s:%s", a, b))
+				} else {
+					out = append(out, fmt.Sprint(v))
+				}
+			default:
+				out = append(out, fmt.Sprint(v))
+			}
+		}
+		*sa = StringArray(out)
+		return nil
+	}
+
+	return fmt.Errorf("invalid tags field: %s", string(b))
+}
+
+// formatInterfaceValue formats a JSON-unmarshalled interface{} into a simple string
+func formatInterfaceValue(v interface{}) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case float64:
+		if x == math.Trunc(x) {
+			return fmt.Sprintf("%d", int64(x))
+		}
+		return fmt.Sprintf("%v", x)
+	default:
+		return fmt.Sprint(x)
+	}
+}
+
 // ZTNetMember represents a member from ZT-Net API
 type ZTNetMember struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	LastSeen        string   `json:"lastSeen"`
-	Online          bool     `json:"online"`
-	IPAssignments   []string `json:"ipAssignments"`
-	Authorized      bool     `json:"authorized"`
-	Tags            []string `json:"tags"`
-	Address         string   `json:"address"`
-	NodeID          int      `json:"nodeid"`
-	PhysicalAddress string   `json:"physicalAddress"`
+	ID              string      `json:"id"`
+	Name            string      `json:"name"`
+	LastSeen        string      `json:"lastSeen"`
+	Online          bool        `json:"online"`
+	IPAssignments   []string    `json:"ipAssignments"`
+	Authorized      bool        `json:"authorized"`
+	Tags            StringArray `json:"tags"`
+	Address         string      `json:"address"`
+	NodeID          int         `json:"nodeid"`
+	PhysicalAddress string      `json:"physicalAddress"`
 }
 
 // EvaluateZerotierFilters evaluates structured filters against ZeroTier members
