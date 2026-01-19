@@ -86,7 +86,7 @@ jobs:
     #needs: release
     runs-on: ubuntu-latest
     env:
-      BASE_IMAGE: "docker.io/nfrastack/base:alpine_3.22"
+      BASE_IMAGE: "docker.io/nfrastack/base:alpine_3.23"
       build_file: container/Containerfile
     steps:
       - name: Prepare
