@@ -1,4 +1,4 @@
-## 2.3.4beta 2026-01-19 <code at nfrastack dot com>
+## 2.3.4 2026-01-19 <code at nfrastack dot com>
 
    ### Changed
     - (input/zerotier) Fix issue where networks with tags and arrays not parsed correctly
