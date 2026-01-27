@@ -777,26 +777,25 @@ type ZerotierCentralMember struct {
 	Address       string   `json:"address"`
 }
 
-// StringArray is a helper type that unmarshals from either a JSON string or
-// a JSON array of strings (or nested numeric arrays) into a Go []string.
+// StringArray is a helper type that unmarshals from either a JSON|array of strings into a go [] string.
 type StringArray []string
 
 func (sa *StringArray) UnmarshalJSON(b []byte) error {
-	// Try single string
+	// single string
 	var s string
 	if err := json.Unmarshal(b, &s); err == nil {
 		*sa = StringArray{s}
 		return nil
 	}
 
-	// Try array of strings
+	// array of strings
 	var strs []string
 	if err := json.Unmarshal(b, &strs); err == nil {
 		*sa = StringArray(strs)
 		return nil
 	}
 
-	// Try a generic array (could be array of arrays like [[1,1],[2,1]] or mixed types)
+	// generic array (or recursive arrays or multiple types)
 	var arr []interface{}
 	if err := json.Unmarshal(b, &arr); err == nil {
 		out := make([]string, 0, len(arr))
@@ -829,7 +828,7 @@ func (sa *StringArray) UnmarshalJSON(b []byte) error {
 	return fmt.Errorf("invalid tags field: %s", string(b))
 }
 
-// formatInterfaceValue formats a JSON-unmarshalled interface{} into a simple string
+// formatInterfaceValue formats interface{} into simple string
 func formatInterfaceValue(v interface{}) string {
 	switch x := v.(type) {
 	case string:
