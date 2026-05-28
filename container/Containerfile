@@ -63,7 +63,7 @@ RUN echo "" && \
     package install \
                     HERALD_BUILD_DEPS \
                     && \
-    package build go && \
+    package build go buildtime && \
     package build yq && \
     \
     cd /usr/src/herald && \
