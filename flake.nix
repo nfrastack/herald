@@ -46,7 +46,7 @@
               "-X main.BuildTime=${buildDateStr}"
             ];
 
-            vendorHash = "sha256-zUhjuSrYcTh+kPwYhJ2nZr4n/nptUJjx+hHNtxoImno=";
+            vendorHash = "sha256-J/ji1BFYRi4VXLL9oWRL2vwHpvwO8mqJ8RQ8sGBemgQ=";
           };
         });
 
