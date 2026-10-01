@@ -78,7 +78,7 @@
 
             package = lib.mkOption {
               type = lib.types.package;
-              default = self.packages.${pkgs.system}.herald;
+              default = self.packages.${pkgs.stdenv.hostPlatform.system}.herald;
               description = "Herald package to use";
             };
 
