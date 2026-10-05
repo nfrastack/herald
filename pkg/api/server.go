@@ -457,8 +457,6 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 // aggregateAndWriteWithRemovals combines all client data and writes to the specified output profile, processing explicit removals
 func (s *APIServer) aggregateAndWriteWithRemovals(connID string, removals map[string][][2]string) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
 	s.logger.Trace("[%s] Starting data aggregation and write process", connID)
 
 	// Remove expired clients
@@ -477,33 +475,65 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID string, removals map[st
 
 	s.logger.Debug("[%s] Processing data from %d active clients", connID, len(s.clients))
 
-	// Group clients by their output profiles
-	clientsByProfile := make(map[string][]string)
-	for clientID := range s.clients {
-		if profile, exists := s.profiles[clientID]; exists {
-			outputProfile := profile.OutputProfile
-			if outputProfile == "" {
-				outputProfile = "default"
+	// Snapshot client state
+	type snapshotRecord struct {
+		domain   string
+		hostname string
+		target   string
+		rtype    string
+		ttl      int
+		source   string
+		clientID string
+	}
+	snapshotsByProfile := make(map[string][]snapshotRecord)
+	for clientID, data := range s.clients {
+		prof, exists := s.profiles[clientID]
+		if !exists {
+			continue
+		}
+		outputProfile := prof.OutputProfile
+		if outputProfile == "" {
+			outputProfile = "default"
+		}
+		for domainName, domain := range data.Domains {
+			if domain == nil {
+				continue
 			}
-			clientsByProfile[outputProfile] = append(clientsByProfile[outputProfile], clientID)
+			for _, record := range domain.Records {
+				if record == nil {
+					continue
+				}
+				snapshotsByProfile[outputProfile] = append(snapshotsByProfile[outputProfile], snapshotRecord{
+					domain:   domainName,
+					hostname: record.Hostname,
+					target:   record.Target,
+					rtype:    record.Type,
+					ttl:      int(record.TTL),
+					source:   record.Source,
+					clientID: clientID,
+				})
+			}
 		}
 	}
+	removalsSnapshot := removals
+	outputManager := s.outputManager
+	s.mutex.Unlock()
 
 	// Aggregate data for each output profile separately
-	for outputProfile, clientIDs := range clientsByProfile {
-		if s.outputManager == nil {
+	for outputProfile, records := range snapshotsByProfile {
+		if outputManager == nil {
 			s.logger.Error("[%s] Output manager not available for profile '%s'", connID, outputProfile)
 			continue
 		}
-		profile := s.outputManager.GetProfile(outputProfile)
+		profile := outputManager.GetProfile(outputProfile)
 		if profile == nil {
 			s.logger.Error("[%s] Output profile '%s' not found in configuration", connID, outputProfile)
 			continue
 		}
 
 		// --- Process explicit removals for this output profile ---
-		if removals != nil {
-			for domain, recs := range removals {
+		if removalsSnapshot != nil {
+			for domain, recs := range removalsSnapshot {
 				for _, pair := range recs {
 					hostname := pair[0]
 					recordType := pair[1]
@@ -516,27 +546,33 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID string, removals map[st
 		var recordsWritten int
 		// Track all records seen for this profile (domain, hostname, type) by all clients
 		seenRecords := make(map[string]map[string]map[string]bool) // domain -> hostname -> type -> true
-		for _, clientID := range clientIDs {
-			data := s.clients[clientID]
-			for domainName, domain := range data.Domains {
-				if seenRecords[domainName] == nil {
-					seenRecords[domainName] = make(map[string]map[string]bool)
-				}
-				for _, record := range domain.Records {
-					if seenRecords[domainName][record.Hostname] == nil {
-						seenRecords[domainName][record.Hostname] = make(map[string]bool)
-					}
-					seenRecords[domainName][record.Hostname][record.Type] = true
-					// Add or update each record individually
-					err := profile.WriteRecordWithSource(domainName, record.Hostname, record.Target, record.Type, int(record.TTL), record.Source)
-					if err != nil {
-						writeErrors = append(writeErrors, fmt.Sprintf("add %s.%s: %v", record.Hostname, domainName, err))
-						s.logger.Error("[%s] Failed to add record %s.%s to profile '%s': %v", connID, record.Hostname, domainName, outputProfile, err)
-						continue
-					}
-					recordsWritten++
+		for _, record := range records {
+			domainName := record.domain
+			if seenRecords[domainName] == nil {
+				seenRecords[domainName] = make(map[string]map[string]bool)
+			}
+			if seenRecords[domainName][record.hostname] == nil {
+				seenRecords[domainName][record.hostname] = make(map[string]bool)
+			}
+			seenRecords[domainName][record.hostname][record.rtype] = true
+			// Preserve reporting client alongside original input source
+			// so zone comments read e.g. "atlas/docker_int".
+			source := record.source
+			if record.clientID != "" {
+				if source != "" {
+					source = record.clientID + "/" + source
+				} else {
+					source = record.clientID
 				}
 			}
+			// Add or update each record individually
+			err := profile.WriteRecordWithSource(domainName, record.hostname, record.target, record.rtype, record.ttl, source)
+			if err != nil {
+				writeErrors = append(writeErrors, fmt.Sprintf("add %s.%s: %v", record.hostname, domainName, err))
+				s.logger.Error("[%s] Failed to add record %s.%s to profile '%s': %v", connID, record.hostname, domainName, outputProfile, err)
+				continue
+			}
+			recordsWritten++
 		}
 		// To remove records, we need to know what is currently present in the output profile.
 		// Since OutputFormat does not expose a method to list all records, we cannot do this generically.
