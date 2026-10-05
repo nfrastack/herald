@@ -317,6 +317,7 @@ api:
       # token: file:///var/run/secrets/server1_token
       token: "server1-secret-token"
       output_profile: "zone_file"
+      # domains: ["example.com"]  # optional: reject uploads for other domains
     server2:
       # token: env://SERVER2_API_TOKEN
       token: "server2-secret-token"

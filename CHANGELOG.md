@@ -10,6 +10,9 @@
     - rework repository layout
     - constant format strings
     - gracefully stop API server and flush states on shutdown
+    - (api) scope client uploads to allowed domains
+    - (api) scope clients to allowed hostnames
+    - (api) add shareable_writes capability to write to whole zone
     - (output/zone) seperate manual from managed records
     - (output/zone) only write zone files when actual record change
     - (output/zone) properly attribute client on record addition
