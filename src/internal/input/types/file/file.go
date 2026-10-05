@@ -84,7 +84,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	logPrefix := common.BuildLogPrefix("file", parsed.Name)
 	source := common.ReadFileValue(options["source"])
 	if source == "" {
-		log.Error("%s source option (file path) is required", logPrefix)
+		log.NewScopedLogger("", "").With("provider", parsed.Name).Error("source option (file path) is required")
 		return nil, fmt.Errorf("%s source option (file path) is required", logPrefix)
 	}
 
@@ -99,7 +99,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		log.Debug("%s Error creating filter configuration: %v, using default", logPrefix, err)
+		log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("Error creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
@@ -131,15 +131,15 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 				watchMode = false
 			} else {
 				// Use global logger here since scoped logger doesn't exist yet
-				log.Warn("%s Invalid interval '%s', using default: watchMode=true", logPrefix, v)
+				log.NewScopedLogger("", "").With("provider", parsed.Name).Warn("Invalid interval '%s', using default: watchMode=true", v)
 			}
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if watchMode {
-		log.Info("%s Initializing file provider: name: %s source=%s, format=%s, watchMode=%v", logPrefix, parsed.Name, source, format, watchMode)
+		log.NewScopedLogger("", "").With("provider", parsed.Name).Info("Initializing file provider: source=%s, format=%s, watchMode=%v", source, format, watchMode)
 	} else {
-		log.Info("%s Initializing file provider: name: %s source=%s, format=%s, interval=%v, watchMode=%v", logPrefix, parsed.Name, source, format, finalInterval, watchMode)
+		log.NewScopedLogger("", "").With("provider", parsed.Name).Info("Initializing file provider: source=%s, format=%s, interval=%v, watchMode=%v", source, format, finalInterval, watchMode)
 	}
 	logLevel := options["log_level"] // Get provider-specific log level
 
@@ -148,7 +148,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 
 	// Only log override message if there's actually a log level override
 	if logLevel != "" {
-		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
 	}
 
 	return &FileProvider{
@@ -306,11 +306,11 @@ func (p *FileProvider) processFile() {
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		if _, ok := p.lastRecords[key]; !ok {
 			if p.isInitialLoad {
-				p.logger.Info("Initial record detected: %s (%s)", fqdnNoDot, recordType)
+				p.logger.With("fqdn", fqdnNoDot).Info("Initial record detected (%s)", recordType)
 			} else {
-				p.logger.Info("New record detected: %s (%s)", fqdnNoDot, recordType)
+				p.logger.With("fqdn", fqdnNoDot).Info("New record detected (%s)", recordType)
 			}
-			p.logger.Trace("New or changed record detected: fqdn='%s', type='%s'", fqdnNoDot, recordType)
+			p.logger.With("fqdn", fqdnNoDot).Trace("New or changed record detected, type='%s'", recordType)
 
 			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
 			// and input provider validation.
@@ -327,10 +327,10 @@ func (p *FileProvider) processFile() {
 				Service:    e.Target,
 				RecordType: recordType, // Set the actual DNS record type
 			}
-			p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+			p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecord: %+v", state)
 			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
-				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
+				p.logger.With("fqdn", fqdnNoDot).Error("Failed to ensure DNS: %v", err)
 			}
 		}
 	}
@@ -340,7 +340,7 @@ func (p *FileProvider) processFile() {
 				fqdn := old.GetFQDN()
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				recordType := old.GetRecordType()
-				p.logger.Info("Record removed: %s (%s)", fqdnNoDot, recordType) // This log is fine
+				p.logger.With("fqdn", fqdnNoDot).Info("Record removed (%s)", recordType)
 
 				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
 				// and input provider validation.
@@ -357,10 +357,10 @@ func (p *FileProvider) processFile() {
 					Service:    old.Target,
 					RecordType: recordType,
 				}
-				p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+				p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecordRemoval: %+v", state)
 				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
-					p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
+					p.logger.With("fqdn", fqdnNoDot).Error("Failed to remove DNS: %v", err)
 				}
 			}
 		}
