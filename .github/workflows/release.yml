@@ -27,7 +27,9 @@ jobs:
       - name: Build Binary
         working-directory: src
         run: |
-          CGO_ENABLED=0 GOARCH=${{ matrix.arch }} GOOS=linux go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o ../herald_${{ matrix.arch }} ./cmd/herald
+          COMMIT=$(git rev-parse --short=7 HEAD)
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          CGO_ENABLED=0 GOARCH=${{ matrix.arch }} GOOS=linux go build -trimpath -ldflags "-s -w -X main.Version=${{ github.ref_name }} -X main.buildChannel=stable -X main.buildCommit=${COMMIT} -X main.BuildTime=${BUILD_DATE}" -o ../herald_${{ matrix.arch }} ./cmd/herald
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v7

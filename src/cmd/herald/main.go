@@ -35,6 +35,12 @@ var (
 	// BuildTime is when the application was built
 	BuildTime = "unknown"
 
+	// buildChannel is the release channel (auto, edge, beta, stable)
+	buildChannel = "auto"
+
+	// buildCommit is the short git commit the binary was built from
+	buildCommit = "unknown"
+
 	// Force package inclusion to register providers
 	_ = providers.PowerDNSProviderName
 )
@@ -42,7 +48,7 @@ var (
 // String returns a string representation of the version information
 func versionString(showBuild bool) string {
 	if showBuild {
-		return fmt.Sprintf("%s (built: %s)", Version, BuildTime)
+		return fmt.Sprintf("%s-%s-%s (built: %s)", Version, buildChannel, buildCommit, BuildTime)
 	}
 	return Version
 }

@@ -4,20 +4,23 @@ BUILD_DIR := ./cmd/herald
 GO := go
 LDFLAGS := -s -w
 VERSION := $(shell [ -n "$$HERALD_VERSION" ] && echo "$$HERALD_VERSION" || (git describe --tags --exact-match 2>/dev/null || git describe --always --dirty || echo "dev"))
+GIT_COMMIT ?= $(shell if [ -n "$$HERALD_COMMIT" ]; then echo "$$HERALD_COMMIT"; else git rev-parse --short HEAD 2>/dev/null; fi)
+# auto (default: infer from version) | edge | beta | stable
+CHANNEL ?= auto
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-BUILD_FLAGS := -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)
+BUILD_FLAGS := -X main.Version=$(VERSION) -X main.buildChannel=$(CHANNEL) -X main.buildCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)
 
 all: build
 
 build:
-	cd $(SRC_DIR) && CGO_ENABLED=0 $(GO) build -mod=mod -ldflags "$(BUILD_FLAGS)" -o ../$(BINARY_NAME) $(BUILD_DIR)
+	cd $(SRC_DIR) && CGO_ENABLED=0 $(GO) build -trimpath -mod=mod -ldflags "$(BUILD_FLAGS)" -o ../$(BINARY_NAME) $(BUILD_DIR)
 
 build-release:
-	cd $(SRC_DIR) && CGO_ENABLED=0 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o ../$(BINARY_NAME) $(BUILD_DIR)
+	cd $(SRC_DIR) && CGO_ENABLED=0 $(GO) build -trimpath -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o ../$(BINARY_NAME) $(BUILD_DIR)
 
 build-all:
-	cd $(SRC_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o ../$(BINARY_NAME)_x86_64 $(BUILD_DIR)
-	cd $(SRC_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o ../$(BINARY_NAME)_aarch64 $(BUILD_DIR)
+	cd $(SRC_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o ../$(BINARY_NAME)_x86_64 $(BUILD_DIR)
+	cd $(SRC_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o ../$(BINARY_NAME)_aarch64 $(BUILD_DIR)
 
 clean:
 	rm -f $(BINARY_NAME) $(BINARY_NAME)_x86_64 $(BINARY_NAME)_aarch64
