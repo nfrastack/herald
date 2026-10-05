@@ -67,7 +67,7 @@ func NewProvider(profileName string, config map[string]interface{}, outputWriter
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		log.Debug("%s Error creating filter configuration: %v, using default", logPrefix, err)
+		log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("Error creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
@@ -75,13 +75,13 @@ func NewProvider(profileName string, config map[string]interface{}, outputWriter
 	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone)
 
 	if hasActiveFilters {
-		log.Debug("%s Filter configuration: %d active filters", logPrefix, len(filterConfig.Filters))
+		log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("Filter configuration: %d active filters", len(filterConfig.Filters))
 		for i, f := range filterConfig.Filters {
-			log.Debug("%s   Filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v",
-				logPrefix, i, f.Type, f.Value, f.Operation, f.Negate)
+			log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("  Filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v",
+				i, f.Type, f.Value, f.Operation, f.Negate)
 		}
 	} else {
-		log.Debug("%s No active filters configured, processing all routes", logPrefix)
+		log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("No active filters configured, processing all routes")
 	}
 
 	// Create scoped logger using common helper
@@ -197,24 +197,24 @@ func (p *CaddyProvider) processCaddy() {
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		if _, ok := p.lastHosts[key]; !ok {
 			if isInitialLoad {
-				p.logger.Info("Initial record detected: %s (A)", fqdnNoDot)
+				p.logger.With("fqdn", fqdnNoDot).Info("Initial record detected (A)")
 			} else {
-				p.logger.Info("New record detected: %s (A)", fqdnNoDot)
+				p.logger.With("fqdn", fqdnNoDot).Info("New record detected (A)")
 			}
 			// Use helper to get parent domain for correct domain config matching
 			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-			p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
+			p.logger.With("domain", realDomain).Trace("Using real domain name for DNS provider")
 			state := domain.RouterState{
 				SourceType: "caddy",
 				Name:       p.opts.Name, // Use the actual provider name
 				Service:    h.Service,
 				RecordType: "A",
 			}
-			p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+			p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecord: %+v", state)
 			// Pass realDomain (parent domain) for correct config matching
 			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
-				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
+				p.logger.With("fqdn", fqdnNoDot).Error("Failed to ensure DNS: %v", err)
 			}
 		}
 	}
@@ -223,21 +223,21 @@ func (p *CaddyProvider) processCaddy() {
 			if _, ok := current[key]; !ok {
 				fqdn := old.Name
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
-				p.logger.Info("Record removed: %s (A)", fqdnNoDot)
+				p.logger.With("fqdn", fqdnNoDot).Info("Record removed (A)")
 				// Use helper to get parent domain for correct domain config matching
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-				p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
+				p.logger.With("domain", realDomain).Trace("Using real domain name for DNS provider")
 				state := domain.RouterState{
 					SourceType: "caddy",
 					Name:       p.opts.Name, // Use the actual provider name
 					Service:    old.Service,
 					RecordType: "A",
 				}
-				p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+				p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecordRemoval: %+v", state)
 				// Pass realDomain (parent domain) for correct config matching
 				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
-					p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
+					p.logger.With("fqdn", fqdnNoDot).Error("Failed to remove DNS: %v", err)
 				}
 			}
 		}
