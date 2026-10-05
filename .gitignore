@@ -2,6 +2,12 @@
 .devenv*
 devenv.local.nix
 
+# Go build outputs
+herald
+herald_x86_64
+herald_aarch64
+herald_*/
+
 # direnv
 .direnv
 

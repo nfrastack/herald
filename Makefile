@@ -1,4 +1,5 @@
 BINARY_NAME := herald
+SRC_DIR := src
 BUILD_DIR := ./cmd/herald
 GO := go
 LDFLAGS := -s -w
@@ -9,14 +10,14 @@ BUILD_FLAGS := -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)
 all: build
 
 build:
-	$(GO) build -mod=mod -ldflags "$(BUILD_FLAGS)" -o $(BINARY_NAME) $(BUILD_DIR)
+	cd $(SRC_DIR) && CGO_ENABLED=0 $(GO) build -mod=mod -ldflags "$(BUILD_FLAGS)" -o ../$(BINARY_NAME) $(BUILD_DIR)
 
 build-release:
-	$(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME) $(BUILD_DIR)
+	cd $(SRC_DIR) && CGO_ENABLED=0 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o ../$(BINARY_NAME) $(BUILD_DIR)
 
 build-all:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME)_x86_64 $(BUILD_DIR)
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o $(BINARY_NAME)_aarch64 $(BUILD_DIR)
+	cd $(SRC_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o ../$(BINARY_NAME)_x86_64 $(BUILD_DIR)
+	cd $(SRC_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -mod=mod -ldflags "$(LDFLAGS) $(BUILD_FLAGS)" -o ../$(BINARY_NAME)_aarch64 $(BUILD_DIR)
 
 clean:
 	rm -f $(BINARY_NAME) $(BINARY_NAME)_x86_64 $(BINARY_NAME)_aarch64
