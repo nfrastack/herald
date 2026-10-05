@@ -164,7 +164,7 @@ Global settings for the application. These can be set in the `general` section o
 
 **Options:**
 
-- `log_level` (string): Logging level for the application (e.g., `trace`, `debug`, `verbose`, `info`, `warn`, `error`).
+- `log_level` (string): Logging level for the application (eg `trace`, `debug`, `verbose`, `info`, `warn`, `error`).
 - `log_timestamps` (bool): Whether to include timestamps in log output.
 - `dry_run` (bool): If true, perform a test run without making DNS changes.
 
@@ -187,14 +187,14 @@ Domains define per-domain configuration, including which input/output profiles t
 
 **Options:**
 
-- `name` (string): The DNS domain name (e.g., `example.com`).
+- `name` (string): The DNS domain name (eg `example.com`).
 - `profiles` (object): Structured input and output configuration:
   - `inputs` (list of strings): Which input providers are allowed to create records for this domain.
   - `outputs` (list of strings): Which output profiles should process records for this domain.
 - `record` (object): DNS record options for this domain:
-  - `type` (string): DNS record type (e.g., `A`, `AAAA`, `CNAME`).
+  - `type` (string): DNS record type (eg `A`, `AAAA`, `CNAME`).
   - `ttl` (integer): Time-to-live for DNS records (in seconds).
-  - `target` (string): The value for the DNS record (e.g., IP address or CNAME target).
+  - `target` (string): The value for the DNS record (eg IP address or CNAME target).
   - `update_existing` (bool): Whether to update existing records for this domain.
   - `allow_multiple` (bool): Allow multiple A/AAAA records for this domain.
   - `proxied` (bool): Set proxied flag (Cloudflare DNS only)
@@ -346,9 +346,9 @@ inputs:
 
 The Caddy provider supports filtering to precisely control which routes to process:
 
-- **host**: Filter by hostname patterns (e.g., `*.localhost`, `api*.example.com`)
+- **host**: Filter by hostname patterns (eg `*.localhost`, `api*.example.com`)
 - **handler**: Filter by handler type (`reverse_proxy`, `file_server`, `static_response`, `vars`)
-- **upstream**: Filter by upstream dial addresses (e.g., `host.docker.internal:*`, `localhost:2019`)
+- **upstream**: Filter by upstream dial addresses (eg `host.docker.internal:*`, `localhost:2019`)
 - **server**: Filter by server name (`srv0`, etc.)
 
 **Example Filters:**
@@ -470,7 +470,7 @@ The Docker provider supports automatic DNS record creation by using container la
   - Values: `true`, `false`, `1`, `0`
   - If omitted, defaults to the value of `expose_containers` in the provider configuration
 
-- `nfrastack.herald.host`: The full hostname to register (e.g., `app.example.com`)
+- `nfrastack.herald.host`: The full hostname to register (eg `app.example.com`)
   - This is the primary label used for DNS configuration
   - Format: `<hostname>.<domain>` or just `<domain>` for apex records
 
@@ -638,7 +638,7 @@ labels:
   - nfrastack.herald.disable.<profile>=true
 ```
 
-Replace `<profile>` with the name of your input provider (e.g., `docker_pub`, `docker_int`).
+Replace `<profile>` with the name of your input provider (eg `docker_pub`, `docker_int`).
 
 **Example:**
 ```yaml
@@ -649,7 +649,7 @@ services:
       - nfrastack.herald.disable.docker_pub=true
 ```
 
-This will prevent the `docker_pub` input provider from processing this container, even if other filters match. Other providers (e.g., `docker_int`) will still process the container unless also disabled.
+This will prevent the `docker_pub` input provider from processing this container, even if other filters match. Other providers (eg `docker_int`) will still process the container unless also disabled.
 
 
 #### File Input Provider
@@ -733,7 +733,7 @@ filter:
 
 - `source` (required): Path to the file.
 - `format`: `yaml` (default), `json`, `hosts`, or `zone` - autodetects based on extension.
-- `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
+- `interval`: `-1` (default, watch mode), or a duration (eg `30s`).
 - `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
 - `process_existing`: Process all records on startup. Default: `false`.
 
@@ -806,7 +806,7 @@ filter:
 
 - `remote_url` (required): URL to the remote YAML or JSON file.
 - `format`: `yaml` (default) or `json`.
-- `interval`: How often to poll the remote file (e.g., `30s`).
+- `interval`: How often to poll the remote file (eg `30s`).
 - `process_existing`: Process all records on startup. Default: `false`.
 - `record_remove_on_stop`: Remove DNS records when removed from remote. Default: `false`.
 - `remote_auth_user`: Username for HTTP Basic Auth (optional).
@@ -830,6 +830,7 @@ inputs:
     api_key: "your_tailscale_api_key_here"
     tailnet: "-"                # Default tailnet, or specify tailnet ID
     domain: "ts.example.com"
+    additional_domains: "example.net, example.org"  # extra suffixes, one poll (comma/space separated, or YAML list)
     interval: 30s
     hostname_format: "simple"   # "simple", "tailscale", or "full"
     process_existing: true
@@ -863,7 +864,7 @@ api_auth_id: "your_oauth_client_id"
 
 **Hostname Formats:**
 
-- `simple`: Use device name, remove `.tail` suffix (e.g., `laptop` from `laptop.tail12345.ts.net`)
+- `simple`: Use device name, remove `.tail` suffix (eg `laptop` from `laptop.tail12345.ts.net`)
 - `tailscale`: Use device name but sanitize for DNS (replace dots/underscores with hyphens)
 - `full`: Use complete Tailscale hostname as-is
 
@@ -901,6 +902,7 @@ inputs:
 - `api_url`: API URL (default: Tailscale Central, specify for Headscale)
 - `tailnet`: Tailnet ID or namespace (default: "-" for default tailnet)
 - `domain`: Domain suffix for DNS records (required)
+- `additional_domains`: Extra domain suffixes to publish each device under from the same poll (eg `"example.com, example.org"` or a YAML list). Single API lookup, no extra polling. Default: unset (primary `domain` only).
 - `interval`: Polling interval (default: 120s)
 - `hostname_format`: How to format hostnames (default: "simple")
 - `process_existing`: Process existing devices on startup (default: false)
@@ -972,10 +974,10 @@ inputs:
 **Options for configuring a Traefik input provider:**
 
 - `type`: (string) Must be `traefik` for Traefik input provider.
-- `api_url`: The URL of the Traefik API to poll (e.g., `http://traefik:8080/api/http/routers`).
+- `api_url`: The URL of the Traefik API to poll (eg `http://traefik:8080/api/http/routers`).
 - `api_auth_user`: Username for basic auth to the Traefik API (optional).
 - `api_auth_pass`: Password for basic auth to the Traefik API (optional).
-- `interval`: How often to poll the Traefik API for updates (e.g., `15s`, `1m`, `1h`).
+- `interval`: How often to poll the Traefik API for updates (eg `15s`, `1m`, `1h`).
 - `tls`: TLS configuration object (optional):
   - `verify`: Whether to verify TLS certificates (default: true).
   - `ca`: Path to custom CA certificate file (optional).
@@ -990,10 +992,10 @@ The Traefik provider supports advanced filtering to precisely control which rout
 
 **Available filter types:**
 
-- `name`: Filter routers by name patterns (e.g., `^websecure-`, `*-internal`)
+- `name`: Filter routers by name patterns (eg `^websecure-`, `*-internal`)
 - `service`: Filter by service name patterns
-- `provider`: Filter by provider (e.g., `docker`, `file`, `kubernetes`)
-- `entrypoint`: Filter by entrypoints (e.g., `websecure`, `web`)
+- `provider`: Filter by provider (eg `docker`, `file`, `kubernetes`)
+- `entrypoint`: Filter by entrypoints (eg `websecure`, `web`)
 - `status`: Filter by router status
 - `rule`: Filter by router rule patterns
 
@@ -1094,6 +1096,7 @@ inputs:
     api_token: "your_zerotier_api_token_here"
     network_id: "YOUR_NETWORK_ID"
     domain: "zt.example.com"
+    additional_domains: "example.net, example.org"  # extra suffixes, one poll (comma/space separated, or YAML list)
     online_timeout_seconds: 300  # Recommended: 300+ seconds
     record_remove_on_stop: true
     use_address_fallback: true
@@ -1108,7 +1111,8 @@ inputs:
 - `type`: Must be "zerotier"
 - `api_token`: ZeroTier API token or ZT-Net auth token (required)
 - `network_id`: ZeroTier network ID (required)
-- `domain`: Domain suffix for DNS records (e.g., `zt.example.com`)
+- `domain`: Domain suffix for DNS records (eg `zt.example.com`)
+- `additional_domains`: Extra domain suffixes to publish each member under from the same poll (eg `"example.com, example.org"` or a YAML list). Single API lookup, no extra polling. Default: unset (primary `domain` only).
 - `api_url`: API URL (default: `https://my.zerotier.com` for ZeroTier Central)
 - `interval`: Polling interval (default: 60s)
 - `online_timeout_seconds`: Time to consider member offline (default: 120, recommend: 300+)
@@ -1469,7 +1473,7 @@ Default DNS record settings, used unless overridden at the domain or container l
 **Options:**
 
 - `record` (object): Default DNS record options:
-  - `type` (string): Default DNS record type (e.g., `A`, `AAAA`, `CNAME`).
+  - `type` (string): Default DNS record type (eg `A`, `AAAA`, `CNAME`).
   - `ttl` (integer): Default time-to-live for DNS records (in seconds).
   - `update_existing` (bool): Whether to update existing records by default.
   - `allow_multiple` (bool): Allow multiple A/AAAA records by default.

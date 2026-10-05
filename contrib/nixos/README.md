@@ -95,6 +95,7 @@ Here are the available options for the NixOS module (services.herald):
     * `api_url` (str): API URL (defaults to Tailscale Central, specify for Headscale).
     * `tailnet` (str): Tailnet ID or namespace (defaults to "-").
     * `domain` (str): Domain suffix for DNS records.
+    * `additional_domains` (str or list): Extra domain suffixes from the same poll.
     * `interval` (str): Polling interval (default: "120s").
     * `hostname_format` (str): Hostname format ("simple", "tailscale", "full").
     * `process_existing` (bool): Process existing devices on startup.
@@ -109,6 +110,7 @@ Here are the available options for the NixOS module (services.herald):
     * `interval` (str): Polling interval (e.g., "60s").
     * `network_id` (str): ZeroTier network ID.
     * `domain` (str): Domain to append to hostnames.
+    * `additional_domains` (str or list): Extra domain suffixes from the same poll.
     * `online_timeout_seconds` (int): Seconds to consider a member offline.
     * `process_existing` (bool): Process records on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when node goes offline.

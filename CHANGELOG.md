@@ -1,5 +1,9 @@
 ## beta 2026-10-04 <code at nfrastack dot com>
 
+   ### Added
+    - (input/tailscale) support additional_domains
+    - (input/zerotier) support additional_domains
+
    ### Changed
     - Support IPV6 safely
     - (output/zone) only write zone files when actual record change

@@ -102,6 +102,7 @@ inputs:
     api_key: "tskey-api-xxxxx"
     tailnet: "-"
     domain: "ts.example.com"
+    # additional_domains: "example.net, example.org"
     interval: 120s
     hostname_format: "simple"
     process_existing: true
@@ -120,6 +121,7 @@ inputs:
     # network_id: env://ZEROTIER_NETWORK_ID
     network_id: "YOUR_NETWORK_ID"
     domain: "zt.example.com"
+    # additional_domains: "example.net, example.org"
     interval: 60s
     online_timeout_seconds: 300
     use_address_fallback: true

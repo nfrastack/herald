@@ -5,6 +5,7 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
 	"herald/pkg/config"
 	"herald/pkg/util"
@@ -24,6 +25,44 @@ func BuildLogPrefix(providerType, profileName string) string {
 // otherwise returns the original value
 func ReadFileValue(value string) string {
 	return util.ReadSecretValue(value)
+}
+
+// ParseDomainList parses a domain list option into a deduplicated slice.
+func ParseDomainList(value string) []string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+
+	// JSON array first (handles ["a", "b"]).
+	if strings.HasPrefix(trimmed, "[") {
+		var arr []string
+		if err := json.Unmarshal([]byte(trimmed), &arr); err == nil {
+			return dedupeDomains(arr)
+		}
+		// Fall through to manual parsing for Go style [a b] / [a, b].
+		trimmed = strings.TrimPrefix(strings.TrimSuffix(trimmed, "]"), "[")
+	}
+
+	// Split on commas and whitespace.
+	parts := strings.FieldsFunc(trimmed, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	return dedupeDomains(parts)
+}
+
+func dedupeDomains(domains []string) []string {
+	var out []string
+	seen := make(map[string]bool)
+	for _, d := range domains {
+		d = strings.TrimSpace(strings.Trim(d, `"'`))
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	return out
 }
 
 // ExtractDomainAndSubdomain extracts domain config key and subdomain from a hostname
