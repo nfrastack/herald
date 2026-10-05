@@ -25,6 +25,9 @@ build-all:
 clean:
 	rm -f $(BINARY_NAME) $(BINARY_NAME)_x86_64 $(BINARY_NAME)_aarch64
 
+test:
+	cd $(SRC_DIR) && CGO_ENABLED=0 $(GO) test -count=1 -short ./...
+
 clean-vendor:
 	rm -rf vendor
 
@@ -64,6 +67,7 @@ help:
 	@echo "make build-release      Build the binary with version information"
 	@echo "make build-all          Build binaries for x86_64 and aarch64"
 	@echo "make clean              Clean up build artifacts"
+	@echo "make test               Run unit tests"
 	@echo "make install            Install the binary locally"
 	@echo "make release            Build and prepare for release"
 	@echo "make check-release      Verify if the repository is tagged and clean"
