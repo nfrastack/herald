@@ -25,6 +25,7 @@
             pname = "herald";
             version = "${version}";
             src = self;
+            modRoot = "src";
 
             meta = {
               description = "Herald - Dynamic DNS record management for modern infrastructure. Supports Docker, Traefik, File, Remote, Tailscale, and ZeroTier/ZT-Net poll providers.";
@@ -46,22 +47,23 @@
               "-X main.BuildTime=${buildDateStr}"
             ];
 
-            vendorHash = "sha256-J/ji1BFYRi4VXLL9oWRL2vwHpvwO8mqJ8RQ8sGBemgQ=";
+            vendorHash = "sha256-LJkEVo3ATLV82OViDT/K/Cg1LE1o1MxcHuO+ixOYAZY=";
           };
+          default = self.packages.${system}.herald;
         });
 
       devShells = forAllSystems (system:
         let pkgs = nixpkgsFor.${system};
-        in pkgs.mkShell {
-          buildInputs = with pkgs; [
-            gnumake
-            go
-          ];
+        in {
+          default = pkgs.mkShell {
+            buildInputs = with pkgs; [
+              gnumake
+              go
+            ];
+          };
         });
 
-      devShell = forAllSystems (system: self.devShells.${system});
-
-      defaultPackage = forAllSystems (system: self.packages.${system}.herald);
+      devShell = forAllSystems (system: self.devShells.${system}.default);
 
       nixosModules.default = { config, lib, pkgs, ... }:
         let
