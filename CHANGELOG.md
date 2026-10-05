@@ -9,6 +9,7 @@
     - Support IPV6 safely
     - rework repository layout
     - constant format strings
+    - gracefully stop API server and flush states on shutdown
     - (output/zone) seperate manual from managed records
     - (output/zone) only write zone files when actual record change
     - (output/zone) properly attribute client on record addition
