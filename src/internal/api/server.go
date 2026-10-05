@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -31,6 +32,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ClientData represents data from a single client
 // ClientData represents data from a single client
 type ClientData struct {
 	ClientID   string             `json:"client_id" yaml:"client_id"`
@@ -82,6 +84,8 @@ type APIServer struct {
 	failedAttempts map[string]*FailedAttemptTracker // Track failed authentication attempts by IP
 	attemptsMutex  sync.RWMutex                     // Separate mutex for failed attempts
 	stopCleanup    chan struct{}                    // Closed on shutdown to stop the cleanup loop
+	ownedMu        sync.RWMutex
+	owned          map[string]string // domain:host:type -> owning clientID
 }
 
 // FailedAttemptTracker tracks failed authentication attempts from an IP
@@ -91,172 +95,211 @@ type FailedAttemptTracker struct {
 	LastFailed  time.Time
 }
 
-// Generate a short connection ID (8 characters)
-func generateConnectionID() string {
-	bytes := make([]byte, 4)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
+// aggregateAndWriteWithRemovals combines all client data and writes to the specified output profile, processing explicit removals
+func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string, removals map[string][][2]string) {
+	s.mutex.Lock()
+	s.logger.Trace("[%s] Starting data aggregation and write process", connID)
+
+	// Remove expired clients
+	now := time.Now()
+	expiredCount := 0
+	for clientID, data := range s.clients {
+		if now.Sub(data.Received) > s.clientExpiry {
+			delete(s.clients, clientID)
+			expiredCount++
+			s.logger.Info("[%s] Removed expired client: %s", connID, clientID)
+		}
+	}
+	if expiredCount > 0 {
+		s.logger.Debug("[%s] Removed %d expired clients", connID, expiredCount)
+	}
+
+	s.logger.Debug("[%s] Processing data from %d active clients", connID, len(s.clients))
+
+	// Snapshot client state
+	type snapshotRecord struct {
+		domain   string
+		hostname string
+		target   string
+		rtype    string
+		ttl      int
+		source   string
+		clientID string
+	}
+	snapshotsByProfile := make(map[string][]snapshotRecord)
+	skippedByClient := make(map[string]map[string]int) // client -> domain -> count
+	hostPatterns := make(map[string][]string)          // client -> hostname globs
+	sharedWrites := make(map[string]bool)              // client -> may touch others' records
+	for clientID, data := range s.clients {
+		prof, exists := s.profiles[clientID]
+		if !exists {
+			continue
+		}
+		outputProfile := prof.OutputProfile
+		if outputProfile == "" {
+			outputProfile = "default"
+		}
+		hostPatterns[clientID] = prof.Hostnames
+		sharedWrites[clientID] = prof.SharedWrites
+		allowed := make(map[string]bool, len(prof.Domains))
+		for _, d := range prof.Domains {
+			allowed[d] = true
+		}
+		for domainName, domain := range data.Domains {
+			if domain == nil {
+				continue
+			}
+			if len(allowed) > 0 && !allowed[domainName] {
+				if skippedByClient[clientID] == nil {
+					skippedByClient[clientID] = make(map[string]int)
+				}
+				skippedByClient[clientID][domainName] += len(domain.Records)
+				continue
+			}
+			for _, record := range domain.Records {
+				if record == nil {
+					continue
+				}
+				snapshotsByProfile[outputProfile] = append(snapshotsByProfile[outputProfile], snapshotRecord{
+					domain:   domainName,
+					hostname: record.Hostname,
+					target:   record.Target,
+					rtype:    record.Type,
+					ttl:      int(record.TTL),
+					source:   record.Source,
+					clientID: clientID,
+				})
+			}
+		}
+	}
+	removalsSnapshot := removals
+	outputManager := s.outputManager
+	s.mutex.Unlock()
+
+	for clientID, domains := range skippedByClient {
+		for domainName, n := range domains {
+			s.logger.Warn("[%s] Client %s attempted %d record(s) for domain '%s' outside its allowed list - rejected", connID, clientID, n, domainName)
+		}
+	}
+
+	// Aggregate data for each output profile separately
+	for outputProfile, records := range snapshotsByProfile {
+		if outputManager == nil {
+			s.logger.Error("[%s] Output manager not available for profile '%s'", connID, outputProfile)
+			continue
+		}
+		profile := outputManager.GetProfile(outputProfile)
+		if profile == nil {
+			s.logger.Error("[%s] Output profile '%s' not found in configuration", connID, outputProfile)
+			continue
+		}
+
+		// --- Process explicit removals for this output profile ---
+		// Scoped to the uploading client's allowlists (fail-closed when set)
+		// and to records it owns.
+		var uploadAllowed map[string]bool
+		var uploadHosts []string
+		var uploadShared bool
+		s.mutex.RLock()
+		if prof, exists := s.profiles[uploadClientID]; exists {
+			if len(prof.Domains) > 0 {
+				uploadAllowed = make(map[string]bool, len(prof.Domains))
+				for _, d := range prof.Domains {
+					uploadAllowed[d] = true
+				}
+			}
+			uploadHosts = prof.Hostnames
+			uploadShared = prof.SharedWrites
+		}
+		s.mutex.RUnlock()
+		if removalsSnapshot != nil {
+			for domain, recs := range removalsSnapshot {
+				if uploadAllowed != nil && !uploadAllowed[domain] {
+					s.logger.Warn("[%s] Client %s attempted removal(s) for domain '%s' outside its allowed list - rejected", connID, uploadClientID, domain)
+					continue
+				}
+				for _, pair := range recs {
+					hostname := pair[0]
+					recordType := pair[1]
+					if !hostAllowed(uploadHosts, hostname) {
+						s.logger.Warn("[%s] Client %s attempted removal of %s.%s outside its hostname scope - rejected", connID, uploadClientID, hostname, domain)
+						continue
+					}
+					if !uploadShared && s.ownedByOther(domain, hostname, recordType, uploadClientID) {
+						s.logger.Warn("[%s] Client %s attempted removal of %s.%s owned by another client - rejected", connID, uploadClientID, hostname, domain)
+						continue
+					}
+					_ = profile.RemoveRecord(domain, hostname, recordType)
+					state.Remove(domain, hostname, recordType)
+					s.unown(domain, hostname, recordType)
+				}
+			}
+		}
+
+		var writeErrors []string
+		var recordsWritten int
+		// Track all records seen for this profile (domain, hostname, type) by all clients
+		seenRecords := make(map[string]map[string]map[string]bool) // domain -> hostname -> type -> true
+		for _, record := range records {
+			domainName := record.domain
+			if !hostAllowed(hostPatterns[record.clientID], record.hostname) {
+				s.logger.Warn("[%s] Client %s attempted %s.%s outside its hostname scope - rejected", connID, record.clientID, record.hostname, domainName)
+				continue
+			}
+			if !sharedWrites[record.clientID] && s.ownedByOther(domainName, record.hostname, record.rtype, record.clientID) {
+				s.logger.Warn("[%s] Client %s attempted overwrite of %s.%s owned by another client - rejected", connID, record.clientID, record.hostname, domainName)
+				continue
+			}
+			if seenRecords[domainName] == nil {
+				seenRecords[domainName] = make(map[string]map[string]bool)
+			}
+			if seenRecords[domainName][record.hostname] == nil {
+				seenRecords[domainName][record.hostname] = make(map[string]bool)
+			}
+			seenRecords[domainName][record.hostname][record.rtype] = true
+			// Preserve reporting client alongside original input source
+			// so zone comments read e.g. "atlas/docker_int".
+			source := record.source
+			if record.clientID != "" {
+				if source != "" {
+					source = record.clientID + "/" + source
+				} else {
+					source = record.clientID
+				}
+			}
+			// Add or update each record individually
+			err := profile.WriteRecordWithSource(domainName, record.hostname, record.target, record.rtype, record.ttl, source)
+			if err != nil {
+				writeErrors = append(writeErrors, fmt.Sprintf("add %s.%s: %v", record.hostname, domainName, err))
+				s.logger.Error("[%s] Failed to add record %s.%s to profile '%s': %v", connID, record.hostname, domainName, outputProfile, err)
+				continue
+			}
+			recordsWritten++
+			s.claim(domainName, record.hostname, record.rtype, record.clientID)
+			state.Touch(domainName, record.hostname, record.rtype, record.target, record.source, record.clientID)
+		}
+		// To remove records, we need to know what is currently present in the output profile.
+		// Since OutputFormat does not expose a method to list all records, we cannot do this generically.
+		// For file-based outputs, removals are handled by not rewriting records that are not present in seenRecords.
+		// For remote or other outputs, implementers should ensure removals are handled as needed.
+		// Sync after all adds
+		err := profile.Sync()
+		if err != nil {
+			writeErrors = append(writeErrors, fmt.Sprintf("sync: %v", err))
+			s.logger.Error("[%s] Failed to sync profile '%s': %v", connID, outputProfile, err)
+		}
+		if len(writeErrors) == 0 {
+			s.logger.Verbose("[%s] Successfully wrote and synced %d records to profile '%s'", connID, recordsWritten, outputProfile)
+		} else {
+			s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred", connID, outputProfile, len(writeErrors))
+		}
+		s.logger.Debug("[%s] Completed aggregation for profile '%s'", connID, outputProfile)
+	}
 }
 
 type contextKey string
 
 const connectionIDKey contextKey = "connectionID"
-
-// connectionIDMiddleware adds a unique connection ID to each request
-func connectionIDMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		connID := generateConnectionID()
-		ctx := context.WithValue(r.Context(), connectionIDKey, connID)
-		r = r.WithContext(ctx)
-		next(w, r)
-	}
-}
-
-// getConnectionID extracts the connection ID from request context
-func getConnectionID(r *http.Request) string {
-	if id, ok := r.Context().Value(connectionIDKey).(string); ok {
-		return id
-	}
-	return "unknown"
-}
-
-func NewAPIServer(outputProfiles map[string]interface{}, apiConfig *config.APIConfig) *APIServer {
-	// Create scoped logger for API server
-	logLevel := ""
-	if apiConfig != nil && apiConfig.LogLevel != "" {
-		logLevel = apiConfig.LogLevel
-	}
-
-	scopedLogger := log.NewScopedLogger("[api]", logLevel)
-	if logLevel != "" {
-		scopedLogger.Info("API server log_level set to: '%s'", logLevel)
-	}
-
-	return &APIServer{
-		clients:        make(map[string]*ClientData),
-		profiles:       make(map[string]config.APIClientProfile),
-		clientExpiry:   10 * time.Minute, // Remove clients after 10 minutes of no updates
-		outputProfiles: outputProfiles,
-		logger:         scopedLogger,
-		failedAttempts: make(map[string]*FailedAttemptTracker),
-		stopCleanup:    make(chan struct{}),
-	}
-}
-
-// LoadClientProfiles loads client profiles from the API config
-func (s *APIServer) LoadClientProfiles(profiles map[string]config.APIClientProfile) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	s.profiles = profiles
-	s.logger.Verbose("Client profiles configured: %v", func() []string {
-		var names []string
-		for name := range profiles {
-			names = append(names, name)
-		}
-		return names
-	}())
-}
-
-// clientIP extracts the host IP from a RemoteAddr
-func clientIP(remoteAddr string) string {
-	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
-		return host
-	}
-	if host := strings.Trim(remoteAddr, "[]"); host != "" {
-		if ip := net.ParseIP(host); ip != nil {
-			return host
-		}
-	}
-	return remoteAddr
-}
-
-// recordFailedAttempt tracks a failed authentication attempt from an IP
-func (s *APIServer) recordFailedAttempt(remoteAddr string, clientID string, reason string) {
-	// Extract IP from remote address (IPv6-safe)
-	ip := clientIP(remoteAddr)
-
-	s.attemptsMutex.Lock()
-	defer s.attemptsMutex.Unlock()
-
-	now := time.Now()
-	if tracker, exists := s.failedAttempts[ip]; exists {
-		tracker.Count++
-		tracker.LastFailed = now
-	} else {
-		s.failedAttempts[ip] = &FailedAttemptTracker{
-			Count:       1,
-			FirstFailed: now,
-			LastFailed:  now,
-		}
-	}
-
-	tracker := s.failedAttempts[ip]
-
-	// Log with increasing severity based on attempt count
-	if tracker.Count >= 10 {
-		s.logger.Error("SECURITY: %d failed auth attempts from %s (client_id: %s, reason: %s)",
-			tracker.Count, ip, clientID, reason)
-	} else if tracker.Count >= 5 {
-		s.logger.Warn("Multiple failed auth attempts from %s: %d attempts (client_id: %s, reason: %s)",
-			ip, tracker.Count, clientID, reason)
-	} else {
-		s.logger.Verbose("Failed auth attempt from %s (client_id: %s, reason: %s)", ip, clientID, reason)
-	}
-}
-
-// isRateLimited checks if an IP should be rate limited based on failed attempts
-func (s *APIServer) isRateLimited(remoteAddr string) bool {
-	ip := clientIP(remoteAddr)
-
-	s.attemptsMutex.RLock()
-	defer s.attemptsMutex.RUnlock()
-
-	tracker, exists := s.failedAttempts[ip]
-	if !exists {
-		return false
-	}
-
-	// Rate limit if more than 20 failed attempts in the last hour
-	if tracker.Count >= 20 && time.Since(tracker.FirstFailed) < time.Hour {
-		return true
-	}
-
-	return false
-}
-
-// cleanupFailedAttempts removes old failed attempt records (called periodically)
-func (s *APIServer) cleanupFailedAttempts() {
-	s.attemptsMutex.Lock()
-	defer s.attemptsMutex.Unlock()
-
-	now := time.Now()
-	cleanedCount := 0
-
-	for ip, tracker := range s.failedAttempts {
-		// Remove records older than 24 hours
-		if now.Sub(tracker.FirstFailed) > 24*time.Hour {
-			delete(s.failedAttempts, ip)
-			cleanedCount++
-		}
-	}
-
-	if cleanedCount > 0 {
-		s.logger.Debug("Cleaned up %d old failed attempt records", cleanedCount)
-	}
-}
-
-// resetFailedAttempts clears failed attempts for an IP (called on successful auth)
-func (s *APIServer) resetFailedAttempts(remoteAddr string) {
-	ip := clientIP(remoteAddr)
-
-	s.attemptsMutex.Lock()
-	defer s.attemptsMutex.Unlock()
-
-	if tracker, exists := s.failedAttempts[ip]; exists && tracker.Count > 0 {
-		s.logger.Debug("Clearing %d failed attempts for %s after successful auth", tracker.Count, ip)
-		delete(s.failedAttempts, ip)
-	}
-}
 
 // authenticateClient validates client authentication
 func (s *APIServer) authenticateClient(r *http.Request) (string, bool) {
@@ -321,6 +364,94 @@ func (s *APIServer) authenticateClient(r *http.Request) (string, bool) {
 	s.resetFailedAttempts(r.RemoteAddr)
 	s.logger.Debug("[%s] Authentication successful for client_id: %s from %s", connID, clientID, r.RemoteAddr)
 	return clientID, true
+}
+
+// claim records client ownership of a record.
+func (s *APIServer) claim(domain, hostname, recordType, clientID string) {
+	if clientID == "" {
+		return
+	}
+	s.ownedMu.Lock()
+	defer s.ownedMu.Unlock()
+	if s.owned == nil {
+		s.owned = make(map[string]string)
+	}
+	s.owned[ownedKey(domain, hostname, recordType)] = clientID
+}
+
+// cleanupFailedAttempts removes old failed attempt records (called periodically)
+func (s *APIServer) cleanupFailedAttempts() {
+	s.attemptsMutex.Lock()
+	defer s.attemptsMutex.Unlock()
+
+	now := time.Now()
+	cleanedCount := 0
+
+	for ip, tracker := range s.failedAttempts {
+		// Remove records older than 24 hours
+		if now.Sub(tracker.FirstFailed) > 24*time.Hour {
+			delete(s.failedAttempts, ip)
+			cleanedCount++
+		}
+	}
+
+	if cleanedCount > 0 {
+		s.logger.Debug("Cleaned up %d old failed attempt records", cleanedCount)
+	}
+}
+
+// clientIP extracts the host IP from a RemoteAddr
+func clientIP(remoteAddr string) string {
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return host
+	}
+	if host := strings.Trim(remoteAddr, "[]"); host != "" {
+		if ip := net.ParseIP(host); ip != nil {
+			return host
+		}
+	}
+	return remoteAddr
+}
+
+// connectionIDMiddleware adds a unique connection ID to each request
+func connectionIDMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		connID := generateConnectionID()
+		ctx := context.WithValue(r.Context(), connectionIDKey, connID)
+		r = r.WithContext(ctx)
+		next(w, r)
+	}
+}
+
+// expandSecretList resolves file:// and env:// references
+func expandSecretList(values []string) []string {
+	var out []string
+	for _, v := range values {
+		resolved := util.ReadSecretValue(v)
+		for _, part := range strings.FieldsFunc(resolved, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+		}) {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
+}
+
+// Generate a short connection ID (8 characters)
+func generateConnectionID() string {
+	bytes := make([]byte, 4)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
+
+// getConnectionID extracts the connection ID from request context
+func getConnectionID(r *http.Request) string {
+	if id, ok := r.Context().Value(connectionIDKey).(string); ok {
+		return id
+	}
+	return "unknown"
 }
 
 // HandleDataUpload processes incoming DNS data from clients
@@ -450,172 +581,24 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Trigger aggregation, passing removals
-	go s.aggregateAndWriteWithRemovals(connID, removalsFromPayload)
+	go s.aggregateAndWriteWithRemovals(connID, clientID, removalsFromPayload)
 
 	s.logger.Debug("[%s] Completed processing for client %s", connID, clientID)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
 
-// aggregateAndWriteWithRemovals combines all client data and writes to the specified output profile, processing explicit removals
-func (s *APIServer) aggregateAndWriteWithRemovals(connID string, removals map[string][][2]string) {
-	s.mutex.Lock()
-	s.logger.Trace("[%s] Starting data aggregation and write process", connID)
-
-	// Remove expired clients
-	now := time.Now()
-	expiredCount := 0
-	for clientID, data := range s.clients {
-		if now.Sub(data.Received) > s.clientExpiry {
-			delete(s.clients, clientID)
-			expiredCount++
-			s.logger.Info("[%s] Removed expired client: %s", connID, clientID)
+// hostAllowed reports whether hostname matches any glob pattern.
+func hostAllowed(patterns []string, hostname string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	for _, p := range patterns {
+		if ok, err := path.Match(p, hostname); err == nil && ok {
+			return true
 		}
 	}
-	if expiredCount > 0 {
-		s.logger.Debug("[%s] Removed %d expired clients", connID, expiredCount)
-	}
-
-	s.logger.Debug("[%s] Processing data from %d active clients", connID, len(s.clients))
-
-	// Snapshot client state
-	type snapshotRecord struct {
-		domain   string
-		hostname string
-		target   string
-		rtype    string
-		ttl      int
-		source   string
-		clientID string
-	}
-	snapshotsByProfile := make(map[string][]snapshotRecord)
-	for clientID, data := range s.clients {
-		prof, exists := s.profiles[clientID]
-		if !exists {
-			continue
-		}
-		outputProfile := prof.OutputProfile
-		if outputProfile == "" {
-			outputProfile = "default"
-		}
-		for domainName, domain := range data.Domains {
-			if domain == nil {
-				continue
-			}
-			for _, record := range domain.Records {
-				if record == nil {
-					continue
-				}
-				snapshotsByProfile[outputProfile] = append(snapshotsByProfile[outputProfile], snapshotRecord{
-					domain:   domainName,
-					hostname: record.Hostname,
-					target:   record.Target,
-					rtype:    record.Type,
-					ttl:      int(record.TTL),
-					source:   record.Source,
-					clientID: clientID,
-				})
-			}
-		}
-	}
-	removalsSnapshot := removals
-	outputManager := s.outputManager
-	s.mutex.Unlock()
-
-	// Aggregate data for each output profile separately
-	for outputProfile, records := range snapshotsByProfile {
-		if outputManager == nil {
-			s.logger.Error("[%s] Output manager not available for profile '%s'", connID, outputProfile)
-			continue
-		}
-		profile := outputManager.GetProfile(outputProfile)
-		if profile == nil {
-			s.logger.Error("[%s] Output profile '%s' not found in configuration", connID, outputProfile)
-			continue
-		}
-
-		// --- Process explicit removals for this output profile ---
-		if removalsSnapshot != nil {
-			for domain, recs := range removalsSnapshot {
-				for _, pair := range recs {
-					hostname := pair[0]
-					recordType := pair[1]
-					_ = profile.RemoveRecord(domain, hostname, recordType)
-					state.Remove(domain, hostname, recordType)
-				}
-			}
-		}
-
-		var writeErrors []string
-		var recordsWritten int
-		// Track all records seen for this profile (domain, hostname, type) by all clients
-		seenRecords := make(map[string]map[string]map[string]bool) // domain -> hostname -> type -> true
-		for _, record := range records {
-			domainName := record.domain
-			if seenRecords[domainName] == nil {
-				seenRecords[domainName] = make(map[string]map[string]bool)
-			}
-			if seenRecords[domainName][record.hostname] == nil {
-				seenRecords[domainName][record.hostname] = make(map[string]bool)
-			}
-			seenRecords[domainName][record.hostname][record.rtype] = true
-			// Preserve reporting client alongside original input source
-			// so zone comments read e.g. "atlas/docker_int".
-			source := record.source
-			if record.clientID != "" {
-				if source != "" {
-					source = record.clientID + "/" + source
-				} else {
-					source = record.clientID
-				}
-			}
-			// Add or update each record individually
-			err := profile.WriteRecordWithSource(domainName, record.hostname, record.target, record.rtype, record.ttl, source)
-			if err != nil {
-				writeErrors = append(writeErrors, fmt.Sprintf("add %s.%s: %v", record.hostname, domainName, err))
-				s.logger.Error("[%s] Failed to add record %s.%s to profile '%s': %v", connID, record.hostname, domainName, outputProfile, err)
-				continue
-			}
-			recordsWritten++
-			state.Touch(domainName, record.hostname, record.rtype, record.target, record.source, record.clientID)
-		}
-		// To remove records, we need to know what is currently present in the output profile.
-		// Since OutputFormat does not expose a method to list all records, we cannot do this generically.
-		// For file-based outputs, removals are handled by not rewriting records that are not present in seenRecords.
-		// For remote or other outputs, implementers should ensure removals are handled as needed.
-		// Sync after all adds
-		err := profile.Sync()
-		if err != nil {
-			writeErrors = append(writeErrors, fmt.Sprintf("sync: %v", err))
-			s.logger.Error("[%s] Failed to sync profile '%s': %v", connID, outputProfile, err)
-		}
-		if len(writeErrors) == 0 {
-			s.logger.Verbose("[%s] Successfully wrote and synced %d records to profile '%s'", connID, recordsWritten, outputProfile)
-		} else {
-			s.logger.Error("[%s] Failed to write data to output profile '%s': %d errors occurred", connID, outputProfile, len(writeErrors))
-		}
-		s.logger.Debug("[%s] Completed aggregation for profile '%s'", connID, outputProfile)
-	}
-}
-
-// writeToSpecificProfile writes a record to only the specified output profile
-func (s *APIServer) writeToSpecificProfile(outputManager *output.OutputManager, profileName, domain, hostname, target, recordType string, ttl int, source string) error {
-	// Get the specific output profile and write directly to it
-	profile := outputManager.GetProfile(profileName)
-	if profile == nil {
-		return fmt.Errorf("output profile '%s' not found", profileName)
-	}
-
-	// Write directly to the zone file profile, bypassing domain routing
-	err := profile.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
-	if err != nil {
-		return fmt.Errorf("failed to write to profile '%s': %v", profileName, err)
-	}
-
-	s.logger.Debug("API record written to zone file: %s.%s (%s) -> %s (TTL: %d)",
-		hostname, domain, recordType, target, ttl)
-
-	return nil
+	return false
 }
 
 // initializeAPIOutputProfiles initializes output profiles that the API server needs
@@ -663,14 +646,153 @@ func (s *APIServer) initializeAPIOutputProfiles(outputConfigs map[string]interfa
 	return nil
 }
 
-// syncNonRemoteOutputs syncs only non-remote outputs to prevent infinite loops
-func (s *APIServer) syncNonRemoteOutputs(outputManager *output.OutputManager) error {
-	s.logger.Debug("API server syncing non-remote outputs only to prevent loops")
+// isRateLimited checks if an IP should be rate limited based on failed attempts
+func (s *APIServer) isRateLimited(remoteAddr string) bool {
+	ip := clientIP(remoteAddr)
 
-	// For now, just skip sync entirely for API aggregation to prevent loops
-	// The zone files and other file outputs will be synced by the normal input providers
-	s.logger.Debug("Skipping sync for API aggregation to prevent infinite loops with remote outputs")
-	return nil
+	s.attemptsMutex.RLock()
+	defer s.attemptsMutex.RUnlock()
+
+	tracker, exists := s.failedAttempts[ip]
+	if !exists {
+		return false
+	}
+
+	// Rate limit if more than 20 failed attempts in the last hour
+	if tracker.Count >= 20 && time.Since(tracker.FirstFailed) < time.Hour {
+		return true
+	}
+
+	return false
+}
+
+// LoadClientProfiles loads client profiles from the API config
+func (s *APIServer) LoadClientProfiles(profiles map[string]config.APIClientProfile) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.profiles = profiles
+	s.logger.Verbose("Client profiles configured: %v", func() []string {
+		var names []string
+		for name := range profiles {
+			names = append(names, name)
+		}
+		return names
+	}())
+}
+
+func NewAPIServer(outputProfiles map[string]interface{}, apiConfig *config.APIConfig) *APIServer {
+	// Create scoped logger for API server
+	logLevel := ""
+	if apiConfig != nil && apiConfig.LogLevel != "" {
+		logLevel = apiConfig.LogLevel
+	}
+
+	scopedLogger := log.NewScopedLogger("[api]", logLevel)
+	if logLevel != "" {
+		scopedLogger.Info("API server log_level set to: '%s'", logLevel)
+	}
+
+	return &APIServer{
+		clients:        make(map[string]*ClientData),
+		profiles:       make(map[string]config.APIClientProfile),
+		clientExpiry:   10 * time.Minute, // Remove clients after 10 minutes of no updates
+		outputProfiles: outputProfiles,
+		logger:         scopedLogger,
+		failedAttempts: make(map[string]*FailedAttemptTracker),
+		stopCleanup:    make(chan struct{}),
+	}
+}
+
+// ownedByOther reports whether a record is owned by a different client.
+func (s *APIServer) ownedByOther(domain, hostname, recordType, clientID string) bool {
+	s.ownedMu.RLock()
+	defer s.ownedMu.RUnlock()
+	if s.owned == nil {
+		return false
+	}
+	owner, ok := s.owned[ownedKey(domain, hostname, recordType)]
+	return ok && owner != "" && owner != clientID
+}
+
+// ownedKey identifies a record for ownership tracking.
+func ownedKey(domain, hostname, recordType string) string {
+	return domain + "\x00" + hostname + "\x00" + recordType
+}
+
+// recordFailedAttempt tracks a failed authentication attempt from an IP
+func (s *APIServer) recordFailedAttempt(remoteAddr string, clientID string, reason string) {
+	// Extract IP from remote address (IPv6-safe)
+	ip := clientIP(remoteAddr)
+
+	s.attemptsMutex.Lock()
+	defer s.attemptsMutex.Unlock()
+
+	now := time.Now()
+	if tracker, exists := s.failedAttempts[ip]; exists {
+		tracker.Count++
+		tracker.LastFailed = now
+	} else {
+		s.failedAttempts[ip] = &FailedAttemptTracker{
+			Count:       1,
+			FirstFailed: now,
+			LastFailed:  now,
+		}
+	}
+
+	tracker := s.failedAttempts[ip]
+
+	// Log with increasing severity based on attempt count
+	if tracker.Count >= 10 {
+		s.logger.Error("SECURITY: %d failed auth attempts from %s (client_id: %s, reason: %s)",
+			tracker.Count, ip, clientID, reason)
+	} else if tracker.Count >= 5 {
+		s.logger.Warn("Multiple failed auth attempts from %s: %d attempts (client_id: %s, reason: %s)",
+			ip, tracker.Count, clientID, reason)
+	} else {
+		s.logger.Verbose("Failed auth attempt from %s (client_id: %s, reason: %s)", ip, clientID, reason)
+	}
+}
+
+// registerActiveServers records listeners and their cleanup stop channels.
+func registerActiveServers(servers []*http.Server, stopCleanup chan struct{}) {
+	activeServersMu.Lock()
+	defer activeServersMu.Unlock()
+	activeServers = append(activeServers, servers...)
+	stopCleanups = append(stopCleanups, stopCleanup)
+}
+
+// resetFailedAttempts clears failed attempts for an IP (called on successful auth)
+func (s *APIServer) resetFailedAttempts(remoteAddr string) {
+	ip := clientIP(remoteAddr)
+
+	s.attemptsMutex.Lock()
+	defer s.attemptsMutex.Unlock()
+
+	if tracker, exists := s.failedAttempts[ip]; exists && tracker.Count > 0 {
+		s.logger.Debug("Clearing %d failed attempts for %s after successful auth", tracker.Count, ip)
+		delete(s.failedAttempts, ip)
+	}
+}
+
+// ShutdownAPIServers gracefully stops all API listeners and cleanup loops.
+func ShutdownAPIServers(ctx context.Context) {
+	activeServersMu.Lock()
+	servers := activeServers
+	activeServers = nil
+	stops := stopCleanups
+	stopCleanups = nil
+	activeServersMu.Unlock()
+
+	for _, stop := range stops {
+		select {
+		case <-stop:
+		default:
+			close(stop)
+		}
+	}
+	for _, s := range servers {
+		_ = s.Shutdown(ctx)
+	}
 }
 
 // StartAPIServer starts the DNS API server
@@ -702,6 +824,9 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 			resolvedProfiles[clientID] = config.APIClientProfile{
 				Token:         token,
 				OutputProfile: profile.OutputProfile,
+				Domains:       expandSecretList(profile.Domains),
+				Hostnames:     expandSecretList(profile.Hostnames),
+				SharedWrites:  profile.SharedWrites,
 			}
 
 			server.logger.Debug("Registered client profile: %s -> %s (token: %s)", clientID, profile.OutputProfile, util.MaskSensitiveValue(token))
@@ -873,6 +998,16 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 	return nil
 }
 
+// syncNonRemoteOutputs syncs only non-remote outputs to prevent infinite loops
+func (s *APIServer) syncNonRemoteOutputs(outputManager *output.OutputManager) error {
+	s.logger.Debug("API server syncing non-remote outputs only to prevent loops")
+
+	// For now, just skip sync entirely for API aggregation to prevent loops
+	// The zone files and other file outputs will be synced by the normal input providers
+	s.logger.Debug("Skipping sync for API aggregation to prevent infinite loops with remote outputs")
+	return nil
+}
+
 // activeServers tracks running API listeners for graceful shutdown.
 var (
 	activeServersMu sync.RWMutex
@@ -880,33 +1015,11 @@ var (
 	stopCleanups    []chan struct{}
 )
 
-// registerActiveServers records listeners and their cleanup stop channels.
-func registerActiveServers(servers []*http.Server, stopCleanup chan struct{}) {
-	activeServersMu.Lock()
-	defer activeServersMu.Unlock()
-	activeServers = append(activeServers, servers...)
-	stopCleanups = append(stopCleanups, stopCleanup)
-}
-
-// ShutdownAPIServers gracefully stops all API listeners and cleanup loops.
-func ShutdownAPIServers(ctx context.Context) {
-	activeServersMu.Lock()
-	servers := activeServers
-	activeServers = nil
-	stops := stopCleanups
-	stopCleanups = nil
-	activeServersMu.Unlock()
-
-	for _, stop := range stops {
-		select {
-		case <-stop:
-		default:
-			close(stop)
-		}
-	}
-	for _, s := range servers {
-		_ = s.Shutdown(ctx)
-	}
+// unown releases ownership of a record.
+func (s *APIServer) unown(domain, hostname, recordType string) {
+	s.ownedMu.Lock()
+	defer s.ownedMu.Unlock()
+	delete(s.owned, ownedKey(domain, hostname, recordType))
 }
 
 // VerifyZoneRecord checks if a DNS record exists in the zone file.
@@ -924,4 +1037,24 @@ func VerifyZoneRecord(zoneFilePath, hostname, recordType, target string) (bool, 
 		}
 	}
 	return false, nil // Record not found
+}
+
+// writeToSpecificProfile writes a record to only the specified output profile
+func (s *APIServer) writeToSpecificProfile(outputManager *output.OutputManager, profileName, domain, hostname, target, recordType string, ttl int, source string) error {
+	// Get the specific output profile and write directly to it
+	profile := outputManager.GetProfile(profileName)
+	if profile == nil {
+		return fmt.Errorf("output profile '%s' not found", profileName)
+	}
+
+	// Write directly to the zone file profile, bypassing domain routing
+	err := profile.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
+	if err != nil {
+		return fmt.Errorf("failed to write to profile '%s': %v", profileName, err)
+	}
+
+	s.logger.Debug("API record written to zone file: %s.%s (%s) -> %s (TTL: %d)",
+		hostname, domain, recordType, target, ttl)
+
+	return nil
 }

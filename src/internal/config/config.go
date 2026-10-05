@@ -17,24 +17,68 @@ import (
 )
 
 type ConfigFile struct {
-	General  GeneralConfig                  `yaml:"general"`
-	Defaults DefaultsConfig                 `yaml:"defaults"`
-	Inputs   map[string]InputProviderConfig `yaml:"inputs"`
-	Domains  map[string]DomainConfig        `yaml:"domains"`
-	Outputs  map[string]interface{}         `yaml:"outputs" json:"outputs"`
-	API      *APIConfig                     `yaml:"api" json:"api"`
-	StateDir string `yaml:"state_dir" json:"state_dir"`
-	StaleAfter string `yaml:"stale_after" json:"stale_after"`
+	General    GeneralConfig                  `yaml:"general"`
+	Defaults   DefaultsConfig                 `yaml:"defaults"`
+	Inputs     map[string]InputProviderConfig `yaml:"inputs"`
+	Domains    map[string]DomainConfig        `yaml:"domains"`
+	Outputs    map[string]interface{}         `yaml:"outputs" json:"outputs"`
+	API        *APIConfig                     `yaml:"api" json:"api"`
+	StateDir   string                         `yaml:"state_dir" json:"state_dir"`
+	StaleAfter string                         `yaml:"stale_after" json:"stale_after"`
 }
 
-func (cf *ConfigFile) ResolveStateDir() string {
-	if cf != nil && cf.StateDir != "" {
-		return cf.StateDir
+// ExtractDomainAndSubdomainForProvider extracts domain config key and subdomain for a specific provider
+func ExtractDomainAndSubdomainForProvider(fqdn, providerName, logPrefix string) (string, string) {
+	log.Trace("%s Extracting domain config for FQDN '%s' with provider '%s'", logPrefix, fqdn, providerName)
+
+	// Remove trailing dot if present
+	fqdn = strings.TrimSuffix(fqdn, ".")
+
+	if GlobalConfig.Domains == nil {
+		log.Error("%s No global config available for domain extraction", logPrefix)
+		return "", ""
 	}
-	if env := os.Getenv("STATE_PATH"); env != "" {
-		return env
+
+	// Try to match domain configs that include this provider
+	for configKey, domainConfig := range GlobalConfig.Domains {
+		if domainConfig.Name == "" {
+			continue
+		}
+
+		// Check if this provider is allowed for this domain config
+		providerAllowed := false
+		for _, inputProfile := range domainConfig.Profiles.Inputs {
+			if inputProfile == providerName {
+				providerAllowed = true
+				break
+			}
+		}
+
+		if !providerAllowed {
+			log.Trace("%s Provider '%s' not allowed for domain config '%s' (inputs: %v)",
+				logPrefix, providerName, configKey, domainConfig.Profiles.Inputs)
+			continue
+		}
+
+		// Check if FQDN matches this domain
+		domain := domainConfig.Name
+		if fqdn == domain {
+			// Exact match (root domain)
+			log.Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
+				logPrefix, providerName, domain, configKey)
+			return configKey, "@"
+		} else if strings.HasSuffix(fqdn, "."+domain) {
+			// Subdomain match
+			subdomain := strings.TrimSuffix(fqdn, "."+domain)
+			log.Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
+				logPrefix, providerName, domain, configKey)
+			return configKey, subdomain
+		}
 	}
-	return "/var/lib/herald"
+
+	log.Debug("%s No matching domain config found for FQDN '%s' with provider '%s'",
+		logPrefix, fqdn, providerName)
+	return "", ""
 }
 
 // APIConfig defines configuration for the aggregator HTTP API server
@@ -61,8 +105,11 @@ type APITLSConfig struct {
 
 // APIClientProfile defines configuration for individual API clients
 type APIClientProfile struct {
-	Token         string `yaml:"token" json:"token"`
-	OutputProfile string `yaml:"output_profile" json:"output_profile"`
+	Token         string   `yaml:"token" json:"token"`
+	OutputProfile string   `yaml:"output_profile" json:"output_profile"`
+	Domains       []string `yaml:"domains" json:"domains"`
+	Hostnames     []string `yaml:"hostnames" json:"hostnames"`
+	SharedWrites  bool     `yaml:"shared_writes" json:"shared_writes"`
 }
 
 type GeneralConfig struct {
@@ -102,75 +149,6 @@ type DomainConfig struct {
 	ExcludeSubdomains []string          `yaml:"exclude_subdomains"`
 	IncludeSubdomains []string          `yaml:"include_subdomains"`
 	Profiles          *DomainProfiles   `yaml:"profiles"` // Primary structured format
-}
-
-// GetInputProfiles returns the input profiles from the profiles structure
-func (dc *DomainConfig) GetInputProfiles() []string {
-	if dc.Profiles != nil {
-		return dc.Profiles.Inputs
-	}
-	return []string{}
-}
-
-// GetOutputs returns the outputs from the profiles structure
-func (dc *DomainConfig) GetOutputs() []string {
-	if dc.Profiles != nil {
-		return dc.Profiles.Outputs
-	}
-	return []string{}
-}
-
-// GetName returns the domain's name (implements output.DomainConfig)
-func (dc *DomainConfig) GetName() string {
-	return dc.Name
-}
-
-// DomainProfiles represents the structured profiles configuration
-type DomainProfiles struct {
-	Inputs  []string `yaml:"inputs" json:"inputs"`
-	Outputs []string `yaml:"outputs" json:"outputs"`
-}
-
-// Global domain configuration storage
-var (
-	domainConfigsMu sync.RWMutex
-	domainConfigs   = make(map[string]map[string]string)
-)
-
-// GlobalConfig holds the loaded configuration file
-var GlobalConfig ConfigFile
-
-// SetDomainConfigs sets the global domain configurations
-func SetDomainConfigs(configs map[string]map[string]string) {
-	domainConfigsMu.Lock()
-	defer domainConfigsMu.Unlock()
-	domainConfigs = configs
-}
-
-// GetDomainConfig retrieves configuration for a specific domain
-func GetDomainConfig(domain string) map[string]string {
-	domainConfigsMu.RLock()
-	defer domainConfigsMu.RUnlock()
-
-	// Try with domain as is
-	if config, exists := domainConfigs[domain]; exists {
-		return config
-	}
-
-	// Try with normalized domain (replace dots with underscores)
-	normalizedDomain := strings.ReplaceAll(domain, ".", "_")
-	if config, exists := domainConfigs[normalizedDomain]; exists {
-		return config
-	}
-
-	// Check if we have a domain that matches this configuration
-	for _, config := range domainConfigs {
-		if actualDomain, exists := config["name"]; exists && actualDomain == domain {
-			return config
-		}
-	}
-
-	return nil
 }
 
 // GetConfig retrieves a configuration key, handling file and env references
@@ -215,27 +193,72 @@ func GetConfig(config map[string]string, key string) string {
 	return value
 }
 
-// LoadFileConfig loads a configuration value from a file if it starts with "file://"
-func LoadFileConfig(value, fieldName string) (string, error) {
-	if !strings.HasPrefix(value, "file://") {
-		return value, nil
+// GetDomainConfig retrieves configuration for a specific domain
+func GetDomainConfig(domain string) map[string]string {
+	domainConfigsMu.RLock()
+	defer domainConfigsMu.RUnlock()
+
+	// Try with domain as is
+	if config, exists := domainConfigs[domain]; exists {
+		return config
 	}
 
-	filePath := value[7:] // Remove "file://" prefix
-	log.Debug("[config] Loading %s from file: %s", fieldName, filePath)
-
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read %s from file %s: %w", fieldName, filePath, err)
+	// Try with normalized domain (replace dots with underscores)
+	normalizedDomain := strings.ReplaceAll(domain, ".", "_")
+	if config, exists := domainConfigs[normalizedDomain]; exists {
+		return config
 	}
 
-	result := strings.TrimSpace(string(content))
-	if result == "" {
-		return "", fmt.Errorf("%s file %s is empty", fieldName, filePath)
+	// Check if we have a domain that matches this configuration
+	for _, config := range domainConfigs {
+		if actualDomain, exists := config["name"]; exists && actualDomain == domain {
+			return config
+		}
 	}
 
-	log.Verbose("[config] Successfully loaded %s from file", fieldName)
-	return result, nil
+	return nil
+}
+
+// GetDomains returns the domains map for output filtering interface
+func (cf *ConfigFile) GetDomains() map[string]output.DomainConfig {
+	result := make(map[string]output.DomainConfig)
+	for key, domainConfig := range cf.Domains {
+		result[key] = &domainConfig
+	}
+	return result
+}
+
+// DomainProfiles represents the structured profiles configuration
+type DomainProfiles struct {
+	Inputs  []string `yaml:"inputs" json:"inputs"`
+	Outputs []string `yaml:"outputs" json:"outputs"`
+}
+
+// Global domain configuration storage
+var (
+	domainConfigsMu sync.RWMutex
+	domainConfigs   = make(map[string]map[string]string)
+)
+
+// GlobalConfig holds the loaded configuration file
+var GlobalConfig ConfigFile
+
+// GetGlobalConfig returns the current global configuration
+func GetGlobalConfig() *ConfigFile {
+	return &GlobalConfig
+}
+
+// GetInputProfiles returns the input profiles from the profiles structure
+func (dc *DomainConfig) GetInputProfiles() []string {
+	if dc.Profiles != nil {
+		return dc.Profiles.Inputs
+	}
+	return []string{}
+}
+
+// GetName returns the domain's name (implements output.DomainConfig)
+func (dc *DomainConfig) GetName() string {
+	return dc.Name
 }
 
 // InputProviderConfig methods
@@ -298,13 +321,12 @@ func (ipc *InputProviderConfig) GetOptions(profileName string) map[string]string
 
 // ConfigFile methods for interface compliance
 
-// GetDomains returns the domains map for output filtering interface
-func (cf *ConfigFile) GetDomains() map[string]output.DomainConfig {
-	result := make(map[string]output.DomainConfig)
-	for key, domainConfig := range cf.Domains {
-		result[key] = &domainConfig
+// GetOutputs returns the outputs from the profiles structure
+func (dc *DomainConfig) GetOutputs() []string {
+	if dc.Profiles != nil {
+		return dc.Profiles.Outputs
 	}
-	return result
+	return []string{}
 }
 
 // InitializeOutputManager initializes the output manager with profiles from config
@@ -442,9 +464,49 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 	return nil
 }
 
-// GetGlobalConfig returns the current global configuration
-func GetGlobalConfig() *ConfigFile {
-	return &GlobalConfig
+// LoadFileConfig loads a configuration value from a file if it starts with "file://"
+func LoadFileConfig(value, fieldName string) (string, error) {
+	if !strings.HasPrefix(value, "file://") {
+		return value, nil
+	}
+
+	filePath := value[7:] // Remove "file://" prefix
+	log.Debug("[config] Loading %s from file: %s", fieldName, filePath)
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s from file %s: %w", fieldName, filePath, err)
+	}
+
+	result := strings.TrimSpace(string(content))
+	if result == "" {
+		return "", fmt.Errorf("%s file %s is empty", fieldName, filePath)
+	}
+
+	log.Verbose("[config] Successfully loaded %s from file", fieldName)
+	return result, nil
+}
+
+func (cf *ConfigFile) ResolveStateDir() string {
+	if cf != nil && cf.StateDir != "" {
+		return cf.StateDir
+	}
+	if env := os.Getenv("STATE_PATH"); env != "" {
+		return env
+	}
+	return "/var/lib/herald"
+}
+
+// SetDomainConfigs sets the global domain configurations
+func SetDomainConfigs(configs map[string]map[string]string) {
+	domainConfigsMu.Lock()
+	defer domainConfigsMu.Unlock()
+	domainConfigs = configs
+}
+
+// SetEnvVar sets an environment variable in the OS environment
+func SetEnvVar(key, value string) {
+	os.Setenv(key, value)
 }
 
 // ValidateConfiguration performs comprehensive validation of the configuration
@@ -561,63 +623,4 @@ func ValidateOutputProfileReferences(domains map[string]DomainConfig, outputProf
 		return fmt.Errorf("%s", strings.Join(errors, "; "))
 	}
 	return nil
-}
-
-// SetEnvVar sets an environment variable in the OS environment
-func SetEnvVar(key, value string) {
-	os.Setenv(key, value)
-}
-
-// ExtractDomainAndSubdomainForProvider extracts domain config key and subdomain for a specific provider
-func ExtractDomainAndSubdomainForProvider(fqdn, providerName, logPrefix string) (string, string) {
-	log.Trace("%s Extracting domain config for FQDN '%s' with provider '%s'", logPrefix, fqdn, providerName)
-
-	// Remove trailing dot if present
-	fqdn = strings.TrimSuffix(fqdn, ".")
-
-	if GlobalConfig.Domains == nil {
-		log.Error("%s No global config available for domain extraction", logPrefix)
-		return "", ""
-	}
-
-	// Try to match domain configs that include this provider
-	for configKey, domainConfig := range GlobalConfig.Domains {
-		if domainConfig.Name == "" {
-			continue
-		}
-
-		// Check if this provider is allowed for this domain config
-		providerAllowed := false
-		for _, inputProfile := range domainConfig.Profiles.Inputs {
-			if inputProfile == providerName {
-				providerAllowed = true
-				break
-			}
-		}
-
-		if !providerAllowed {
-			log.Trace("%s Provider '%s' not allowed for domain config '%s' (inputs: %v)",
-				logPrefix, providerName, configKey, domainConfig.Profiles.Inputs)
-			continue
-		}
-
-		// Check if FQDN matches this domain
-		domain := domainConfig.Name
-		if fqdn == domain {
-			// Exact match (root domain)
-			log.Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
-				logPrefix, providerName, domain, configKey)
-			return configKey, "@"
-		} else if strings.HasSuffix(fqdn, "."+domain) {
-			// Subdomain match
-			subdomain := strings.TrimSuffix(fqdn, "."+domain)
-			log.Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
-				logPrefix, providerName, domain, configKey)
-			return configKey, subdomain
-		}
-	}
-
-	log.Debug("%s No matching domain config found for FQDN '%s' with provider '%s'",
-		logPrefix, fqdn, providerName)
-	return "", ""
 }

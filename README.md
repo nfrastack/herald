@@ -176,7 +176,7 @@ general:
   log_timestamps: true
   dry_run: false
 
-# Operational state lives here, never next to served DNS output. 
+# Operational state lives here
 state_dir: /var/lib/herald
 # Records unseen longer than this are logged for manual review. Unset disables stale reporting.
 stale_after: 720h
@@ -1344,18 +1344,53 @@ api:
     server1:
       token: "your_bearer_token_here"
       output_profile: "aggregated_zones"
+      domains: ["example.com"]  # optional: reject uploads for other domains
     server2:
       token: "file:///var/run/secrets/server2_token"  # Load token from file
       output_profile: "special_zones"
+      # domains: ["example.net", "example.org"]
   tls:
     cert: "/etc/ssl/certs/herald.crt"
     key: "/etc/ssl/private/herald.key"
     ca: "/etc/ssl/ca/client-ca.pem"  # Optional for mutual TLS
 ```
 
+#### Client Domain Scoping
+
+Each API client profile accepts an optional `domains` list. When set, uploads (and removals) for any other domain are rejected with a warning, the same rule applies no matter what the `output_profile` points at. Clients hold only their bearer token, the server holds the provider tokens.
+
+```yaml
+outputs:
+  cloudflare_dns:
+    type: dns
+    provider: cloudflare
+    api_token: "file:///run/secrets/cf_token"  # server-side only
+  powerdns_dns:
+    type: dns
+    provider: powerdns
+    api_host: "http://powerdns.example.com:8081/api/v1"
+    api_token: "file:///run/secrets/pdns_token"  # server-side only
+
+api:
+  profiles:
+    edge01:
+      token: "file:///run/secrets/edge01_token"
+      output_profile: cloudflare_dns
+      domains: ["example.com"]
+      hostnames: ["musort", "*.edge"]  # glob patterns on the short hostname
+    edge02:
+      token: "env://EDGE02_TOKEN"
+      output_profile: powerdns_dns
+      domains: ["file:///run/secrets/edge02_domains"]  # comma/newline separated
+```
+
+Within an allowed scope, the first writer owns each name: a different client overwriting or deleting it is rejected and logged. Set `shared_writes: true` on purpose for boxes that legitimately share names (eg failover pairs) - domain and hostname lists still apply.
+
 #### Security Features
 
 - Bearer token authentication per client
+- Optional per-client domain and hostname allowlists
+- Record ownership - clients cannot overwrite or delete other hosts names
 - Failed attempt tracking and rate limiting (20 attempts/hour)
 - TLS with optional mutual authentication
 - Comprehensive security logging
