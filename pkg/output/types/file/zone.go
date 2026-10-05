@@ -29,6 +29,9 @@ type ZoneFormat struct {
 	*common.CommonFormat
 	soaRaw map[string]interface{} // store raw SOA config for per-domain expansion
 	nsRaw  []string               // store raw NS config for per-domain expansion
+	staticMu sync.Mutex
+	staticLines map[string][]string
+	migratedFiles map[string]bool
 }
 
 // SOARecord represents anSOA record configuration
@@ -50,7 +53,9 @@ func NewZoneFormat(profileName, domain string, config map[string]interface{}) (O
 	}
 
 	format := &ZoneFormat{
-		CommonFormat: commonFormat,
+		CommonFormat:  commonFormat,
+		staticLines:   make(map[string][]string),
+		migratedFiles: make(map[string]bool),
 	}
 
 	if err := format.parseSOAConfig(config); err != nil {
@@ -183,23 +188,33 @@ func (z *ZoneFormat) SyncDomain(domain string) error {
 	filePath := z.GetFilePath()
 	z.GetLogger().Trace("SyncDomain: Starting for domain=%s, file=%s", domain, filePath)
 
-	// Compare managed records only
+	// Load existing content (if any) and split off the user-owned static section.
+	var existingContent string
 	if fileExists(filePath) {
-		newManaged := normalizeManagedLines(z.generateManagedRecords(domain))
-		if existingContent, readErr := os.ReadFile(filePath); readErr == nil {
-			existingManaged := extractManagedLines(string(existingContent))
-			if managedLinesEqual(existingManaged, newManaged) {
-				z.GetLogger().Trace("SyncDomain: No record changes detected for %s, skipping write", filePath)
-				return nil
-			}
+		if raw, readErr := os.ReadFile(filePath); readErr == nil {
+			existingContent = string(raw)
 		} else if !os.IsNotExist(readErr) {
 			z.GetLogger().Error("SyncDomain: Failed to read existing file %s: %v", filePath, readErr)
 			// Continue to write new content if file is unreadable for other reasons
 		}
 	}
+	staticLines := z.staticLinesForFile(filePath, existingContent, domain)
 
-	// Generate the complete zone file content
-	content, err := z.generateZoneFileContent(domain)
+	// Compare record sections only
+	newManaged := normalizeManagedLines(z.generateManagedRecords(domain))
+	newStatic := normalizeManagedLines(filterStaticCollisions(z, domain, staticLines, z.generateManagedRecords(domain)))
+	if existingContent != "" {
+		existingManaged := extractManagedLines(existingContent)
+		existingStatic := extractStaticLines(existingContent)
+		if managedLinesEqual(existingManaged, newManaged) && managedLinesEqual(existingStatic, newStatic) {
+			z.GetLogger().Trace("SyncDomain: No record changes detected for %s, skipping write", filePath)
+			return nil
+		}
+	}
+
+	// Records changed (or new file): bump serial and write.
+	newSerial := z.incrementSerial(z.getCurrentSerial())
+	content, err := z.generateZoneFileContent(domain, staticLines, z.generateManagedRecords(domain), newSerial)
 	if err != nil {
 		z.GetLogger().Error("SyncDomain: Failed to generate content for domain=%s: %v", domain, err)
 		return err
@@ -207,7 +222,6 @@ func (z *ZoneFormat) SyncDomain(domain string) error {
 
 	z.GetLogger().Trace("SyncDomain: Generated content (%d bytes) for domain=%s", len(content), domain)
 
-	// Write the zone file only if records changed or file does not exist
 	err = os.WriteFile(filePath, []byte(content), 0644)
 	if err != nil {
 		z.GetLogger().Error("SyncDomain: Failed to write file %s: %v", filePath, err)
@@ -216,6 +230,194 @@ func (z *ZoneFormat) SyncDomain(domain string) error {
 	}
 
 	return err
+}
+
+// staticLinesForFile returns the user-owned static lines for a zone file,
+// running the one-time migration of legacy manual-sourced managed lines.
+func (z *ZoneFormat) staticLinesForFile(filePath, existingContent, domain string) []string {
+	z.staticMu.Lock()
+	defer z.staticMu.Unlock()
+
+	static := append([]string(nil), extractStaticRawLines(existingContent)...)
+
+	if existingContent != "" && !z.migratedFiles[filePath] {
+		z.migratedFiles[filePath] = true
+		for _, line := range extractManagedRawLines(existingContent) {
+			host, rtype, source := parseZoneRecordLine(line)
+			if host == "" || rtype == "" {
+				continue
+			}
+			if isManualSource(source) {
+				static = append(static, line)
+				z.GetLogger().Info("Migrating legacy manual record to static section in %s: %s", filePath, strings.Join(strings.Fields(line), " "))
+			}
+		}
+		// Purge migrated records from memory so the managed section stops
+		// re-emitting them (static section now serves them).
+		z.dropFileRecordsBySource(domain)
+	}
+	z.staticLines[filePath] = static
+	return append([]string(nil), static...)
+}
+
+// dropFileRecordsBySource removes manual-sourced records for a domain from
+// the in-memory export (they live in the static section from now on).
+func (z *ZoneFormat) dropFileRecordsBySource(domain string) {
+	export := z.GetExportData()
+	if export == nil || export.Domains == nil {
+		return
+	}
+	domainData, ok := export.Domains[domain]
+	if !ok || domainData == nil {
+		return
+	}
+	snapshot := append([]*common.BaseRecord(nil), domainData.Records...)
+	for _, r := range snapshot {
+		if isManualSource(r.Source) {
+			_ = z.CommonFormat.RemoveRecord(domain, r.Hostname, r.Type)
+		}
+	}
+}
+
+// isManualSource reports whether a record source tag means "hand-entered".
+func isManualSource(source string) bool {
+	s := strings.ToLower(strings.TrimSpace(source))
+	return s == "" || s == "manual"
+}
+
+// parseZoneRecordLine extracts hostname, type, and source from a zone record line.
+func parseZoneRecordLine(line string) (hostname, recordType, source string) {
+	fields := strings.Fields(line)
+	if len(fields) < 5 {
+		return "", "", ""
+	}
+	source = "manual"
+	for i := 5; i < len(fields); i++ {
+		if strings.Contains(fields[i], "input:") && i+1 < len(fields) {
+			source = fields[i+1]
+			break
+		}
+	}
+	return fields[0], fields[3], source
+}
+
+// extractStaticRawLines returns the raw lines of the "; Static Records" section.
+func extractStaticRawLines(content string) []string {
+	var lines []string
+	inStatic := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "; Static Records" {
+			inStatic = true
+			continue
+		}
+		if trimmed == "; Managed Records" {
+			break
+		}
+		if !inStatic {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	// Trim leading/trailing blank lines.
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+// extractManagedRawLines returns the raw record lines of the "; Managed Records" section.
+func extractManagedRawLines(content string) []string {
+	var lines []string
+	inManaged := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "; Managed Records" {
+			inManaged = true
+			continue
+		}
+		if !inManaged {
+			continue
+		}
+		if trimmed == "" || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// extractStaticLines returns normalized static-section record lines.
+func extractStaticLines(content string) []string {
+	return normalizeManagedLines(extractStaticRawLines(content))
+}
+
+// filterStaticCollisions splits static lines into emittable lines. A static
+// line whose hostname is managed is emitted commented-out so the file stays
+// valid; static-vs-static duplicates only warn.
+func filterStaticCollisions(z *ZoneFormat, domain string, staticLines, managedLines []string) []string {
+	managedHosts := make(map[string]map[string]bool) // hostname -> type -> true
+	for _, line := range managedLines {
+		if host, rtype, _ := parseZoneRecordLine(line); host != "" {
+			if managedHosts[host] == nil {
+				managedHosts[host] = make(map[string]bool)
+			}
+			managedHosts[host][rtype] = true
+		}
+	}
+
+	seenStatic := make(map[string]bool)
+	var out []string
+	for _, line := range staticLines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, ";") {
+			// Preserve user comments verbatim.
+			out = append(out, line)
+			continue
+		}
+		host, rtype, _ := parseZoneRecordLine(line)
+		if host == "" {
+			out = append(out, line)
+			continue
+		}
+		if managedHosts[host] != nil {
+			z.GetLogger().Warn("Static record %s.%s (%s) shadowed by managed records - emitting as comment", host, domain, rtype)
+			out = append(out, fmt.Sprintf("; CONFLICT (shadowed by managed %s): %s", rtype, strings.TrimSpace(line)))
+			continue
+		}
+		key := host + ":" + rtype
+		if seenStatic[key] {
+			z.GetLogger().Warn("Duplicate static record %s.%s (%s) - emitting as-is", host, domain, rtype)
+		}
+		seenStatic[key] = true
+		out = append(out, line)
+	}
+	// Flag static CNAME/address coexistence (invalid if served).
+	staticTypes := make(map[string]map[string]bool)
+	for _, line := range out {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		if host, rtype, _ := parseZoneRecordLine(line); host != "" {
+			if staticTypes[host] == nil {
+				staticTypes[host] = make(map[string]bool)
+			}
+			staticTypes[host][rtype] = true
+		}
+	}
+	for host, types := range staticTypes {
+		if types["CNAME"] && (types["A"] || types["AAAA"]) {
+			z.GetLogger().Error("Invalid static records for %s.%s: CNAME cannot coexist with address records - fix by hand", host, domain)
+		}
+	}
+	return out
 }
 
 // extractManagedLines returns normalized managed-record lines from zone content
@@ -369,7 +571,7 @@ func parseTTL(s string) int {
 }
 
 // generateZoneFileContent generates the complete zone file content
-func (z *ZoneFormat) generateZoneFileContent(domain string) (string, error) {
+func (z *ZoneFormat) generateZoneFileContent(domain string, staticLines, managedRecords []string, serial string) (string, error) {
 	var lines []string
 
 	// Add header
@@ -385,7 +587,7 @@ func (z *ZoneFormat) generateZoneFileContent(domain string) (string, error) {
 	lines = append(lines, "")
 
 	// Generate SOA record
-	soa, err := z.generateSOARecord(domain)
+	soa, err := z.generateSOARecord(domain, serial)
 	if err != nil {
 		return "", err
 	}
@@ -397,8 +599,15 @@ func (z *ZoneFormat) generateZoneFileContent(domain string) (string, error) {
 	lines = append(lines, nsRecords...)
 	lines = append(lines, "")
 
+	// User-owned static records (echoed verbatim, collisions filtered)
+	emittedStatic := filterStaticCollisions(z, domain, staticLines, managedRecords)
+	if len(emittedStatic) > 0 {
+		lines = append(lines, "; Static Records")
+		lines = append(lines, emittedStatic...)
+		lines = append(lines, "")
+	}
+
 	// Generate managed records
-	managedRecords := z.generateManagedRecords(domain)
 	if len(managedRecords) > 0 {
 		lines = append(lines, "; Managed Records")
 		lines = append(lines, managedRecords...)
@@ -407,12 +616,13 @@ func (z *ZoneFormat) generateZoneFileContent(domain string) (string, error) {
 	return strings.Join(lines, "\n") + "\n", nil
 }
 
-// generateSOARecord generates SOA record with incremented serial
-func (z *ZoneFormat) generateSOARecord(domain string) ([]string, error) {
-	// Get current serial and increment it
-	currentSerial := z.getCurrentSerial()
-	newSerial := z.incrementSerial(currentSerial)
-	z.GetLogger().Trace("SOA: Current=%s, New=%s", currentSerial, newSerial)
+// generateSOARecord generates an SOA record with the given serial
+func (z *ZoneFormat) generateSOARecord(domain string, serial string) ([]string, error) {
+	newSerial := serial
+	if newSerial == "" {
+		newSerial = z.incrementSerial(z.getCurrentSerial())
+	}
+	z.GetLogger().Trace("SOA: New=%s", newSerial)
 
 	// Expand SOA config for this domain
 	soa := z.expandSOAConfig(domain)
@@ -545,25 +755,59 @@ func (z *ZoneFormat) generateNSRecords(domain string) []string {
 
 // generateManagedRecords generates the managed DNS records from in-memory state merged with existing file records
 func (z *ZoneFormat) generateManagedRecords(domain string) []string {
-	var lines []string
+	records := z.collectManagedRecords(domain)
 
+	// Generate output lines from the sorted record slice
+	var lines []string
+	for _, record := range records {
+		lines = append(lines, formatManagedRecord(record))
+	}
+	return lines
+}
+
+// formatManagedRecord renders a single managed record line.
+func formatManagedRecord(record *common.BaseRecord) string {
+	hostname := record.Hostname
+	if hostname == "" || hostname == "@" {
+		hostname = "@"
+	}
+	comment := ""
+	if !record.CreatedAt.IsZero() {
+		comment = fmt.Sprintf("; created_at: %s input: %s",
+			record.CreatedAt.Format(time.RFC3339), record.Source)
+	} else {
+		comment = fmt.Sprintf("; input: %s", record.Source)
+	}
+	return fmt.Sprintf("%-20s %-6d %-4s %-5s %-15s %s",
+		hostname, record.TTL, "IN", record.Type, record.Target, comment)
+}
+
+// collectManagedRecords merges file and in-memory records for a domain,
+// sorts them, and enforces CNAME exclusivity (a CNAME hostname cannot own
+// other record types, so address records win and the CNAME is dropped).
+func (z *ZoneFormat) collectManagedRecords(domain string) []*common.BaseRecord {
 	export := z.GetExportData()
 	if export == nil || export.Domains == nil {
-		return lines
+		return nil
 	}
 	domainData, ok := export.Domains[domain]
 	if !ok || domainData == nil {
-		return lines
+		return nil
 	}
 
 	// Create a map to track all records by unique key (hostname + type)
 	recordMap := make(map[string]*common.BaseRecord)
 
-	// First, load existing records from the file to preserve manual records
+	// First, overlay records still present in the file's managed section.
+	// Manual-sourced file lines are user static content (served from the
+	// static section) and must not be re-emitted as managed records.
 	filePath := z.GetFilePath()
 	if fileExists(filePath) {
 		existingRecords := z.loadRecordsFromManagedSection(domain, filePath)
 		for _, record := range existingRecords {
+			if isManualSource(record.Source) {
+				continue
+			}
 			key := record.Hostname + ":" + record.Type
 			recordMap[key] = record
 		}
@@ -631,24 +875,27 @@ func (z *ZoneFormat) generateManagedRecords(domain string) []string {
 		sort.Slice(records, less)
 	}
 
-	// Generate output lines from the sorted record slice
-	for _, record := range records {
-		hostname := record.Hostname
-		if hostname == "" || hostname == "@" {
-			hostname = "@"
+	return enforceCNAMEExclusivity(z, domain, records)
+}
+
+// enforceCNAMEExclusivity drops CNAME records for hostnames that also own
+// A/AAAA records (invalid zones otherwise) and logs the drop.
+func enforceCNAMEExclusivity(z *ZoneFormat, domain string, records []*common.BaseRecord) []*common.BaseRecord {
+	hasAddress := make(map[string]bool)
+	for _, r := range records {
+		if r.Type == "A" || r.Type == "AAAA" {
+			hasAddress[r.Hostname] = true
 		}
-		comment := ""
-		if !record.CreatedAt.IsZero() {
-			comment = fmt.Sprintf("; created_at: %s input: %s",
-				record.CreatedAt.Format(time.RFC3339), record.Source)
-		} else {
-			comment = fmt.Sprintf("; input: %s", record.Source)
-		}
-		line := fmt.Sprintf("%-20s %-6d %-4s %-5s %-15s %s",
-			hostname, record.TTL, "IN", record.Type, record.Target, comment)
-		lines = append(lines, line)
 	}
-	return lines
+	kept := records[:0]
+	for _, r := range records {
+		if r.Type == "CNAME" && hasAddress[r.Hostname] {
+			z.GetLogger().Warn("Dropping conflicting CNAME record %s.%s -> %s (hostname also has address records)", r.Hostname, domain, r.Target)
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return kept
 }
 
 // WriteRecordWithSource writes or updates a DNS record with source information
