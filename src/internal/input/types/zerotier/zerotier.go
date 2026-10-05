@@ -305,12 +305,12 @@ func (p *ZerotierProvider) pollLoop() {
 
 // logMemberAdded logs when a member is added with appropriate message based on filter type
 func (p *ZerotierProvider) logMemberAdded(name string) {
-	p.logger.Info("Member added: %s", name)
+	p.logger.With("member", name).Info("Member added: %s", name)
 }
 
 // logMemberRemoved logs when a member is removed with appropriate message based on filter type
 func (p *ZerotierProvider) logMemberRemoved(name string) {
-	p.logger.Info("Member removed: %s", name)
+	p.logger.With("member", name).Info("Member removed: %s", name)
 }
 
 // targetDomains returns the primary domain plus any additional domains,deduplicated. Members are published under each domain from a single poll.
@@ -382,14 +382,14 @@ func (p *ZerotierProvider) publishEntry(batchProcessor *domain.BatchProcessor, e
 			fqdnNoDot = realDomain
 		}
 		if remove {
-			p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+			p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecordRemoval: %+v", state)
 			if err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state); err != nil {
 				p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
 			} else {
 				heraldstate.Remove(realDomain, hostname, entry.RecordType)
 			}
 		} else {
-			p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+			p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecord: %+v", state)
 			if err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state); err != nil {
 				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
 			}
@@ -426,7 +426,7 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 		} else {
 			// CHANGED ENTRY: compare fields
 			if entry.Target != lastEntry.Target || entry.TTL != lastEntry.TTL || entry.RecordType != lastEntry.RecordType {
-				p.logger.Info("Member changed: %s (target: %s -> %s, ttl: %d -> %d, type: %s -> %s)", entry.GetFQDN(), lastEntry.Target, entry.Target, lastEntry.TTL, entry.TTL, lastEntry.RecordType, entry.RecordType)
+				p.logger.With("member", entry.GetFQDN()).Info("Member changed: %s (target: %s -> %s, ttl: %d -> %d, type: %s -> %s)", entry.GetFQDN(), lastEntry.Target, entry.Target, lastEntry.TTL, entry.TTL, lastEntry.RecordType, entry.RecordType)
 				p.publishEntry(batchProcessor, entry, false)
 			} else {
 				// Unchanged but confirmed present: refresh last-seen only.
@@ -562,8 +562,8 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 		timeSinceLastSeen := currentTime - m.LastSeen
 		isOnline := timeSinceLastSeen < timeoutMs
 
-		p.logger.Debug("Member %s online check: lastSeen=%dms ago, timeout=%dms (%ds), isOnline=%v",
-			m.Name, timeSinceLastSeen, timeoutMs, p.onlineTimeoutSeconds, isOnline)
+		p.logger.With("member", m.Name).Debug("Member online check: lastSeen=%dms ago, timeout=%dms (%ds), isOnline=%v",
+			timeSinceLastSeen, timeoutMs, p.onlineTimeoutSeconds, isOnline)
 
 		p.logger.Trace("Evaluating member: id=%s, name=%s, online=%v (lastSeen %dms ago, timeout %dms), authorized=%v, ips=%v, address=%s", m.ID, m.Name, isOnline, timeSinceLastSeen, timeoutMs, m.Config.Authorized, m.Config.IPAssignments, m.Config.Address)
 
@@ -579,7 +579,7 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 		}
 
 		if !EvaluateZerotierFilters(p.filterConfig, memberData) {
-			p.logger.Trace("Member '%s' did not match filters, skipping", m.Name)
+			p.logger.With("member", m.Name).Trace("Member did not match filters, skipping")
 			continue
 		}
 
@@ -592,10 +592,10 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 				p.addressFallbackMembers[hostname] = true
 				// Only log fallback message once per member hostname, or always in debug mode
 				if !p.loggedFallbackMembers[hostname] {
-					p.logger.Verbose("Member has no name, using address as hostname: %s", hostname)
+					p.logger.With("member", hostname).Verbose("Member has no name, using address as hostname")
 					p.loggedFallbackMembers[hostname] = true
 				} else {
-					p.logger.Debug("Member has no name, using address as hostname: %s", hostname)
+					p.logger.With("member", hostname).Debug("Member has no name, using address as hostname")
 				}
 			} else {
 				p.logger.Warn("Skipping member %s - no name provided and use_address_fallback not enabled", m.ID)
@@ -693,10 +693,10 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 				timeoutDuration := time.Duration(p.onlineTimeoutSeconds) * time.Second
 				isOnline = timeSinceLastSeen < timeoutDuration
 
-				p.logger.Debug("Member %s online check: lastSeen=%v ago, timeout=%v (%ds), isOnline=%v",
-					m.Name, timeSinceLastSeen.Truncate(time.Second), timeoutDuration, p.onlineTimeoutSeconds, isOnline)
+				p.logger.With("member", m.Name).Debug("Member online check: lastSeen=%v ago, timeout=%v (%ds), isOnline=%v",
+					timeSinceLastSeen.Truncate(time.Second), timeoutDuration, p.onlineTimeoutSeconds, isOnline)
 			} else {
-				p.logger.Warn("Failed to parse lastSeen timestamp for member %s: %s", m.Name, m.LastSeen)
+				p.logger.With("member", m.Name).Warn("Failed to parse lastSeen timestamp: %s", m.LastSeen)
 				// Fall back to the boolean online field if timestamp parsing fails
 				isOnline = m.Online
 			}
@@ -722,7 +722,7 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 		}
 
 		if !EvaluateZerotierFilters(p.filterConfig, memberData) {
-			p.logger.Trace("Member '%s' did not match filters, skipping", m.Name)
+			p.logger.With("member", m.Name).Trace("Member did not match filters, skipping")
 			continue
 		}
 
@@ -735,10 +735,10 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 				p.addressFallbackMembers[hostname] = true
 				// Only log fallback message once per member hostname, or always in debug mode
 				if !p.loggedFallbackMembers[hostname] {
-					p.logger.Verbose("Member has no name, using address as hostname: %s", hostname)
+					p.logger.With("member", hostname).Verbose("Member has no name, using address as hostname")
 					p.loggedFallbackMembers[hostname] = true
 				} else {
-					p.logger.Debug("Member has no name, using address as hostname: %s", hostname)
+					p.logger.With("member", hostname).Debug("Member has no name, using address as hostname")
 				}
 			} else {
 				p.logger.Warn("Skipping member %s - no name provided and use_address_fallback not enabled", m.ID)
