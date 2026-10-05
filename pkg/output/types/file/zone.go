@@ -183,6 +183,21 @@ func (z *ZoneFormat) SyncDomain(domain string) error {
 	filePath := z.GetFilePath()
 	z.GetLogger().Trace("SyncDomain: Starting for domain=%s, file=%s", domain, filePath)
 
+	// Compare managed records only
+	if fileExists(filePath) {
+		newManaged := normalizeManagedLines(z.generateManagedRecords(domain))
+		if existingContent, readErr := os.ReadFile(filePath); readErr == nil {
+			existingManaged := extractManagedLines(string(existingContent))
+			if managedLinesEqual(existingManaged, newManaged) {
+				z.GetLogger().Trace("SyncDomain: No record changes detected for %s, skipping write", filePath)
+				return nil
+			}
+		} else if !os.IsNotExist(readErr) {
+			z.GetLogger().Error("SyncDomain: Failed to read existing file %s: %v", filePath, readErr)
+			// Continue to write new content if file is unreadable for other reasons
+		}
+	}
+
 	// Generate the complete zone file content
 	content, err := z.generateZoneFileContent(domain)
 	if err != nil {
@@ -192,19 +207,7 @@ func (z *ZoneFormat) SyncDomain(domain string) error {
 
 	z.GetLogger().Trace("SyncDomain: Generated content (%d bytes) for domain=%s", len(content), domain)
 
-	// Check if the file exists and compare content
-	existingContent, readErr := os.ReadFile(filePath)
-	if readErr == nil {
-		if string(existingContent) == content {
-			z.GetLogger().Trace("SyncDomain: No changes detected for %s, skipping write", filePath)
-			return nil // No changes, do not overwrite
-		}
-	} else if !os.IsNotExist(readErr) {
-		z.GetLogger().Error("SyncDomain: Failed to read existing file %s: %v", filePath, readErr)
-		// Continue to write new content if file is unreadable for other reasons
-	}
-
-	// Write the zone file only if content changed or file does not exist
+	// Write the zone file only if records changed or file does not exist
 	err = os.WriteFile(filePath, []byte(content), 0644)
 	if err != nil {
 		z.GetLogger().Error("SyncDomain: Failed to write file %s: %v", filePath, err)
@@ -213,6 +216,57 @@ func (z *ZoneFormat) SyncDomain(domain string) error {
 	}
 
 	return err
+}
+
+// extractManagedLines returns normalized managed-record lines from zone content
+func extractManagedLines(content string) []string {
+	var lines []string
+	inManaged := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "; Managed Records" {
+			inManaged = true
+			continue
+		}
+		if !inManaged {
+			continue
+		}
+		if trimmed == "" || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		lines = append(lines, strings.Join(strings.Fields(line), " "))
+	}
+	return lines
+}
+
+// normalizeManagedLines normalizes generated managed-record lines the same way.
+func normalizeManagedLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		out = append(out, strings.Join(strings.Fields(line), " "))
+	}
+	return out
+}
+
+// managedLinesEqual compares two managed-record line sets
+func managedLinesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	ac := append([]string(nil), a...)
+	bc := append([]string(nil), b...)
+	sort.Strings(ac)
+	sort.Strings(bc)
+	for i := range ac {
+		if ac[i] != bc[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // fileExists checks if a file exists

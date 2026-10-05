@@ -1,6 +1,8 @@
-## beta 2026010-04 <code at nfrastack dot com>
+## beta 2026-10-04 <code at nfrastack dot com>
 
-   ### Added Support IPV6
+   ### Changed
+    - Support IPV6 safely
+    - (output/zone) only write zone files when actual record change
 
 ## 2.3.4 2026-01-19 <code at nfrastack dot com>
 
