@@ -138,51 +138,6 @@ func (z *ZoneFormat) Sync() error {
 	return nil
 }
 
-// WriteOrUpdateRecordWithSource adds or updates a record in the file and memory
-func (z *ZoneFormat) WriteOrUpdateRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	// Load existing records from file before making any changes (once per domain)
-	loadKey := domain + "|" + z.GetFilePath()
-	loadedZoneMutex.RLock()
-	loaded := loadedZoneDomains[loadKey]
-	loadedZoneMutex.RUnlock()
-
-	if !loaded {
-		filePath := z.GetFilePath()
-		if fileExists(filePath) {
-			z.GetLogger().Debug("Loading existing records from zone file: %s", filePath)
-			if err := z.loadManagedRecordsFromFile(domain, filePath); err != nil {
-				z.GetLogger().Warn("Failed to load existing records from %s: %v", filePath, err)
-			} else {
-				z.GetLogger().Debug("Successfully loaded existing records from %s", filePath)
-			}
-		}
-
-		loadedZoneMutex.Lock()
-		loadedZoneDomains[loadKey] = true
-		loadedZoneMutex.Unlock()
-	}
-
-	// Update in-memory (sets CreatedAt if new)
-	_ = z.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
-	return z.SyncDomain(domain)
-}
-
-// RemoveRecordFromFile removes a record from the file and memory, but only rewrites the file if a record was actually removed
-func (z *ZoneFormat) RemoveRecordFromFile(domain, hostname, recordType string) error {
-	export := z.GetExportData()
-	d, ok := export.Domains[domain]
-	if !ok || d == nil || len(d.Records) == 0 {
-		return nil // nothing to remove
-	}
-	before := len(d.Records)
-	_ = z.RemoveRecord(domain, hostname, recordType)
-	after := len(d.Records)
-	if after < before {
-		return z.SyncDomain(domain)
-	}
-	return nil
-}
-
 // SyncDomain writes the zone file for a specific domain
 func (z *ZoneFormat) SyncDomain(domain string) error {
 	filePath := z.GetFilePath()

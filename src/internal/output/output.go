@@ -98,23 +98,7 @@ func registerAllCoreFormats() {
 	RegisterFormat("file/zone", fileoutput.NewFileOutput)
 	RegisterFormat("file/hosts", fileoutput.NewFileOutput)
 
-	// Register DNS format
-	RegisterFormat("dns", createDNSOutput)
-
-	log.Debug("[output] Registered core formats: file, dns")
-}
-
-// createDNSOutput creates a DNS output instance without import cycle
-func createDNSOutput(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	provider, ok := config["provider"].(string)
-	if !ok || provider == "" {
-		return nil, fmt.Errorf("dns output requires 'provider' field")
-	}
-
-	return &placeholderFormat{
-		profileName: profileName,
-		formatType:  fmt.Sprintf("dns/%s", provider),
-	}, nil
+	log.Debug("[output] Registered core formats: file")
 }
 
 // Global registry for output format creators
@@ -135,65 +119,6 @@ func RegisterFormat(formatName string, createFunc func(string, map[string]interf
 	outputFormatRegistry[formatName] = createFunc
 	log.Debug("[output] Registered format creator for '%s'", formatName)
 }
-
-// createFileFormat creates a file output format using dynamic loading to avoid import cycles
-// func createFileFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
-// 	// Try to dynamically load the file output package
-// 	format, _ := config["format"].(string)
-// 	if format == "" {
-// 		format = "unknown"
-// 	}
-
-// 	log.Debug("[output] Attempting to create file format '%s' for profile '%s'", format, profileName)
-
-// 	// Check if we have a registered creator for this file format
-// 	registryMutex.RLock()
-// 	createFunc, exists := outputFormatRegistry["file/"+format]
-// 	if !exists {
-// 		createFunc, exists = outputFormatRegistry["file"]
-// 	}
-// 	registryMutex.RUnlock()
-
-// 	if exists {
-// 		return createFunc(profileName, config)
-// 	}
-
-// 	// Fallback to placeholder implementation
-// 	log.Debug("[output] No registered creator for file format '%s', using placeholder", format)
-// 	return &placeholderFormat{
-// 		profileName: profileName,
-// 		formatType:  fmt.Sprintf("file/%s", format),
-// 	}, nil
-// }
-
-// createDNSFormat creates a DNS output format using dynamic loading to avoid import cycles
-// func createDNSFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
-// 	provider, _ := config["provider"].(string)
-// 	if provider == "" {
-// 		return nil, fmt.Errorf("DNS format requires 'provider' field")
-// 	}
-
-// 	log.Debug("[output] Attempting to create DNS format with provider '%s' for profile '%s'", provider, profileName)
-
-// 	// Check if we have a registered creator for this DNS provider
-// 	registryMutex.RLock()
-// 	createFunc, exists := outputFormatRegistry["dns/"+provider]
-// 	if !exists {
-// 		createFunc, exists = outputFormatRegistry["dns"]
-// 	}
-// 	registryMutex.RUnlock()
-
-// 	if exists {
-// 		return createFunc(profileName, config)
-// 	}
-
-// 	// Fallback to placeholder implementation
-// 	log.Debug("[output] No registered creator for DNS provider '%s', using placeholder", provider)
-// 	return &placeholderFormat{
-// 		profileName: profileName,
-// 		formatType:  fmt.Sprintf("dns/%s", provider),
-// 	}, nil
-// }
 
 // GetOutputManager returns the global output manager instance
 func GetOutputManager() *OutputManager {
@@ -319,29 +244,6 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 
 	return nil
 }
-
-// getAllowedOutputsForDomainConfig returns the output profiles allowed for a domain config
-// This uses the global config to determine the allowed outputs dynamically
-// func (om *OutputManager) getAllowedOutputsForDomainConfig(domainConfigKey string) []string {
-// 	// Import the config package to access global configuration
-// 	// This is safe as config doesn't import output
-// 	globalConfig := getGlobalConfigForOutput()
-// 	if globalConfig == nil {
-// 		log.Debug("[output/manager] No global config available, falling back to all outputs")
-// 		return []string{}
-// 	}
-
-// 	// Find the domain config by key
-// 	if domainConfig, exists := globalConfig.GetDomains()[domainConfigKey]; exists {
-// 		// Use the GetOutputs helper method to get effective outputs
-// 		outputs := domainConfig.GetOutputs()
-// 		log.Debug("[output/manager] Domain config '%s' allows outputs: %v", domainConfigKey, outputs)
-// 		return outputs
-// 	}
-
-// 	log.Debug("[output/manager] Domain config '%s' not found, falling back to all outputs", domainConfigKey)
-// 	return []string{} // No outputs = fall back to all
-// }
 
 // GetProfile returns a specific output profile by name
 func (om *OutputManager) GetProfile(profileName string) OutputFormat {
@@ -671,50 +573,5 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 	}
 
 	SetGlobalOutputManager(outputManager)
-	return nil
-}
-
-// createPlaceholderFileFormat creates a placeholder file format that logs operations but doesn't write files
-// func createPlaceholderFileFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
-// 	return &placeholderFormat{
-// 		profileName: profileName,
-// 		formatType:  "file",
-// 	}, nil
-// }
-
-// createPlaceholderDNSFormat creates a placeholder DNS format that logs operations but doesn't make DNS calls
-// func createPlaceholderDNSFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
-// 	return &placeholderFormat{
-// 		profileName: profileName,
-// 		formatType:  "dns",
-// 	}, nil
-// }
-
-// placeholderFormat is a placeholder implementation for formats that aren't fully implemented
-type placeholderFormat struct {
-	profileName string
-	formatType  string
-}
-
-func (p *placeholderFormat) GetName() string { return p.formatType }
-
-func (p *placeholderFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
-	return p.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
-}
-
-func (p *placeholderFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	log.Debug("[output/%s/%s] Would write record: %s %s -> %s (TTL: %d, Source: %s)",
-		p.formatType, strings.ReplaceAll(domain, ".", "_"), hostname, recordType, target, ttl, source)
-	return nil
-}
-
-func (p *placeholderFormat) RemoveRecord(domain, hostname, recordType string) error {
-	log.Debug("[output/%s/%s] Would remove record: %s %s",
-		p.formatType, strings.ReplaceAll(domain, ".", "_"), hostname, recordType)
-	return nil
-}
-
-func (p *placeholderFormat) Sync() error {
-	log.Debug("[output/%s] Would sync %s format (placeholder implementation)", p.formatType, p.formatType)
 	return nil
 }
