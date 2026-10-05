@@ -9,6 +9,7 @@
     - Support IPV6 safely
     - rework repository layout
     - constant format strings
+    - structured logging
     - gracefully stop API server and flush states on shutdown
     - (api) scope client uploads to allowed domains
     - (api) scope clients to allowed hostnames
