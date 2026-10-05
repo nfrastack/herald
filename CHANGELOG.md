@@ -10,6 +10,7 @@
     - rework repository layout
     - constant format strings
     - structured logging
+    - config rejects unknown fields at startup
     - gracefully stop API server and flush states on shutdown
     - (api) scope client uploads to allowed domains
     - (api) scope clients to allowed hostnames

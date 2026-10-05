@@ -8,6 +8,7 @@ import (
 	"github.com/nfrastack/herald/internal/log"
 	"github.com/nfrastack/herald/internal/util"
 
+	"bytes"
 	"fmt"
 	"os"
 	"regexp"
@@ -48,8 +49,9 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 		return nil, fmt.Errorf("[config/file] failed to process includes: %w", err)
 	}
 
-	err = yaml.Unmarshal(processed, &cfg)
-	if err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(processed))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("[config/file] failed to decode YAML: %w", err)
 	}
 
