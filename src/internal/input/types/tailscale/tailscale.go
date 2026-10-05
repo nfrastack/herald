@@ -442,7 +442,7 @@ func (p *TailscaleProvider) StartPolling() error {
 	}
 	p.running = true
 
-	p.logger.Debug("%s Starting Tailscale polling with interval: %v", p.logPrefix, p.interval)
+	p.logger.Debug("Starting Tailscale polling with interval: %v", p.interval)
 
 	go p.pollLoop()
 
@@ -461,27 +461,27 @@ func (p *TailscaleProvider) IsRunning() bool {
 
 // logMemberAdded logs when a member is added with appropriate message based on filter type
 func (p *TailscaleProvider) logMemberAdded(fqdn string) {
-	p.logger.Info("Device added: %s", fqdn)
+	p.logger.With("device", fqdn).Info("Device added")
 }
 
 // logMemberRemoved logs when a member is removed with appropriate message based on filter type
 func (p *TailscaleProvider) logMemberRemoved(fqdn string) {
-	p.logger.Info("Device removed: %s", fqdn)
+	p.logger.With("device", fqdn).Info("Device removed")
 }
 
 // logMemberChanged logs when a member's IP changes
 func (p *TailscaleProvider) logMemberChanged(fqdn, oldIP, newIP string) {
-	p.logger.Info("Device changed: %s (%s -> %s)", fqdn, oldIP, newIP)
+	p.logger.With("device", fqdn).Info("Device changed: %s -> %s", oldIP, newIP)
 }
 
 func (p *TailscaleProvider) GetDNSEntries() ([]DNSEntry, error) {
 	devices, err := p.fetchTailscaleDevices()
 	if err != nil {
-		p.logger.Error("%s Failed to fetch devices: %v", p.logPrefix, err)
+		p.logger.Error("Failed to fetch devices: %v", err)
 		return nil, fmt.Errorf("failed to fetch devices: %v", err)
 	}
 
-	p.logger.Debug("%s Fetched %d devices from Tailscale API", p.logPrefix, len(devices))
+	p.logger.Debug("Fetched %d devices from Tailscale API", len(devices))
 
 	var entries []DNSEntry
 	for _, device := range devices {
@@ -492,12 +492,12 @@ func (p *TailscaleProvider) GetDNSEntries() ([]DNSEntry, error) {
 
 		hostname := p.formatHostname(device)
 		if hostname == "" {
-			p.logger.Warn("%s Skipping device %s - no name or hostname available", p.logPrefix, device.ID)
+			p.logger.With("device", device.ID).Warn("Skipping device - no name or hostname available")
 			continue
 		}
 
 		if len(device.Addresses) == 0 {
-			p.logger.Debug("%s Skipping device %s (no IP addresses)", p.logPrefix, hostname)
+			p.logger.Debug("Skipping device %s (no IP addresses)", hostname)
 			continue
 		}
 
@@ -511,11 +511,11 @@ func (p *TailscaleProvider) GetDNSEntries() ([]DNSEntry, error) {
 			recordType := "A"
 			if strings.Contains(cleanIP, ":") {
 				recordType = "AAAA"
-				p.logger.Debug("%s IPv6 address detected for device %s", p.logPrefix, hostname)
+				p.logger.Debug("IPv6 address detected for device %s", hostname)
 			}
 
-			p.logger.Debug("%s Creating DNS entry - hostname: %s, ip: %s, type: %s, source: %s",
-				p.logPrefix, hostname, cleanIP, recordType, p.profileName)
+			p.logger.Debug("Creating DNS entry - hostname: %s, ip: %s, type: %s, source: %s",
+				hostname, cleanIP, recordType, p.profileName)
 
 			entry := DNSEntry{
 				Hostname:   hostname,
@@ -541,8 +541,8 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 
 	url := fmt.Sprintf("%s/tailnet/%s/devices", p.apiURL, p.tailnet)
 
-	p.logger.Trace("%s Fetching devices from URL: %s", p.logPrefix, url)
-	p.logger.Trace("%s Using tailnet: %s", p.logPrefix, p.tailnet)
+	p.logger.Trace("Fetching devices from URL: %s", url)
+	p.logger.Trace("Using tailnet: %s", p.tailnet)
 
 	// Create HTTP client with TLS configuration
 	httpClient, err := p.tlsConfig.CreateHTTPClient()
@@ -558,10 +558,10 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	p.logger.Trace("%s Making HTTP request to Tailscale API", p.logPrefix)
+	p.logger.Trace("Making HTTP request to Tailscale API")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		p.logger.Error("%s API request failed: %v", p.logPrefix, err)
+		p.logger.Error("API request failed: %v", err)
 		return nil, fmt.Errorf("API request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -571,7 +571,7 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 		if resp.StatusCode == http.StatusUnauthorized {
 			// Token might be expired, try to refresh
 			if p.clientID != "" && p.clientSecret != "" {
-				p.logger.Debug("%s Received 401, attempting token refresh", p.logPrefix)
+				p.logger.Debug("Received 401, attempting token refresh")
 				if refreshErr := p.refreshAccessToken(); refreshErr != nil {
 					return nil, fmt.Errorf("HTTP %d and failed to refresh token: %s", resp.StatusCode, string(body))
 				}
@@ -587,22 +587,22 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	p.logger.Trace("%s Received %d bytes from Tailscale API", p.logPrefix, len(data))
-	p.logger.Trace("%s Parsing JSON response", p.logPrefix)
+	p.logger.Trace("Received %d bytes from Tailscale API", len(data))
+	p.logger.Trace("Parsing JSON response")
 	var response TailscaleDevicesResponse
 	if err := json.Unmarshal(data, &response); err != nil {
-		p.logger.Error("%s Failed to parse JSON response: %v", p.logPrefix, err)
-		p.logger.Debug("%s Raw response: %s", p.logPrefix, string(data))
+		p.logger.Error("Failed to parse JSON response: %v", err)
+		p.logger.Debug("Raw response: %s", string(data))
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
-	p.logger.Verbose("%s Successfully fetched %d devices from Tailscale", p.logPrefix, len(response.Devices))
+	p.logger.Verbose("Successfully fetched %d devices from Tailscale", len(response.Devices))
 	return response.Devices, nil
 }
 
 func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
-	p.logger.Trace("%s Device %s - Name: '%s', Hostname: '%s', Format: '%s'",
-		p.logPrefix, device.ID, device.Name, device.Hostname, p.hostnameFormat)
+	p.logger.Trace("Device %s - Name: '%s', Hostname: '%s', Format: '%s'",
+		device.ID, device.Name, device.Hostname, p.hostnameFormat)
 
 	switch p.hostnameFormat {
 	case "simple":
@@ -612,16 +612,16 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 			hostname = device.Hostname
 		}
 
-		p.logger.Trace("%s Before processing: '%s'", p.logPrefix, hostname)
+		p.logger.Trace("Before processing: '%s'", hostname)
 
 		// Remove .tail... suffix if present for simple mode
 		if idx := strings.Index(hostname, ".tail"); idx != -1 {
 			hostname = hostname[:idx]
-			p.logger.Trace("%s After removing .tail suffix: '%s'", p.logPrefix, hostname)
+			p.logger.Trace("After removing .tail suffix: '%s'", hostname)
 		}
 
 		result := sanitizeHostname(hostname)
-		p.logger.Trace("%s Final hostname for device %s: '%s'", p.logPrefix, device.ID, result)
+		p.logger.Trace("Final hostname for device %s: '%s'", device.ID, result)
 		return result
 
 	case "tailscale":
@@ -644,7 +644,7 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 		hostname = strings.ReplaceAll(hostname, "_", "-")
 
 		result := sanitizeHostname(hostname)
-		p.logger.Trace("%s Final hostname for device %s: '%s'", p.logPrefix, device.ID, result)
+		p.logger.Trace("Final hostname for device %s: '%s'", device.ID, result)
 		return result
 
 	case "full":
@@ -654,7 +654,7 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 			hostname = device.Name
 		}
 		result := sanitizeHostname(hostname)
-		p.logger.Trace("%s Final hostname for device %s: '%s'", p.logPrefix, device.ID, result)
+		p.logger.Trace("Final hostname for device %s: '%s'", device.ID, result)
 		return result
 
 	default:
@@ -670,7 +670,7 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 		}
 
 		result := sanitizeHostname(hostname)
-		p.logger.Trace("%s Final hostname for device %s: '%s'", p.logPrefix, device.ID, result)
+		p.logger.Trace("Final hostname for device %s: '%s'", device.ID, result)
 		return result
 	}
 }
@@ -922,62 +922,62 @@ func (p *TailscaleProvider) targetDomains() []string {
 }
 
 func (p *TailscaleProvider) processDevices() {
-	p.logger.Trace("%s Starting device processing cycle", p.logPrefix)
+	p.logger.Trace("Starting device processing cycle")
 	devices, err := p.fetchTailscaleDevices()
 	if err != nil {
-		p.logger.Error("%s Failed to fetch devices: %v", p.logPrefix, err)
+		p.logger.Error("Failed to fetch devices: %v", err)
 		return
 	}
 
-	p.logger.Trace("%s Processing devices and building current records map", p.logPrefix)
+	p.logger.Trace("Processing devices and building current records map")
 
 	// Create batch processor for efficient sync handling
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
 	current := make(map[string]string) // hostname:recordType -> target
 
-	p.logger.Trace("%s Processing %d devices from Tailscale", p.logPrefix, len(devices))
+	p.logger.Trace("Processing %d devices from Tailscale", len(devices))
 	processedCount := 0
 	filteredCount := 0
 
 	for i, device := range devices {
-		p.logger.Trace("%s Processing device %d/%d: %s (%s)", p.logPrefix, i+1, len(devices), device.Name, device.ID)
+		p.logger.Trace("Processing device %d/%d: %s (%s)", i+1, len(devices), device.Name, device.ID)
 
 		// Apply filters
 		if !EvaluateTailscaleFilters(p.filterConfig, device) {
 			filteredCount++
-			p.logger.Trace("%s Device %s filtered out", p.logPrefix, device.Name)
+			p.logger.Trace("Device %s filtered out", device.Name)
 			continue
 		}
 
 		hostname := p.formatHostname(device)
 		if hostname == "" {
-			p.logger.Warn("%s Skipping device %s - no name or hostname available", p.logPrefix, device.ID)
+			p.logger.With("device", device.ID).Warn("Skipping device - no name or hostname available")
 			continue
 		}
 
 		if len(device.Addresses) == 0 {
-			p.logger.Debug("%s Skipping device %s (no IP addresses)", p.logPrefix, hostname)
+			p.logger.Debug("Skipping device %s (no IP addresses)", hostname)
 			continue
 		}
 
-		p.logger.Trace("%s Device %s has %d IP addresses", p.logPrefix, hostname, len(device.Addresses))
+		p.logger.Trace("Device %s has %d IP addresses", hostname, len(device.Addresses))
 		processedCount++
 
 		// Process each IP address
 		for addrIdx, ip := range device.Addresses {
-			p.logger.Trace("%s Processing IP %d/%d: %s for device %s", p.logPrefix, addrIdx+1, len(device.Addresses), ip, hostname)
+			p.logger.Trace("Processing IP %d/%d: %s for device %s", addrIdx+1, len(device.Addresses), ip, hostname)
 
 			// Clean up IP address - remove CIDR notation if present
 			cleanIP := ip
 			if strings.Contains(ip, "/") {
 				cleanIP = strings.Split(ip, "/")[0]
-				p.logger.Trace("%s Cleaned IP %s -> %s", p.logPrefix, ip, cleanIP)
+				p.logger.Trace("Cleaned IP %s -> %s", ip, cleanIP)
 			}
 
 			recordType := "A"
 			if strings.Contains(cleanIP, ":") {
 				recordType = "AAAA"
-				p.logger.Trace("%s IPv6 address detected: %s", p.logPrefix, cleanIP)
+				p.logger.Trace("IPv6 address detected: %s", cleanIP)
 			}
 
 			// Create records under each target domain (single poll, N writes)
@@ -996,12 +996,12 @@ func (p *TailscaleProvider) processDevices() {
 
 			for _, targetDomain := range p.targetDomains() {
 				fqdn := hostname + "." + targetDomain
-				p.logger.Trace("%s Checking record %s (%s) -> %s", p.logPrefix, fqdn, recordType, cleanIP)
+				p.logger.Trace("Checking record %s (%s) -> %s", fqdn, recordType, cleanIP)
 
 				// Use helper to get parent domain for correct domain config matching
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-				p.logger.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
+				p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
 
 				// Check if this is a new or changed record
 				if changed {
@@ -1013,13 +1013,13 @@ func (p *TailscaleProvider) processDevices() {
 						ForceServiceAsTarget: true, // VPN providers always use Service IP as target
 					}
 
-					p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdn, state)
+					p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdn, state)
 					err := batchProcessor.ProcessRecord(realDomain, fqdn, state)
 					if err != nil {
-						p.logger.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdn, err)
+						p.logger.With("device", fqdn).Error("Failed to ensure DNS: %v", err)
 					}
 				} else {
-					p.logger.Trace("%s Record unchanged: %s (%s) -> %s", p.logPrefix, fqdn, recordType, cleanIP)
+					p.logger.Trace("Record unchanged: %s (%s) -> %s", fqdn, recordType, cleanIP)
 				}
 				heraldstate.Touch(realDomain, hostname, recordType, cleanIP, p.profileName, "")
 			}
@@ -1027,12 +1027,12 @@ func (p *TailscaleProvider) processDevices() {
 	}
 
 	if filteredCount > 0 {
-		p.logger.Verbose("%s Filtered out %d devices, processed %d devices", p.logPrefix, filteredCount, processedCount)
+		p.logger.Verbose("Filtered out %d devices, processed %d devices", filteredCount, processedCount)
 	} else {
-		p.logger.Verbose("%s Processed %d devices (no filtering applied)", p.logPrefix, processedCount)
+		p.logger.Verbose("Processed %d devices (no filtering applied)", processedCount)
 	}
 
-	p.logger.Trace("%s Checking for removed records (recordRemoveOnStop=%t)", p.logPrefix, p.recordRemoveOnStop)
+	p.logger.Trace("Checking for removed records (recordRemoveOnStop=%t)", p.recordRemoveOnStop)
 	// Process removals if recordRemoveOnStop is enabled
 	if p.recordRemoveOnStop {
 		removedCount := 0
@@ -1049,7 +1049,7 @@ func (p *TailscaleProvider) processDevices() {
 					fqdn := hostname + "." + targetDomain
 					fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 					realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-					p.logger.Trace("%s Using real domain name '%s' for DNS provider (removal)", p.logPrefix, realDomain)
+					p.logger.Trace("Using real domain name '%s' for DNS provider (removal)", realDomain)
 
 					p.logMemberRemoved(fqdn) // This log is fine
 					state := domain.RouterState{
@@ -1060,10 +1060,10 @@ func (p *TailscaleProvider) processDevices() {
 						ForceServiceAsTarget: true, // VPN providers always use Service IP as target
 					}
 
-					p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdn, state)
+					p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdn, state)
 					err := batchProcessor.ProcessRecordRemoval(realDomain, fqdn, state)
 					if err != nil {
-						p.logger.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdn, err)
+						p.logger.With("device", fqdn).Error("Failed to remove DNS: %v", err)
 					} else {
 						heraldstate.Remove(realDomain, hostname, recordType)
 					}
@@ -1071,15 +1071,15 @@ func (p *TailscaleProvider) processDevices() {
 			}
 		}
 		if removedCount > 0 {
-			p.logger.Verbose("%s Processed %d record removals", p.logPrefix, removedCount)
+			p.logger.Verbose("Processed %d record removals", removedCount)
 		}
 	} else {
-		p.logger.Trace("%s Record removal disabled (recordRemoveOnStop=false)", p.logPrefix)
+		p.logger.Trace("Record removal disabled (recordRemoveOnStop=false)")
 	}
 
 	// Update the cache
 	p.lastKnownRecords = current
-	p.logger.Trace("%s Updated lastKnownRecords cache with %d entries", p.logPrefix, len(current))
+	p.logger.Trace("Updated lastKnownRecords cache with %d entries", len(current))
 
 	// Finalize the batch - this will sync output files only if there were changes
 	batchProcessor.FinalizeBatch()
