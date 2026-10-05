@@ -12,14 +12,17 @@ import (
 	"strings"
 )
 
+// mgrLog scopes manager messages; call sites add domain/profile/source fields.
+var mgrLog = log.NewScopedLogger("[output/manager]", "")
+
 func (m *OutputManager) RouteRecords(domainConfigKey, domain string, records []common.Record) error {
 	logPrefix := common.GetDomainLogPrefix(domainConfigKey, domain)
 	fmt.Printf("%s Routing %d records\n", logPrefix, len(records))
-	log.Debug("%s Successfully routed records\n", logPrefix) // Changed to log.Debug
+	mgrLog.With("domain", domain, "config", domainConfigKey).Debug("Successfully routed records")
 
 	// After routing, flush outputs if any changes occurred
 	if err := m.SyncAll(); err != nil {
-		log.Error("%s OutputManager SyncAll failed after routing records: %v", logPrefix, err)
+		mgrLog.With("domain", domain, "config", domainConfigKey).Error("OutputManager SyncAll failed after routing records: %v", err)
 		return err
 	}
 
@@ -32,11 +35,11 @@ func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, h
 	defer om.mutex.RUnlock()
 
 	if len(allowedOutputs) == 0 {
-		log.Warn("[output/manager] No outputs allowed for record %s.%s - skipping write", hostname, domain)
+		mgrLog.With("domain", domain).Warn("No outputs allowed for record %s - skipping write", hostname)
 		return nil
 	}
 
-	log.Debug("[output/manager] Routing record write: domain='%s', hostname='%s', target='%s', recordType='%s', ttl=%d, source='%s', proxied=%t, allowedOutputs=%v", domain, hostname, target, recordType, ttl, source, proxied, allowedOutputs)
+	mgrLog.With("domain", domain, "source", source).Debug("Routing record write: hostname='%s', target='%s', recordType='%s', ttl=%d, proxied=%t, allowedOutputs=%v", hostname, target, recordType, ttl, proxied, allowedOutputs)
 
 	writtenCount := 0
 	var errors []string
@@ -50,7 +53,7 @@ func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, h
 				writtenCount++
 			}
 		} else {
-			log.Warn("[output/manager] Output profile '%s' not found", outputProfile)
+			mgrLog.With("profile", outputProfile).Warn("Output profile not found")
 		}
 	}
 
@@ -59,7 +62,7 @@ func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, h
 	}
 
 	if writtenCount > 0 {
-		log.Debug("[output/manager] Successfully wrote to %d output profiles", writtenCount)
+		mgrLog.Debug("Successfully wrote to %d output profiles", writtenCount)
 	}
 
 	return nil
@@ -71,12 +74,12 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 	defer om.mutex.RUnlock()
 
 	if len(allowedOutputs) == 0 {
-		log.Debug("No output profiles specified for removal, skipping")
+		mgrLog.Debug("No output profiles specified for removal, skipping")
 		return nil
 	}
 
-	log.Debug("Routing record removal: domain='%s', hostname='%s', recordType='%s', source='%s', allowedOutputs=%v",
-		domain, hostname, recordType, source, allowedOutputs)
+	mgrLog.With("domain", domain, "source", source).Debug("Routing record removal: hostname='%s', recordType='%s', allowedOutputs=%v",
+		hostname, recordType, allowedOutputs)
 
 	var errors []string
 	removedCount := 0
@@ -96,7 +99,7 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 			log.Error("%s", errStr)
 			errors = append(errors, errStr)
 		} else {
-			log.Debug("[output/manager] Successfully removed record from profile '%s'", profileName)
+			mgrLog.With("profile", profileName).Debug("Successfully removed record from profile")
 			removedCount++
 
 			om.changesMutex.Lock()
