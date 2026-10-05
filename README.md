@@ -190,6 +190,13 @@ Herald tracks when each DNS record was first and last confirmed present (poll hi
 
 Each input/output/domain provider supports individual log level configuration via the `log_level` option, allowing fine-grained control over logging verbosity per provider without affecting global log levels.
 
+Log records carry structured fields (`scope`, `client`, `domain`, `profile`, `container`, `device`, `member`). With `LOG_FORMAT=json`, query them directly:
+
+```bash
+journalctl -u herald --output=json | jq -r 'select(.client == "examplehostname") | "\(.__REALTIME_TIMESTAMP) \(.msg)"'
+journalctl -u herald --output=json | jq -r 'select(.msg | contains("rejected")) | [.client, .msg] | @tsv'
+```
+
 ### Domain Configuration
 
 Domains define per-domain configuration, including which input/output profiles to use, optional zone ID, and record options. Each domain can override defaults.
