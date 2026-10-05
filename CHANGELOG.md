@@ -3,6 +3,7 @@
    ### Changed
     - Support IPV6 safely
     - (output/zone) only write zone files when actual record change
+    - (output/zone) properly attribute client on record addition
 
 ## 2.3.4 2026-01-19 <code at nfrastack dot com>
 
