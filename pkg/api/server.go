@@ -12,12 +12,14 @@ import (
 
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -152,10 +154,23 @@ func (s *APIServer) LoadClientProfiles(profiles map[string]config.APIClientProfi
 	}())
 }
 
+// clientIP extracts the host IP from a RemoteAddr
+func clientIP(remoteAddr string) string {
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return host
+	}
+	if host := strings.Trim(remoteAddr, "[]"); host != "" {
+		if ip := net.ParseIP(host); ip != nil {
+			return host
+		}
+	}
+	return remoteAddr
+}
+
 // recordFailedAttempt tracks a failed authentication attempt from an IP
 func (s *APIServer) recordFailedAttempt(remoteAddr string, clientID string, reason string) {
-	// Extract IP from remote address (remove port)
-	ip := strings.Split(remoteAddr, ":")[0]
+	// Extract IP from remote address (IPv6-safe)
+	ip := clientIP(remoteAddr)
 
 	s.attemptsMutex.Lock()
 	defer s.attemptsMutex.Unlock()
@@ -188,8 +203,7 @@ func (s *APIServer) recordFailedAttempt(remoteAddr string, clientID string, reas
 
 // isRateLimited checks if an IP should be rate limited based on failed attempts
 func (s *APIServer) isRateLimited(remoteAddr string) bool {
-	// Extract IP from remote address (remove port)
-	ip := strings.Split(remoteAddr, ":")[0]
+	ip := clientIP(remoteAddr)
 
 	s.attemptsMutex.RLock()
 	defer s.attemptsMutex.RUnlock()
@@ -230,8 +244,7 @@ func (s *APIServer) cleanupFailedAttempts() {
 
 // resetFailedAttempts clears failed attempts for an IP (called on successful auth)
 func (s *APIServer) resetFailedAttempts(remoteAddr string) {
-	// Extract IP from remote address (remove port)
-	ip := strings.Split(remoteAddr, ":")[0]
+	ip := clientIP(remoteAddr)
 
 	s.attemptsMutex.Lock()
 	defer s.attemptsMutex.Unlock()
@@ -296,7 +309,7 @@ func (s *APIServer) authenticateClient(r *http.Request) (string, bool) {
 		return "", false
 	}
 
-	if profile.Token != token {
+	if subtle.ConstantTimeCompare([]byte(profile.Token), []byte(token)) != 1 {
 		s.recordFailedAttempt(r.RemoteAddr, clientID, "invalid token")
 		return "", false
 	}

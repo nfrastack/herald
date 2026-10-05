@@ -1,3 +1,7 @@
+## beta 2026010-04 <code at nfrastack dot com>
+
+   ### Added Support IPV6
+
 ## 2.3.4 2026-01-19 <code at nfrastack dot com>
 
    ### Changed
