@@ -175,7 +175,16 @@ general:
   log_level: verbose
   log_timestamps: true
   dry_run: false
+
+# Operational state lives here, never next to served DNS output. 
+state_dir: /var/lib/herald
+# Records unseen longer than this are logged for manual review. Unset disables stale reporting.
+stale_after: 720h
 ```
+
+#### Record Presence Tracking
+
+Herald tracks when each DNS record was first and last confirmed present (poll hits, container events, API uploads) in `state_dir/lastseen.json`. Heartbeats only touch that file. Docker also runs a lightweight list only reconcile every 15 minutes so quiet containers stay fresh without DNS writes. Stale records log a `WARN` with first/last seen dates for you to review by hand
 
 #### Scoped Logging
 

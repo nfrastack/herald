@@ -335,6 +335,13 @@ func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 	if (src.Defaults != DefaultsConfig{}) {
 		dst.Defaults = src.Defaults
 	}
+	// Merge state settings (src wins when set)
+	if src.StateDir != "" {
+		dst.StateDir = src.StateDir
+	}
+	if src.StaleAfter != "" {
+		dst.StaleAfter = src.StaleAfter
+	}
 	// Merge Input Providers (src overrides dst)
 	if dst.Inputs == nil {
 		dst.Inputs = map[string]InputProviderConfig{}

@@ -7,6 +7,10 @@ general:
   log_timestamps: true
   dry_run: false
 
+# Operational state (presence tracking)
+# state_dir: /var/lib/herald
+# stale_after: 720h
+
 inputs:
   # Docker input with label filtering
   docker_public:

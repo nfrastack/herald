@@ -10,6 +10,7 @@ LOG_TIMESTAMPS=${LOG_TIMESTAMPS:-"TRUE"}
 LOG_TYPE=${LOG_TYPE:-"console"}
 CONFIG_PATH=${CONFIG_PATH:-"/config/"}
 CONFIG_FILE=${CONFIG_FILE:-"herald.yml"}
+STATE_PATH=${STATE_PATH:-"/state/"}
 
 # Caddy Configuration
 #CADDY_API_AUTH_PASS=${CADDY_API_AUTH_PASS:-""}
