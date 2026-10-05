@@ -9,6 +9,7 @@ import (
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/log"
+	heraldstate "herald/pkg/state"
 
 	"context"
 	"encoding/json"
@@ -1020,6 +1021,7 @@ func (p *TailscaleProvider) processDevices() {
 				} else {
 					p.logger.Trace("%s Record unchanged: %s (%s) -> %s", p.logPrefix, fqdn, recordType, cleanIP)
 				}
+				heraldstate.Touch(realDomain, hostname, recordType, cleanIP, p.profileName, "")
 			}
 		}
 	}
@@ -1062,6 +1064,8 @@ func (p *TailscaleProvider) processDevices() {
 					err := batchProcessor.ProcessRecordRemoval(realDomain, fqdn, state)
 					if err != nil {
 						p.logger.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdn, err)
+					} else {
+						heraldstate.Remove(realDomain, hostname, recordType)
 					}
 				}
 			}

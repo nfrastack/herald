@@ -23,6 +23,18 @@ type ConfigFile struct {
 	Domains  map[string]DomainConfig        `yaml:"domains"`
 	Outputs  map[string]interface{}         `yaml:"outputs" json:"outputs"`
 	API      *APIConfig                     `yaml:"api" json:"api"`
+	StateDir string `yaml:"state_dir" json:"state_dir"`
+	StaleAfter string `yaml:"stale_after" json:"stale_after"`
+}
+
+func (cf *ConfigFile) ResolveStateDir() string {
+	if cf != nil && cf.StateDir != "" {
+		return cf.StateDir
+	}
+	if env := os.Getenv("STATE_PATH"); env != "" {
+		return env
+	}
+	return "/var/lib/herald"
 }
 
 // APIConfig defines configuration for the aggregator HTTP API server

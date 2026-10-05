@@ -11,6 +11,7 @@ import (
 	"herald/pkg/input"
 	"herald/pkg/log"
 	"herald/pkg/output"
+	"herald/pkg/state"
 	"herald/pkg/util"
 
 	"herald/pkg/output/types/dns/providers"
@@ -171,6 +172,21 @@ func main() {
 	output.SetGlobalConfigGetter(func() output.GlobalConfigForOutput {
 		return &config.GlobalConfig
 	})
+
+	// Initialize operational state tracking (presence/last-seen).
+	stateDir := cfg.ResolveStateDir()
+	var staleAfter time.Duration
+	if cfg.StaleAfter != "" {
+		if d, err := time.ParseDuration(cfg.StaleAfter); err == nil {
+			staleAfter = d
+		} else {
+			log.Warn("[state] Invalid stale_after '%s', stale reporting disabled", cfg.StaleAfter)
+		}
+	}
+	state.Init(stateDir, staleAfter)
+	if state.Default != nil {
+		log.Info("[state] Tracking record presence in %s", stateDir)
+	}
 
 	// NOW initialize the domain system with validation (after logger is properly configured)
 	// Convert config types for domain validation

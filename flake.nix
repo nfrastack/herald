@@ -133,6 +133,18 @@
               default = null;
               description = "Additional YAML configuration files to include";
             };
+
+            stateDir = lib.mkOption {
+              type = with lib.types; nullOr str;
+              default = null;
+              description = "Directory for operational state (presence tracking). Falls back to /var/lib/herald";
+            };
+
+            staleAfter = lib.mkOption {
+              type = with lib.types; nullOr str;
+              default = null;
+              description = "Warn on records unseen longer than this (eg 720h).";
+            };
           };
 
           config = lib.mkIf cfg.enable {
@@ -148,7 +160,9 @@
                   // (if cfg.outputs != {} then { outputs = cfg.outputs; } else {})
                   // (if cfg.domains != {} then { domains = cfg.domains; } else {})
                   // (if cfg.api != {} then { api = cfg.api; } else {})
-                  // (if cfg.include != null then { include = cfg.include; } else {});
+                  // (if cfg.include != null then { include = cfg.include; } else {})
+                  // (if cfg.stateDir != null then { state_dir = cfg.stateDir; } else {})
+                  // (if cfg.staleAfter != null then { stale_after = cfg.staleAfter; } else {});
               in yaml.generate "herald.yml" configData;
 
             systemd.services.herald = lib.mkIf cfg.service.enable {
@@ -168,6 +182,7 @@
                 StandardOutput = "journal";
                 StandardError = "journal";
                 SyslogIdentifier = "herald";
+                StateDirectory = "herald";
               };
             };
           };

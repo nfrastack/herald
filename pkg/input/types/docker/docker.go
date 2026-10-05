@@ -9,6 +9,7 @@ import (
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/log" // Re-import the log package
+	heraldstate "herald/pkg/state"
 
 	"context"
 	"fmt"
@@ -734,6 +735,10 @@ func (p *DockerProvider) StartPolling() error {
 
 	p.running = true
 
+	if heraldstate.Default != nil {
+		go p.reconcileLoop()
+	}
+
 	// Process existing containers/services if configured
 	if p.config.ProcessExisting {
 		log.Verbose("%s Processing existing containers and services", p.logPrefix)
@@ -747,6 +752,51 @@ func (p *DockerProvider) StartPolling() error {
 	}
 
 	return nil
+}
+
+// reconcileLoop periodically refreshes presence for running containers.
+func (p *DockerProvider) reconcileLoop() {
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for p.running {
+		<-ticker.C
+		p.reconcilePresence()
+	}
+}
+
+// reconcilePresence touches the state tracker for all processable running  containers without writing DNS records.
+func (p *DockerProvider) reconcilePresence() {
+	ctx := context.Background()
+	containers, err := p.client.ContainerList(ctx, types.ContainerListOptions{})
+	if err != nil {
+		p.logger.Debug("Reconcile: failed to list containers: %v", err)
+		return
+	}
+	for _, c := range containers {
+		container, err := p.client.ContainerInspect(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+		if !p.shouldProcessContainer(container) {
+			continue
+		}
+		for _, entry := range p.extractDNSEntriesFromContainer(container) {
+			// Mirror processDNSEntries resolution so tracker keys match writes.
+			domainKey, subdomain := config.ExtractDomainAndSubdomainForProvider(entry.Name, p.profileName, p.logPrefix)
+			if domainKey == "" {
+				continue
+			}
+			domainCfg, ok := config.GlobalConfig.Domains[domainKey]
+			if !ok {
+				continue
+			}
+			host := subdomain
+			if host == "" {
+				host = "@"
+			}
+			heraldstate.Touch(domainCfg.Name, host, entry.RecordType, entry.Target, p.profileName, "")
+		}
+	}
 }
 
 // handleContainerEvent processes Docker container events
@@ -1140,12 +1190,22 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 		}
 
 		var err error
+		trackedHost := strings.TrimSuffix(fqdnForBatch, "."+realDomain)
+		if trackedHost == fqdnForBatch {
+			trackedHost = "@"
+		}
 		if remove {
 			p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v, outputWriter)", p.logPrefix, realDomain, fqdnForBatch, state)
 			err = batchProcessor.ProcessRecordRemoval(realDomain, fqdnForBatch, state)
+			if err == nil {
+				heraldstate.Remove(realDomain, trackedHost, entry.RecordType)
+			}
 		} else {
 			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v, outputWriter)", p.logPrefix, realDomain, fqdnForBatch, state)
 			err = batchProcessor.ProcessRecord(realDomain, fqdnForBatch, state)
+			if err == nil {
+				heraldstate.Touch(realDomain, trackedHost, entry.RecordType, entry.Target, p.profileName, "")
+			}
 		}
 
 		if err != nil {

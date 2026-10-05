@@ -27,6 +27,8 @@ Here are the available options for the NixOS module (services.herald):
 * `enable` (bool): Enable or disable the service.
 * `configFile` (str): Path to the YAML configuration file. Default: `herald.yml`
 * `package` (package): The package to use for the service. Default: the flake's Go build.
+* `stateDir` (str): Directory for operational state (presence tracking). Default: `/var/lib/herald` (managed via `StateDirectory=herald`).
+* `staleAfter` (str): Warn on records unseen longer than this (eg `"720h"`). Nothing is ever auto-deleted.
 * `general` (attrs): General application settings.
   * `log_level` (str): Logging level ("info", "debug", "verbose", etc.).
   * `log_timestamps` (bool): Show timestamps in logs.
@@ -221,5 +223,15 @@ Here are the available options for the NixOS module (services.herald):
   * `profiles` (attrs): Client authentication profiles.
   * `tls` (attrs): TLS configuration for HTTPS.
 * `include` (str or list): Additional YAML configuration files to include.
+
+#### State and Impermanence
+
+Presence tracking lives in `stateDir` (default `/var/lib/herald`, managed via `StateDirectory=herald`). On impermanence (ephemeral-root) systems, persist that directory or history resets every reboot and everything looks newly-seen:
+
+```nix
+environment.persistence."/persist".directories = [
+  "/var/lib/herald"
+];
+```
 
 This setup allows you to fully configure and manage the herald service declaratively using NixOS.

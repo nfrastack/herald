@@ -9,6 +9,7 @@ import (
 	"herald/pkg/domain"
 	"herald/pkg/input/common"
 	"herald/pkg/log"
+	heraldstate "herald/pkg/state"
 
 	"context"
 	"encoding/json"
@@ -334,10 +335,10 @@ func (p *ZerotierProvider) resolveRealDomain(domainKey string) string {
 			realDomain = d
 			p.logger.Trace("Resolved domain config key '%s' to real domain name '%s'", domainKey, realDomain)
 		} else {
-			p.logger.Warn("Domain config for key '%s' does not contain a 'domain' field, using as-is", domainKey)
+			p.logger.Debug("Domain config for key '%s' does not contain a 'domain' field, using as-is", domainKey)
 		}
 	} else {
-		p.logger.Warn("Could not resolve domain config key '%s' to a real domain name, using as-is", domainKey)
+		p.logger.Debug("Could not resolve domain config key '%s' to a real domain name, using as-is", domainKey)
 	}
 	return realDomain
 }
@@ -383,12 +384,15 @@ func (p *ZerotierProvider) publishEntry(batchProcessor *domain.BatchProcessor, e
 			p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
 			if err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state); err != nil {
 				p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
+			} else {
+				heraldstate.Remove(realDomain, hostname, entry.RecordType)
 			}
 		} else {
 			p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
 			if err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state); err != nil {
 				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
 			}
+			heraldstate.Touch(realDomain, hostname, entry.RecordType, entry.Target, p.profileName, "")
 		}
 	}
 }
@@ -423,6 +427,13 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 			if entry.Target != lastEntry.Target || entry.TTL != lastEntry.TTL || entry.RecordType != lastEntry.RecordType {
 				p.logger.Info("Member changed: %s (target: %s -> %s, ttl: %d -> %d, type: %s -> %s)", entry.GetFQDN(), lastEntry.Target, entry.Target, lastEntry.TTL, entry.TTL, lastEntry.RecordType, entry.RecordType)
 				p.publishEntry(batchProcessor, entry, false)
+			} else {
+				// Unchanged but confirmed present: refresh last-seen only.
+				hostname := shortHostname(entry, p.domain)
+				for _, targetDomain := range p.targetDomains() {
+					realDomain := p.resolveRealDomain(targetDomain)
+					heraldstate.Touch(realDomain, hostname, entry.RecordType, entry.Target, p.profileName, "")
+				}
 			}
 		}
 	}

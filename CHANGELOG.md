@@ -1,6 +1,7 @@
 ## beta 2026-10-04 <code at nfrastack dot com>
 
    ### Added
+    - state tracking to assist in detecting stale records
     - (input/tailscale) support additional_domains
     - (input/zerotier) support additional_domains
 

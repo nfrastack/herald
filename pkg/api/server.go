@@ -8,6 +8,7 @@ import (
 	"herald/pkg/config"
 	"herald/pkg/log"
 	"herald/pkg/output"
+	"herald/pkg/state"
 	"herald/pkg/util"
 
 	"context"
@@ -538,6 +539,7 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID string, removals map[st
 					hostname := pair[0]
 					recordType := pair[1]
 					_ = profile.RemoveRecord(domain, hostname, recordType)
+					state.Remove(domain, hostname, recordType)
 				}
 			}
 		}
@@ -573,6 +575,7 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID string, removals map[st
 				continue
 			}
 			recordsWritten++
+			state.Touch(domainName, record.hostname, record.rtype, record.target, record.source, record.clientID)
 		}
 		// To remove records, we need to know what is currently present in the output profile.
 		// Since OutputFormat does not expose a method to list all records, we cannot do this generically.
