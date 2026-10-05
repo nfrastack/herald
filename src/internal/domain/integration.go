@@ -50,7 +50,7 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 	// Parse domain configurations
 	domains := make(map[string]*DomainConfig)
 	for domainName, configRaw := range domainConfigs {
-		log.Debug("[domain] Processing domain '%s', raw config: %+v", domainName, configRaw)
+		log.NewScopedLogger("", "").With("domain", domainName).Debug("Processing domain, raw config: %+v", configRaw)
 
 		domainConfig := &DomainConfig{
 			Name: domainName,
@@ -58,24 +58,24 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 
 		// Try to extract configuration if it's a complex config
 		if configMap, ok := configRaw.(map[string]interface{}); ok {
-			log.Debug("[domain] Domain '%s' config is map: %+v", domainName, configMap)
+			log.NewScopedLogger("", "").With("domain", domainName).Debug("Domain config is map: %+v", configMap)
 
 			// Extract name
 			if name, ok := configMap["name"].(string); ok {
 				domainConfig.Name = name
-				log.Debug("[domain] Domain '%s' extracted name: %s", domainName, name)
+				log.NewScopedLogger("", "").With("domain", domainName).Debug("Extracted name: %s", name)
 			}
 
 			// Extract provider
 			if provider, ok := configMap["provider"].(string); ok {
 				domainConfig.Provider = provider
-				log.Debug("[domain] Domain '%s' extracted provider: %s", domainName, provider)
+				log.NewScopedLogger("", "").With("domain", domainName).Debug("Extracted provider: %s", provider)
 			}
 
 			// Extract log_level
 			if logLevel, ok := configMap["log_level"].(string); ok {
 				domainConfig.LogLevel = logLevel
-				log.Debug("[domain] Domain '%s' extracted log_level: %s", domainName, logLevel)
+				log.NewScopedLogger("", "").With("domain", domainName).Debug("Extracted log_level: %s", logLevel)
 			}
 
 			// Parse profiles structure
@@ -84,18 +84,18 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 					domainConfig.Profiles = &DomainProfiles{}
 					if inputsRaw, ok := profilesMap["inputs"]; ok {
 						domainConfig.Profiles.Inputs = parseStringArray(inputsRaw)
-						log.Debug("[domain] Domain '%s' extracted profiles.inputs: %v", domainName, domainConfig.Profiles.Inputs)
+						log.NewScopedLogger("", "").With("domain", domainName).Debug("Extracted profiles.inputs: %v", domainConfig.Profiles.Inputs)
 					}
 					if outputsRaw, ok := profilesMap["outputs"]; ok {
 						domainConfig.Profiles.Outputs = parseStringArray(outputsRaw)
-						log.Debug("[domain] Domain '%s' extracted profiles.outputs: %v", domainName, domainConfig.Profiles.Outputs)
+						log.NewScopedLogger("", "").With("domain", domainName).Debug("Extracted profiles.outputs: %v", domainConfig.Profiles.Outputs)
 					}
 				}
 			}
 
 			// Parse record configuration (deep override for merging)
 			if recordRaw, ok := configMap["record"].(map[string]interface{}); ok {
-				log.Debug("[domain] Domain '%s' has record config: %+v", domainName, recordRaw)
+				log.NewScopedLogger("", "").With("domain", domainName).Debug("Has record config: %+v", recordRaw)
 				// Elegantly override only provided fields, but allow autodetection if type is not set
 				if recordType, ok := recordRaw["type"].(string); ok {
 					domainConfig.Record.Type = recordType
@@ -119,7 +119,7 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 				}
 			}
 		} else {
-			log.Debug("[domain] Domain '%s' config is not a map, type: %T, value: %+v", domainName, configRaw, configRaw)
+			log.NewScopedLogger("", "").With("domain", domainName).Debug("Config is not a map, type: %T, value: %+v", configRaw, configRaw)
 		}
 
 		domains[domainName] = domainConfig
@@ -176,25 +176,24 @@ func ProcessRecordWithDomainValidation(inputProviderName, domainName, hostname, 
 	}
 
 	if !found {
-		log.Trace("[domain/%s] No domain config for input provider '%s'", domainName, inputProviderName)
+		log.NewScopedLogger("", "").With("domain", domainName, "input", inputProviderName).Trace("No domain config for input provider")
 		return nil // Not an error, just filtered out
 	}
 
 	// Check if input provider is allowed for this domain
 	if !GlobalDomainManager.ValidateInputProviderAccess(domainConfigKey, inputProviderName) {
-		log.Trace("[domain/%s] Input provider '%s' not allowed for domain config key '%s'", domainName, inputProviderName, domainConfigKey)
+		log.NewScopedLogger("", "").With("domain", domainName, "input", inputProviderName, "config", domainConfigKey).Trace("Input provider not allowed for domain config key")
 		return nil // Not an error, just filtered out
 	}
 
-	log.Trace("[domain/%s] Processing record from input provider '%s': %s.%s (%s) -> %s",
-		domainName, inputProviderName, hostname, domainName, recordType, target)
+	log.NewScopedLogger("", "").With("domain", domainName, "input", inputProviderName).Trace("Processing record: %s.%s (%s) -> %s", hostname, domainName, recordType, target)
 	// Determine proxied flag once for use by both DNS provider and output manager
 	proxiedFlag := domainConfig.Record.Proxied
 	// Log where proxied came from for easier debugging
 	if domainConfig.Record.Proxied {
-		log.Debug("[domain/%s] Proxied set from record config (record.proxied=true)", domainConfigKey)
+		log.NewScopedLogger("", "").With("config", domainConfigKey).Debug("Proxied set from record config (record.proxied=true)")
 	} else {
-		log.Trace("[domain/%s] Proxied not set for this domain/record", domainConfigKey)
+		log.NewScopedLogger("", "").With("config", domainConfigKey).Trace("Proxied not set for this domain/record")
 	}
 
 	// Send to DNS provider (if configured)
@@ -207,7 +206,7 @@ func ProcessRecordWithDomainValidation(inputProviderName, domainName, hostname, 
 	if outputManager != nil {
 		err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainName, hostname, target, recordType, ttl, inputProviderName, proxiedFlag, false, GlobalDomainManager)
 		if err != nil {
-			log.Error("[domain/%s] Failed to send record to output profiles: %v", domainName, err)
+			log.NewScopedLogger("", "").With("domain", domainName, "input", inputProviderName).Error("Failed to send record to output profiles: %v", err)
 			return err
 		}
 	}
@@ -275,16 +274,16 @@ func ValidateAllDomainReferences() error {
 
 	allDomains := GlobalDomainManager.GetAllDomains()
 	for domainKey, domainConfig := range allDomains {
-		log.Debug("[domain] Validating domain '%s' with name '%s'", domainKey, domainConfig.Name)
+		log.NewScopedLogger("", "").With("domain", domainKey).Debug("Validating domain with name '%s'", domainConfig.Name)
 
 		// Validate input providers exist
 		for _, inputProvider := range domainConfig.GetInputProfiles() {
-			log.Debug("[domain] Domain '%s' references input provider '%s'", domainKey, inputProvider)
+			log.NewScopedLogger("", "").With("domain", domainKey).Debug("Domain references input provider '%s'", inputProvider)
 		}
 
 		// Validate output profiles exist
 		for _, outputProfile := range domainConfig.GetOutputs() {
-			log.Debug("[domain] Domain '%s' references output profile '%s'", domainKey, outputProfile)
+			log.NewScopedLogger("", "").With("domain", domainKey).Debug("Domain references output profile '%s'", outputProfile)
 		}
 	}
 
