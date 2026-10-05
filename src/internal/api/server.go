@@ -81,6 +81,7 @@ type APIServer struct {
 	logger         *log.ScopedLogger
 	failedAttempts map[string]*FailedAttemptTracker // Track failed authentication attempts by IP
 	attemptsMutex  sync.RWMutex                     // Separate mutex for failed attempts
+	stopCleanup    chan struct{}                    // Closed on shutdown to stop the cleanup loop
 }
 
 // FailedAttemptTracker tracks failed authentication attempts from an IP
@@ -138,6 +139,7 @@ func NewAPIServer(outputProfiles map[string]interface{}, apiConfig *config.APICo
 		outputProfiles: outputProfiles,
 		logger:         scopedLogger,
 		failedAttempts: make(map[string]*FailedAttemptTracker),
+		stopCleanup:    make(chan struct{}),
 	}
 }
 
@@ -745,12 +747,13 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		}
 	}
 
-	// Set up HTTP handler
+	// Set up HTTP handler on a local mux so repeated starts cannot collide and shutdown stays scoped
 	endpoint := apiConfig.Endpoint
 	if endpoint == "" {
 		endpoint = "/api/dns"
 	}
-	http.HandleFunc(endpoint, connectionIDMiddleware(server.HandleDataUpload))
+	mux := http.NewServeMux()
+	mux.HandleFunc(endpoint, connectionIDMiddleware(server.HandleDataUpload))
 
 	port := apiConfig.Port
 	if port == "" {
@@ -792,7 +795,7 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 	}
 
 	// Configure TLS if enabled
-	var serverFuncs []func() error
+	var servers []*http.Server
 
 	if apiConfig.TLS != nil && (apiConfig.TLS.Cert != "" || apiConfig.TLS.Key != "" || apiConfig.TLS.CA != "") {
 		if apiConfig.TLS.Cert == "" || apiConfig.TLS.Key == "" {
@@ -820,37 +823,39 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 
 		server.logger.Info("Starting HTTPS servers with TLS")
 		for _, address := range resolvedAddresses {
-			addr := address // capture for closure
 			httpServer := &http.Server{
-				Addr:      addr,
+				Addr:      address,
+				Handler:   mux,
 				TLSConfig: tlsConfig,
 			}
+			servers = append(servers, httpServer)
 
-			serverFunc := func() error {
+			go func(s *http.Server, addr string) {
 				server.logger.Debug("Starting HTTPS server on %s", addr)
-				return httpServer.ListenAndServeTLS(apiConfig.TLS.Cert, apiConfig.TLS.Key)
-			}
-			serverFuncs = append(serverFuncs, serverFunc)
+				if err := s.ListenAndServeTLS(apiConfig.TLS.Cert, apiConfig.TLS.Key); err != nil && err != http.ErrServerClosed {
+					server.logger.Error("HTTPS server on %s error: %v", addr, err)
+				}
+			}(httpServer, address)
 		}
 	} else {
 		server.logger.Warn("WARNING: Running HTTP servers without TLS - use only on trusted networks!")
 		for _, address := range resolvedAddresses {
-			addr := address // capture for closure
-			serverFunc := func() error {
-				server.logger.Verbose("Starting HTTP server on %s", addr)
-				return http.ListenAndServe(addr, nil)
+			httpServer := &http.Server{
+				Addr:    address,
+				Handler: mux,
 			}
-			serverFuncs = append(serverFuncs, serverFunc)
+			servers = append(servers, httpServer)
+
+			go func(s *http.Server, addr string) {
+				server.logger.Verbose("Starting HTTP server on %s", addr)
+				if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					server.logger.Error("HTTP server on %s error: %v", addr, err)
+				}
+			}(httpServer, address)
 		}
 	}
 
-	for i, serverFunc := range serverFuncs {
-		go func(index int, fn func() error) {
-			if err := fn(); err != nil {
-				server.logger.Error("Server %d error: %v", index, err)
-			}
-		}(i, serverFunc)
-	}
+	registerActiveServers(servers, server.stopCleanup)
 
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour) // Cleanup every hour
@@ -859,11 +864,49 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 			select {
 			case <-ticker.C:
 				server.cleanupFailedAttempts()
+			case <-server.stopCleanup:
+				return
 			}
 		}
 	}()
 
 	return nil
+}
+
+// activeServers tracks running API listeners for graceful shutdown.
+var (
+	activeServersMu sync.RWMutex
+	activeServers   []*http.Server
+	stopCleanups    []chan struct{}
+)
+
+// registerActiveServers records listeners and their cleanup stop channels.
+func registerActiveServers(servers []*http.Server, stopCleanup chan struct{}) {
+	activeServersMu.Lock()
+	defer activeServersMu.Unlock()
+	activeServers = append(activeServers, servers...)
+	stopCleanups = append(stopCleanups, stopCleanup)
+}
+
+// ShutdownAPIServers gracefully stops all API listeners and cleanup loops.
+func ShutdownAPIServers(ctx context.Context) {
+	activeServersMu.Lock()
+	servers := activeServers
+	activeServers = nil
+	stops := stopCleanups
+	stopCleanups = nil
+	activeServersMu.Unlock()
+
+	for _, stop := range stops {
+		select {
+		case <-stop:
+		default:
+			close(stop)
+		}
+	}
+	for _, s := range servers {
+		_ = s.Shutdown(ctx)
+	}
 }
 
 // VerifyZoneRecord checks if a DNS record exists in the zone file.

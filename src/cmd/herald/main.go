@@ -17,6 +17,7 @@ import (
 	"github.com/nfrastack/herald/internal/output/types/dns/providers"
 	_ "github.com/nfrastack/herald/internal/output/types/remote" // Register remote output provider
 
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -451,18 +452,25 @@ func main() {
 		<-sigChan
 		fmt.Printf("\nShutting down Herald\n")
 
-		// Stop all input providers
-		for _, provider := range inputProviderInstances {
-			provider.StopPolling()
-		}
-
-		// Give time for cleanup
-		time.Sleep(300 * time.Millisecond)
+		shutdownGracefully(inputProviderInstances)
 	} else {
 		// API-only mode: handle signals for graceful shutdown
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		<-sigChan
 		fmt.Printf("\nShutting down Herald\n")
+
+		shutdownGracefully(nil)
+	}
+}
+
+// shutdownGracefully stops API listeners, flushes state, then stops inputs.
+func shutdownGracefully(instances []input.Provider) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	api.ShutdownAPIServers(ctx)
+	state.Default.Stop()
+	for _, provider := range instances {
+		provider.StopPolling()
 	}
 }
