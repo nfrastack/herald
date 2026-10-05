@@ -44,6 +44,7 @@
               "-s"
               "-w"
               "-X main.Version=${version}"
+              "-X main.buildChannel=stable"
               "-X main.BuildTime=${buildDateStr}"
             ];
 
