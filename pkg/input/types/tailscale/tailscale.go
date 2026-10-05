@@ -118,6 +118,7 @@ type TailscaleProvider struct {
 	apiKey             string
 	tailnet            string
 	domain             string
+	additionalDomains  []string // extra domains to publish each device under (single poll, N writes)
 	interval           time.Duration
 	processExisting    bool
 	recordRemoveOnStop bool
@@ -316,6 +317,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	}
 
 	domain := options["domain"]
+	additionalDomains := common.ParseDomainList(common.ReadFileValue(options["additional_domains"]))
 
 	// Hostname format options: "simple", "tailscale", "full"
 	hostnameFormat := options["hostname_format"]
@@ -399,6 +401,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		apiKey:             apiKey,
 		tailnet:            tailnet,
 		domain:             domain,
+		additionalDomains:  additionalDomains,
 		interval:           parsed.Interval,
 		processExisting:    parsed.ProcessExisting,
 		recordRemoveOnStop: parsed.RecordRemoveOnStop,
@@ -903,6 +906,20 @@ func (p *TailscaleProvider) getParentDomainForFQDN(fqdn string) string {
 	return bestMatch
 }
 
+// targetDomains returns the primary domain plus any additional domains,
+// deduplicated. Devices are published under each domain from a single poll.
+func (p *TailscaleProvider) targetDomains() []string {
+	domains := []string{p.domain}
+	seen := map[string]bool{p.domain: true}
+	for _, d := range p.additionalDomains {
+		if !seen[d] {
+			seen[d] = true
+			domains = append(domains, d)
+		}
+	}
+	return domains
+}
+
 func (p *TailscaleProvider) processDevices() {
 	p.logger.Trace("%s Starting device processing cycle", p.logPrefix)
 	devices, err := p.fetchTailscaleDevices()
@@ -962,41 +979,47 @@ func (p *TailscaleProvider) processDevices() {
 				p.logger.Trace("%s IPv6 address detected: %s", p.logPrefix, cleanIP)
 			}
 
-			// Create FQDN
-			fqdn := hostname + "." + p.domain
+			// Create records under each target domain (single poll, N writes)
 			key := hostname + ":" + recordType
 			current[key] = cleanIP
 
-			p.logger.Trace("%s Checking record %s (%s) -> %s", p.logPrefix, fqdn, recordType, cleanIP)
-
-			// Use helper to get parent domain for correct domain config matching
-			fqdnNoDot := strings.TrimSuffix(fqdn, ".")
-			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-			p.logger.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
-
-			// Check if this is a new or changed record
-			if lastTarget, exists := p.lastKnownRecords[key]; !exists || lastTarget != cleanIP {
-				if !exists {
-					p.logMemberAdded(fqdn)
+			lastTarget, known := p.lastKnownRecords[key]
+			changed := !known || lastTarget != cleanIP
+			if changed {
+				if !known {
+					p.logMemberAdded(hostname + "." + p.domain)
 				} else {
-					p.logMemberChanged(fqdn, lastTarget, cleanIP)
+					p.logMemberChanged(hostname+"."+p.domain, lastTarget, cleanIP)
 				}
+			}
 
-				state := domain.RouterState{
-					SourceType:           "tailscale",
-					Name:                 p.profileName,
-					Service:              cleanIP,
-					RecordType:           recordType,
-					ForceServiceAsTarget: true, // VPN providers always use Service IP as target
-				}
+			for _, targetDomain := range p.targetDomains() {
+				fqdn := hostname + "." + targetDomain
+				p.logger.Trace("%s Checking record %s (%s) -> %s", p.logPrefix, fqdn, recordType, cleanIP)
 
-				p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdn, state)
-				err := batchProcessor.ProcessRecord(realDomain, fqdn, state)
-				if err != nil {
-					p.logger.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdn, err)
+				// Use helper to get parent domain for correct domain config matching
+				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
+				p.logger.Trace("%s Using real domain name '%s' for DNS provider", p.logPrefix, realDomain)
+
+				// Check if this is a new or changed record
+				if changed {
+					state := domain.RouterState{
+						SourceType:           "tailscale",
+						Name:                 p.profileName,
+						Service:              cleanIP,
+						RecordType:           recordType,
+						ForceServiceAsTarget: true, // VPN providers always use Service IP as target
+					}
+
+					p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdn, state)
+					err := batchProcessor.ProcessRecord(realDomain, fqdn, state)
+					if err != nil {
+						p.logger.Error("%s Failed to ensure DNS for '%s': %v", p.logPrefix, fqdn, err)
+					}
+				} else {
+					p.logger.Trace("%s Record unchanged: %s (%s) -> %s", p.logPrefix, fqdn, recordType, cleanIP)
 				}
-			} else {
-				p.logger.Trace("%s Record unchanged: %s (%s) -> %s", p.logPrefix, fqdn, recordType, cleanIP)
 			}
 		}
 	}
@@ -1020,24 +1043,26 @@ func (p *TailscaleProvider) processDevices() {
 					continue
 				}
 				hostname, recordType := parts[0], parts[1]
-				fqdn := hostname + "." + p.domain
-				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
-				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-				p.logger.Trace("%s Using real domain name '%s' for DNS provider (removal)", p.logPrefix, realDomain)
+				for _, targetDomain := range p.targetDomains() {
+					fqdn := hostname + "." + targetDomain
+					fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+					realDomain := p.getParentDomainForFQDN(fqdnNoDot)
+					p.logger.Trace("%s Using real domain name '%s' for DNS provider (removal)", p.logPrefix, realDomain)
 
-				p.logMemberRemoved(fqdn) // This log is fine
-				state := domain.RouterState{
-					SourceType:           "tailscale",
-					Name:                 p.profileName,
-					Service:              oldTarget,
-					RecordType:           recordType,
-					ForceServiceAsTarget: true, // VPN providers always use Service IP as target
-				}
+					p.logMemberRemoved(fqdn) // This log is fine
+					state := domain.RouterState{
+						SourceType:           "tailscale",
+						Name:                 p.profileName,
+						Service:              oldTarget,
+						RecordType:           recordType,
+						ForceServiceAsTarget: true, // VPN providers always use Service IP as target
+					}
 
-				p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdn, state)
-				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdn, state)
-				if err != nil {
-					p.logger.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdn, err)
+					p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", p.logPrefix, realDomain, fqdn, state)
+					err := batchProcessor.ProcessRecordRemoval(realDomain, fqdn, state)
+					if err != nil {
+						p.logger.Error("%s Failed to remove DNS for '%s': %v", p.logPrefix, fqdn, err)
+					}
 				}
 			}
 		}

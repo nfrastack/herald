@@ -90,6 +90,7 @@
           api_auth_id = "random_auth_id";
           api_auth_token = "tskey-client-xxxxx";
           domain = "vpn.example.com";
+          additional_domains = "example.net, example.org";
           interval = "60s";
           hostname_format = "simple";
           process_existing = true;
@@ -111,6 +112,7 @@
           api_token = "your-zerotier-token";
           network_id = "F2BD7A9E0CA0B96B";
           domain = "zt.example.com";
+          additional_domains = "example.net, example.org";
           interval = "60s";
           online_timeout_seconds = 300;
           process_existing = true;
