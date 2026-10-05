@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types"
+	dcontainer "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
@@ -140,7 +140,7 @@ func extractHostsFromRule(rule string) []string {
 
 // evaluateDockerFilter evaluates a single filter against a Docker container using conditions
 func evaluateDockerFilter(filter common.Filter, entry any) bool {
-	container, ok := entry.(types.ContainerJSON)
+	container, ok := entry.(dcontainer.InspectResponse)
 	if !ok {
 		return false
 	}
@@ -164,7 +164,7 @@ func evaluateDockerFilter(filter common.Filter, entry any) bool {
 }
 
 // evaluateDockerLabelFilter evaluates label-based filters
-func evaluateDockerLabelFilter(filter common.Filter, container types.ContainerJSON) bool {
+func evaluateDockerLabelFilter(filter common.Filter, container dcontainer.InspectResponse) bool {
 	if len(filter.Conditions) == 0 {
 		return true
 	}
@@ -204,7 +204,7 @@ func evaluateDockerLabelFilter(filter common.Filter, container types.ContainerJS
 }
 
 // evaluateDockerNameFilter evaluates name-based filters
-func evaluateDockerNameFilter(filter common.Filter, container types.ContainerJSON) bool {
+func evaluateDockerNameFilter(filter common.Filter, container dcontainer.InspectResponse) bool {
 	if len(filter.Conditions) == 0 {
 		return true
 	}
@@ -231,7 +231,7 @@ func evaluateDockerNameFilter(filter common.Filter, container types.ContainerJSO
 }
 
 // evaluateDockerImageFilter evaluates image-based filters
-func evaluateDockerImageFilter(filter common.Filter, container types.ContainerJSON) bool {
+func evaluateDockerImageFilter(filter common.Filter, container dcontainer.InspectResponse) bool {
 	if len(filter.Conditions) == 0 {
 		return true
 	}
@@ -253,7 +253,7 @@ func evaluateDockerImageFilter(filter common.Filter, container types.ContainerJS
 }
 
 // evaluateDockerNetworkFilter evaluates network-based filters
-func evaluateDockerNetworkFilter(filter common.Filter, container types.ContainerJSON) bool {
+func evaluateDockerNetworkFilter(filter common.Filter, container dcontainer.InspectResponse) bool {
 	if len(filter.Conditions) == 0 {
 		return true
 	}
@@ -283,7 +283,7 @@ func evaluateDockerNetworkFilter(filter common.Filter, container types.Container
 }
 
 // evaluateDockerHealthFilter evaluates health-based filters
-func evaluateDockerHealthFilter(filter common.Filter, container types.ContainerJSON) bool {
+func evaluateDockerHealthFilter(filter common.Filter, container dcontainer.InspectResponse) bool {
 	if len(filter.Conditions) == 0 {
 		return true
 	}
@@ -310,7 +310,7 @@ func evaluateDockerHealthFilter(filter common.Filter, container types.ContainerJ
 }
 
 // evaluateDockerStatusFilter evaluates status-based filters
-func evaluateDockerStatusFilter(filter common.Filter, container types.ContainerJSON) bool {
+func evaluateDockerStatusFilter(filter common.Filter, container dcontainer.InspectResponse) bool {
 	if len(filter.Conditions) == 0 {
 		return true
 	}
@@ -767,7 +767,7 @@ func (p *DockerProvider) reconcileLoop() {
 // reconcilePresence touches the state tracker for all processable running  containers without writing DNS records.
 func (p *DockerProvider) reconcilePresence() {
 	ctx := context.Background()
-	containers, err := p.client.ContainerList(ctx, types.ContainerListOptions{})
+	containers, err := p.client.ContainerList(ctx, dcontainer.ListOptions{})
 	if err != nil {
 		p.logger.Debug("Reconcile: failed to list containers: %v", err)
 		return
@@ -879,7 +879,7 @@ func (p *DockerProvider) handleServiceEvent(ctx context.Context, event events.Me
 		p.processService(ctx, serviceID)
 	case "remove":
 		// Service removed - remove DNS entries for this service
-		service, _, err := p.client.ServiceInspectWithRaw(ctx, serviceID, types.ServiceInspectOptions{})
+		service, _, err := p.client.ServiceInspectWithRaw(ctx, serviceID, swarm.ServiceInspectOptions{})
 		if err != nil {
 			log.Warn("%s Failed to inspect service '%s' for DNS removal: '%v'", p.logPrefix, serviceName, err)
 			return
@@ -960,7 +960,7 @@ func (p *DockerProvider) removeContainerRecords(containerID string) {
 // processRunningContainers processes all currently running containers
 func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 	// List containers
-	containers, err := p.client.ContainerList(ctx, types.ContainerListOptions{})
+	containers, err := p.client.ContainerList(ctx, dcontainer.ListOptions{})
 	if err != nil {
 		log.Error("%s Failed to list containers: %v", p.logPrefix, err)
 		return
@@ -1015,7 +1015,7 @@ func (p *DockerProvider) processRunningServices(ctx context.Context) {
 	log.Info("%s Processing running services (swarm mode)", p.logPrefix)
 
 	// List services
-	services, err := p.client.ServiceList(ctx, types.ServiceListOptions{})
+	services, err := p.client.ServiceList(ctx, swarm.ServiceListOptions{})
 	if err != nil {
 		log.Error("%s Failed to list services: %v", p.logPrefix, err)
 		return
@@ -1030,7 +1030,7 @@ func (p *DockerProvider) processRunningServices(ctx context.Context) {
 }
 
 // shouldProcessContainer determines if the container should be processed based on labels and configuration
-func (p *DockerProvider) shouldProcessContainer(container types.ContainerJSON) bool {
+func (p *DockerProvider) shouldProcessContainer(container dcontainer.InspectResponse) bool {
 	// Ensure container name doesn't have slash prefix
 	containerName := container.Name
 	if strings.HasPrefix(containerName, "/") {
@@ -1120,7 +1120,7 @@ func (p *DockerProvider) processService(ctx context.Context, serviceID string) {
 	}
 
 	// Get service details
-	service, _, err := p.client.ServiceInspectWithRaw(ctx, serviceID, types.ServiceInspectOptions{})
+	service, _, err := p.client.ServiceInspectWithRaw(ctx, serviceID, swarm.ServiceInspectOptions{})
 	if err != nil {
 		log.Warn("%s Failed to inspect service %s: %v", p.logPrefix, serviceID[:12], err)
 		return
@@ -1227,7 +1227,7 @@ func (p *DockerProvider) GetDNSEntries() ([]DNSEntry, error) {
 	ctx := context.Background()
 
 	// List containers
-	containers, err := p.client.ContainerList(ctx, types.ContainerListOptions{})
+	containers, err := p.client.ContainerList(ctx, dcontainer.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
@@ -1263,7 +1263,7 @@ func (p *DockerProvider) GetContainersForDomain(domain string) ([]ContainerInfo,
 	ctx := context.Background()
 
 	// List containers
-	containers, err := p.client.ContainerList(ctx, types.ContainerListOptions{})
+	containers, err := p.client.ContainerList(ctx, dcontainer.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
@@ -1323,7 +1323,7 @@ func (p *DockerProvider) GetContainersForDomain(domain string) ([]ContainerInfo,
 }
 
 // extractDNSInfoFromContainerForDomain extracts DNS information from container for a specific domain
-func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.ContainerJSON, domain string) []*DockerContainerInfo {
+func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container dcontainer.InspectResponse, domain string) []*DockerContainerInfo {
 	var entries []*DockerContainerInfo
 
 	// Get container labels
@@ -1438,7 +1438,7 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container types.Co
 }
 
 // getContainerName returns the most descriptive container name possible
-func getContainerName(container types.ContainerJSON) string {
+func getContainerName(container dcontainer.InspectResponse) string {
 	containerName := container.Name
 	if strings.HasPrefix(containerName, "/") {
 		containerName = containerName[1:]
@@ -1478,7 +1478,7 @@ func matchesPattern(subdomain string, patterns []string) bool {
 }
 
 // extractDNSEntriesFromContainer extracts DNS entries from a Docker container
-func (p *DockerProvider) extractDNSEntriesFromContainer(container types.ContainerJSON) []DNSEntry {
+func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.InspectResponse) []DNSEntry {
 	log.Trace("%s domainConfigs map at entry: %v", p.logPrefix, p.domainConfigs)
 
 	var entries []DNSEntry

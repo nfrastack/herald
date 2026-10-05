@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
 	dfilters "github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
@@ -170,7 +169,7 @@ func (sc *SharedConnection) StartEventStreaming() error {
 	}
 
 	// Get event stream
-	eventChan, errChan := sc.client.Events(sc.ctx, types.EventsOptions{
+	eventChan, errChan := sc.client.Events(sc.ctx, events.ListOptions{
 		Filters: f,
 	})
 
