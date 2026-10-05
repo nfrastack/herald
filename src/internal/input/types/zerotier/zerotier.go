@@ -104,7 +104,6 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
 	profileName := options["name"]
 	if profileName == "" {
 		profileName = options["profile_name"]
@@ -214,6 +213,8 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	if onlineTimeoutSeconds < 60 {
 		scopedLogger.Warn("Warning: online_timeout_seconds is set to %d seconds, which may cause erratic behavior due to ZeroTier Central's heartbeat timing. Consider using 60+ seconds.", onlineTimeoutSeconds)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ZerotierProvider{
 		apiURL:                 apiURL,
