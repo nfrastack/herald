@@ -99,7 +99,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		log.Debug("%s Error creating filter configuration: %v, using default", logPrefix, err)
+		log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("Error creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
@@ -108,7 +108,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 
 	// Only log override message if there's actually a log level override
 	if logLevel != "" {
-		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
 	}
 
 	return &RemoteProvider{
@@ -206,9 +206,9 @@ func (p *RemoteProvider) processRemote() {
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		if _, ok := p.lastRecords[key]; !ok {
 			if isInitialLoad {
-				p.logger.Info("Initial record detected: %s (%s)", fqdnNoDot, recordType)
+				p.logger.With("fqdn", fqdnNoDot).Info("Initial record detected (%s)", recordType)
 			} else {
-				p.logger.Info("New record detected: %s (%s)", fqdnNoDot, recordType)
+				p.logger.With("fqdn", fqdnNoDot).Info("New record detected (%s)", recordType)
 			}
 
 			// Use helper to get parent domain for correct domain config matching
@@ -222,10 +222,10 @@ func (p *RemoteProvider) processRemote() {
 				RecordType: recordType,
 			}
 
-			p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+			p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecord: %+v", state)
 			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
-				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
+				p.logger.With("fqdn", fqdnNoDot).Error("Failed to ensure DNS: %v", err)
 			}
 		}
 	}
@@ -236,7 +236,7 @@ func (p *RemoteProvider) processRemote() {
 				fqdn := old.GetFQDN()
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				recordType := old.GetRecordType()
-				p.logger.Info("Record removed: %s (%s)", fqdnNoDot, recordType)
+				p.logger.With("fqdn", fqdnNoDot).Info("Record removed (%s)", recordType)
 
 				// Use helper to get parent domain for correct domain config matching
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
@@ -249,10 +249,10 @@ func (p *RemoteProvider) processRemote() {
 					RecordType: recordType,
 				}
 
-				p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+				p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecordRemoval: %+v", state)
 				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
-					p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
+					p.logger.With("fqdn", fqdnNoDot).Error("Failed to remove DNS: %v", err)
 				}
 			}
 		}
