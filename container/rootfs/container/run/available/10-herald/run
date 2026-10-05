@@ -28,7 +28,7 @@ esac
 
 print_start "Starting Herald $(herald -version | awk '{print $1}')"
 exec s6-setuidgid "${HERALD_USER}" \
-                                /usr/local/bin/herald -container \
+                                /app/herald -container \
                                     -config "${CONFIG_PATH%/}/${CONFIG_FILE}" \
                                     2>&1 | ${prefix} sudo -u "${HERALD_USER}" tee -a ${hlog}
 
