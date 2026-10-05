@@ -1447,6 +1447,7 @@ Herald supports a minimal set of environment variables for global application se
 | `DRY_RUN`          | If true, do not perform actual DNS updates         | `false`   |
 | `LOG_LEVEL`        | Set log level (`trace` `debug`, `verbose`, `info`) | `verbose` |
 | `LOG_TIMESTAMPS`   | Include timestamps in log output (`true`/`false`)  | `true`    |
+| `LOG_FORMAT`       | Log encoding (`text`/`json`)                       | `text`    |
 
 All other configuration should be done via the YAML configuration file. See the sample [.env](contrib/config/env.sample) file for examples.
 
