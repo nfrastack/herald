@@ -5,13 +5,21 @@
   outputs = { self, nixpkgs }:
     let
       version = "2.3.4";
+      expectedGoVersion = "1.26.8";
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
       ];
 
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-      nixpkgsFor = forAllSystems (system: import nixpkgs { inherit system; });
+      nixpkgsFor = forAllSystems (system: import nixpkgs {
+        inherit system;
+        overlays = [
+          (final: prev: {
+            go = final.go_1_26;
+          })
+        ];
+      });
     in {
       packages = forAllSystems (system:
         let
@@ -20,17 +28,27 @@
             date -u +%Y-%m-%dT%H:%M:%SZ > $out
           '';
           buildDateStr = builtins.readFile buildDate;
-        in {
+          buildCommit =
+            if self ? dirtyShortRev && self.dirtyShortRev != null then self.dirtyShortRev
+            else if self ? shortRev && self.shortRev != null then self.shortRev
+            else "unknown";
+        in assert nixpkgs.lib.assertMsg
+          (nixpkgs.lib.versions.majorMinor pkgs.go.version == nixpkgs.lib.versions.majorMinor expectedGoVersion)
+          "Go toolchain mismatch: nixpkgs provides ${pkgs.go.version}, expected ${expectedGoVersion}.x";
+        {
           herald = pkgs.buildGoModule {
             pname = "herald";
             version = "${version}";
             src = self;
             modRoot = "src";
 
+            go = pkgs.go;
+
             meta = {
               description = "Herald - Dynamic DNS record management for modern infrastructure. Supports Docker, Traefik, File, Remote, Tailscale, and ZeroTier/ZT-Net poll providers.";
               homepage = "https://github.com/nfrastack/herald";
               license = "BSD-3-Clause";
+              mainProgram = "herald";
               maintainers = [
                 {
                   name = "nfrastack";
@@ -45,6 +63,7 @@
               "-w"
               "-X main.Version=${version}"
               "-X main.buildChannel=stable"
+              "-X main.buildCommit=${buildCommit}"
               "-X main.BuildTime=${buildDateStr}"
             ];
 
