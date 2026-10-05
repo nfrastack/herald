@@ -521,7 +521,7 @@ func ValidateDomainConfiguration(domains map[string]DomainConfig, inputProfiles 
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf(strings.Join(errors, "; "))
+		return fmt.Errorf("%s", strings.Join(errors, "; "))
 	}
 	return nil
 }
@@ -539,7 +539,7 @@ func ValidateInputProviderReferences(domains map[string]DomainConfig, inputProfi
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf(strings.Join(errors, "; "))
+		return fmt.Errorf("%s", strings.Join(errors, "; "))
 	}
 	return nil
 }
@@ -558,7 +558,7 @@ func ValidateOutputProfileReferences(domains map[string]DomainConfig, outputProf
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf(strings.Join(errors, "; "))
+		return fmt.Errorf("%s", strings.Join(errors, "; "))
 	}
 	return nil
 }

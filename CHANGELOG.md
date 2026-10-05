@@ -7,6 +7,8 @@
 
    ### Changed
     - Support IPV6 safely
+    - rework repository layout
+    - constant format strings
     - (output/zone) seperate manual from managed records
     - (output/zone) only write zone files when actual record change
     - (output/zone) properly attribute client on record addition

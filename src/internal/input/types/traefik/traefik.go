@@ -244,9 +244,6 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		log.Debug("%s No basic auth user found in options or environment", logPrefix)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	log.Trace("%s Created context with cancel function", logPrefix)
-
 	// Parse TLS configuration
 	tlsConfig := common.ParseTLSConfigFromOptions(stringOptions)
 	if err := tlsConfig.ValidateConfig(); err != nil {
@@ -359,6 +356,8 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	provider := &TraefikProvider{
 		apiURL:          apiURL,
 		pollInterval:    parsed.Interval,
@@ -460,8 +459,6 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	if authUser != "" {
 		log.Debug("%s Using basic auth user: %s", logPrefix, authUser)
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
 
 	// Parse TLS configuration
 	tlsConfig := common.ParseTLSConfigFromOptions(options)
@@ -574,6 +571,8 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	if logLevel != "" {
 		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
 
 	provider := &TraefikProvider{
 		apiURL:          apiURL,
