@@ -1,6 +1,6 @@
 module github.com/nfrastack/herald
 
-go 1.25.0
+go 1.26.8
 
 require (
 	github.com/cloudflare/cloudflare-go v0.116.0
