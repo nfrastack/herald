@@ -62,12 +62,12 @@ func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat
 		if err := df.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, applyProxied, "", source, overwrite); err != nil {
 			return false, fmt.Sprintf("profile '%s': %v", profileName, err)
 		}
-		log.Debug("[output/manager] Successfully wrote record to DNS profile '%s' (proxied=%t)", profileName, applyProxied)
+		mgrLog.With("profile", profileName).Debug("Successfully wrote record to DNS profile (proxied=%t)", applyProxied)
 	} else {
 		if err := profile.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source); err != nil {
 			return false, fmt.Sprintf("profile '%s': %v", profileName, err)
 		}
-		log.Debug("[output/manager] Successfully wrote record to profile '%s'", profileName)
+		mgrLog.With("profile", profileName).Debug("Successfully wrote record to profile")
 	}
 
 	// Mark this profile as changed for this source
@@ -81,9 +81,12 @@ func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat
 	return true, ""
 }
 
+// outLog scopes registry messages.
+var outLog = log.NewScopedLogger("[output]", "")
+
 // init automatically registers all output types when the package is imported
 func init() {
-	log.Debug("[output] Auto-registering core output types")
+	outLog.Debug("Auto-registering core output types")
 
 	// Register core output formats directly to avoid import cycles
 	registerAllCoreFormats()
@@ -98,7 +101,7 @@ func registerAllCoreFormats() {
 	RegisterFormat("file/zone", fileoutput.NewFileOutput)
 	RegisterFormat("file/hosts", fileoutput.NewFileOutput)
 
-	log.Debug("[output] Registered core formats: file")
+	outLog.Debug("Registered core formats: file")
 }
 
 // Global registry for output format creators
@@ -113,11 +116,11 @@ func RegisterFormat(formatName string, createFunc func(string, map[string]interf
 	registryMutex.Lock()
 	defer registryMutex.Unlock()
 	if _, exists := outputFormatRegistry[formatName]; exists {
-		log.Debug("[output] Format '%s' already registered, skipping duplicate registration", formatName)
+		outLog.With("format", formatName).Debug("Format already registered, skipping duplicate registration")
 		return
 	}
 	outputFormatRegistry[formatName] = createFunc
-	log.Debug("[output] Registered format creator for '%s'", formatName)
+	outLog.With("format", formatName).Debug("Registered format creator")
 }
 
 // GetOutputManager returns the global output manager instance
@@ -201,18 +204,18 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 			if dm.ValidateOutputProfileAccess(domainConfigKey, outputProfile) {
 				filtered = append(filtered, outputProfile)
 			} else {
-				log.Debug("[output/manager] Output profile '%s' not allowed for domain config key '%s' (filtered by ValidateOutputProfileAccess)", outputProfile, domainConfigKey)
+				mgrLog.With("profile", outputProfile, "config", domainConfigKey).Debug("Output profile not allowed for domain config key (filtered by ValidateOutputProfileAccess)")
 			}
 		}
 		allowedOutputs = filtered
 	}
 
 	if len(allowedOutputs) == 0 {
-		log.Warn("[output/manager] No outputs allowed for domain config key '%s' after filtering - skipping record write", domainConfigKey)
+		mgrLog.With("config", domainConfigKey).Warn("No outputs allowed for domain config key after filtering - skipping record write")
 		return nil
 	}
 
-	log.Debug("[output/manager] Routing record write: domainConfigKey='%s', domain='%s', hostname='%s', target='%s', recordType='%s', ttl=%d, source='%s', proxied=%t, allowedOutputs=%v", domainConfigKey, domain, hostname, target, recordType, ttl, source, proxied, allowedOutputs)
+	mgrLog.With("config", domainConfigKey, "domain", domain, "source", source).Debug("Routing record write: hostname='%s', target='%s', recordType='%s', ttl=%d, proxied=%t, allowedOutputs=%v", hostname, target, recordType, ttl, proxied, allowedOutputs)
 
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
@@ -227,10 +230,10 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 				errors = append(errors, errStr)
 			} else if written {
 				writtenCount++
-				log.Debug("[output/manager] changedProfiles[%s] after WriteRecordWithSourceAndDomainFilter: %v", source, om.changedProfiles[source])
+				mgrLog.With("source", source).Debug("changedProfiles after WriteRecordWithSourceAndDomainFilter: %v", om.changedProfiles[source])
 			}
 		} else {
-			log.Warn("[output/manager] Output profile '%s' not found (referenced by domain config key '%s')", outputProfile, domainConfigKey)
+			mgrLog.With("profile", outputProfile, "config", domainConfigKey).Warn("Output profile not found (referenced by domain config key)")
 		}
 	}
 
@@ -239,7 +242,7 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 	}
 
 	if writtenCount > 0 {
-		log.Debug("[output/manager] Successfully wrote to %d output profiles for domain config key '%s'", writtenCount, domainConfigKey)
+		mgrLog.With("config", domainConfigKey).Debug("Successfully wrote to %d output profiles", writtenCount)
 	}
 
 	return nil
@@ -259,7 +262,7 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 	defer om.mutex.Unlock()
 
 	if _, exists := om.profiles[profileName]; exists {
-		log.Debug("[output] Output profile '%s' already exists, skipping duplicate registration", profileName)
+		outLog.With("profile", profileName).Debug("Output profile already exists, skipping duplicate registration")
 		return nil
 	}
 
@@ -339,7 +342,7 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 
 	om.profiles[profileName] = outputFormat
 	// Only log here, and only once, at INFO level
-	log.Info("[output] Registered output profile '%s' (%s)", profileName, format)
+	outLog.With("profile", profileName).Info("Registered output profile (%s)", format)
 	return nil
 }
 
@@ -356,7 +359,7 @@ func (om *OutputManager) WriteRecordWithSource(domain, hostname, target, recordT
 	for profileName, outputFormat := range om.profiles {
 		err := outputFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
 		if err != nil {
-			log.Error("[output/manager/%s] Failed to write record to profile '%s': %v", strings.ReplaceAll(domain, ".", "_"), profileName, err)
+			mgrLog.With("domain", domain, "profile", profileName).Error("Failed to write record to profile: %v", err)
 			return err
 		}
 
@@ -367,7 +370,7 @@ func (om *OutputManager) WriteRecordWithSource(domain, hostname, target, recordT
 		}
 		om.changedProfiles[source][profileName] = true
 		// Debug: print changedProfiles for this source
-		log.Debug("[output/manager] changedProfiles[%s] after WriteRecordWithSource: %v", source, om.changedProfiles[source])
+		mgrLog.With("source", source).Debug("changedProfiles after WriteRecordWithSource: %v", om.changedProfiles[source])
 		om.changesMutex.Unlock()
 	}
 	return nil
@@ -381,7 +384,7 @@ func (om *OutputManager) RemoveRecord(domain, hostname, recordType string) error
 	for profileName, outputFormat := range om.profiles {
 		err := outputFormat.RemoveRecord(domain, hostname, recordType)
 		if err != nil {
-			log.Error("[output/manager/%s] Failed to remove record from profile '%s': %v", strings.ReplaceAll(domain, ".", "_"), profileName, err)
+			mgrLog.With("domain", domain, "profile", profileName).Error("Failed to remove record from profile: %v", err)
 			return err
 		}
 	}
@@ -396,12 +399,11 @@ func (om *OutputManager) SyncAll() error {
 
 	// Check if we're within the cooldown period
 	if time.Since(om.lastSync) < om.syncCooldown {
-		log.Debug("[output/manager] Sync throttled - last sync was %v ago (cooldown: %v)",
-			time.Since(om.lastSync), om.syncCooldown)
+		mgrLog.Debug("Sync throttled - last sync was %v ago (cooldown: %v)", time.Since(om.lastSync), om.syncCooldown)
 		return nil
 	}
 
-	log.Debug("[output/manager] SyncAll called. lastSync=%v, syncCooldown=%v", om.lastSync, om.syncCooldown)
+	mgrLog.Debug("SyncAll called. lastSync=%v, syncCooldown=%v", om.lastSync, om.syncCooldown)
 
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
@@ -418,10 +420,10 @@ func (om *OutputManager) SyncAll() error {
 	}
 	om.changesMutex.RUnlock()
 
-	log.Debug("[output/manager] changedProfiles map at sync: %+v", om.changedProfiles)
+	mgrLog.Debug("changedProfiles map at sync: %+v", om.changedProfiles)
 
 	if len(changedProfilesSet) == 0 {
-		log.Debug("[output/manager] No changed profiles to sync (changedProfilesSet empty)")
+		mgrLog.Debug("No changed profiles to sync (changedProfilesSet empty)")
 		return nil
 	}
 
@@ -430,17 +432,17 @@ func (om *OutputManager) SyncAll() error {
 		changedProfiles = append(changedProfiles, profileName)
 	}
 
-	log.Debug("[output/manager] Starting sync for %d changed output profiles: %v", len(changedProfiles), changedProfiles)
+	mgrLog.Debug("Starting sync for %d changed output profiles: %v", len(changedProfiles), changedProfiles)
 
 	for _, profileName := range changedProfiles {
 		if outputFormat, exists := om.profiles[profileName]; exists {
-			log.Debug("[output/manager] Syncing changed profile: %s", profileName)
+			mgrLog.With("profile", profileName).Debug("Syncing changed profile")
 			err := outputFormat.Sync()
 			if err != nil {
-				log.Error("[output/manager] Failed to sync profile '%s': %v", profileName, err)
+				mgrLog.With("profile", profileName).Error("Failed to sync profile: %v", err)
 				return err
 			}
-			log.Debug("[output/manager] Successfully synced profile: %s", profileName)
+			mgrLog.With("profile", profileName).Debug("Successfully synced profile")
 		}
 	}
 
@@ -452,7 +454,7 @@ func (om *OutputManager) SyncAll() error {
 	// Update last sync time
 	om.lastSync = time.Now()
 
-	log.Debug("[output/manager] Completed sync for %d changed profiles", len(changedProfiles))
+	mgrLog.Debug("Completed sync for %d changed profiles", len(changedProfiles))
 	return nil
 }
 
@@ -464,8 +466,7 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 
 	// Check if we're within the cooldown period
 	if time.Since(om.lastSync) < om.syncCooldown {
-		log.Debug("[output/manager] Sync throttled for source '%s' - last sync was %v ago (cooldown: %v)",
-			source, time.Since(om.lastSync), om.syncCooldown)
+		mgrLog.With("source", source).Debug("Sync throttled for source - last sync was %v ago (cooldown: %v)", time.Since(om.lastSync), om.syncCooldown)
 		return nil
 	}
 
@@ -475,10 +476,10 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 	// Get list of changed profiles for this specific source
 	om.changesMutex.RLock()
 	sourceChanges, exists := om.changedProfiles[source]
-	log.Trace("[output/manager] changedProfiles[%s] at start of SyncAllFromSource: %v", source, sourceChanges)
+	mgrLog.With("source", source).Trace("changedProfiles at start of SyncAllFromSource: %v", sourceChanges)
 	if !exists || len(sourceChanges) == 0 {
 		om.changesMutex.RUnlock()
-		log.Trace("[output/manager] No changed profiles to sync for source '%s'", source)
+		mgrLog.With("source", source).Trace("No changed profiles to sync for source")
 		return nil
 	}
 
@@ -491,21 +492,21 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 	om.changesMutex.RUnlock()
 
 	if len(changedProfiles) == 0 {
-		log.Trace("[output/manager] No changed profiles to sync for source '%s'", source)
+		mgrLog.With("source", source).Trace("No changed profiles to sync for source")
 		return nil
 	}
 
-	log.Debug("[output/manager] Starting sync for %d changed output profiles from source '%s': %v", len(changedProfiles), source, changedProfiles)
+	mgrLog.With("source", source).Debug("Starting sync for %d changed output profiles: %v", len(changedProfiles), changedProfiles)
 
 	for _, profileName := range changedProfiles {
 		if outputFormat, exists := om.profiles[profileName]; exists {
-			log.Debug("[output/manager] Syncing changed profile: %s (source: %s)", profileName, source)
+			mgrLog.With("profile", profileName, "source", source).Debug("Syncing changed profile")
 			err := outputFormat.Sync()
 			if err != nil {
-				log.Error("[output/manager] Failed to sync profile '%s' from source '%s': %v", profileName, source, err)
+				mgrLog.With("profile", profileName, "source", source).Error("Failed to sync profile: %v", err)
 				return err
 			}
-			log.Debug("[output/manager] Successfully synced profile: %s (source: %s)", profileName, source)
+			mgrLog.With("profile", profileName, "source", source).Debug("Successfully synced profile")
 		}
 	}
 
@@ -517,14 +518,14 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 	// Update last sync time
 	om.lastSync = time.Now()
 
-	log.Debug("[output/manager] Completed sync for %d changed profiles from source '%s'", len(changedProfiles), source)
+	mgrLog.With("source", source).Debug("Completed sync for %d changed profiles", len(changedProfiles))
 	return nil
 }
 
 // InitializeOutputManagerWithProfiles initializes the output manager with specific profiles from config
 func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, enabledProfiles []string) error {
 	outputManagerInitCount++
-	log.Trace("[output] InitializeOutputManagerWithProfiles called %d time(s)", outputManagerInitCount)
+	outLog.Trace("InitializeOutputManagerWithProfiles called %d time(s)", outputManagerInitCount)
 
 	globalOutputManagerMutex.Lock()
 	if globalOutputManager != nil {
@@ -535,7 +536,7 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 
 	outputManager := NewOutputManager()
 
-	log.Trace("[output] Starting output manager initialization with profiles: %v", enabledProfiles)
+	outLog.Trace("Starting output manager initialization with profiles: %v", enabledProfiles)
 
 	if outputConfigs != nil {
 
@@ -547,11 +548,11 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 
 		// Register all profiles from config, not just enabledProfiles
 		for profileName, profileConfig := range outputConfigs {
-			log.Debug("[output] Processing profile: %s", profileName)
+			outLog.With("profile", profileName).Debug("Processing profile")
 
 			configMap, ok := profileConfig.(map[string]interface{})
 			if !ok {
-				log.Error("[output] Invalid config for profile '%s', skipping", profileName)
+				outLog.With("profile", profileName).Error("Invalid config for profile, skipping")
 				continue
 			}
 			path, _ := configMap["path"].(string)
@@ -565,11 +566,11 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 			}
 			err := outputManager.AddProfile(profileName, path, domains, configMap)
 			if err != nil {
-				log.Error("[output] Failed to add profile '%s': %v", profileName, err)
+				outLog.With("profile", profileName).Error("Failed to add profile: %v", err)
 			}
 		}
 	} else {
-		log.Debug("[output] No outputs configuration found")
+		outLog.Debug("No outputs configuration found")
 	}
 
 	SetGlobalOutputManager(outputManager)
