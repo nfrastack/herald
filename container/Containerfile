@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+# SPDX-FileCopyrightText: © 2026 Nfrastack <code@nfrastack.com>
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -18,20 +18,36 @@ LABEL \
   org.opencontainers.image.licenses="BSD-3-Clause"
 
 ARG \
-    HERALD_VERSION="2.3.4" \
+    HERALD_VERSION \
+    HERALD_COMMIT \
     GOLANG_VERSION="1.26.8"
 
 ENV \
     CONTAINER_ENABLE_SCHEDULING=TRUE \
+    PATH="/app:${PATH}" \
     HERALD_USER=herald \
     HERALD_GROUP=herald \
-    IMAGE_VERSION=${HERALD_VERSION} \
     IMAGE_NAME="nfrastack/herald" \
     IMAGE_REPO_URL="https://github.com/nfrastack/herald"
 
+VOLUME /state
+WORKDIR /app
 COPY / /usr/src/herald
 
+HEALTHCHECK \
+                --interval=30s \
+                --timeout=5s \
+                --start-period=60s \
+                --retries=3 \
+            CMD /app/herald --version || exit 1
+
 RUN echo "" && \
+    hver="${HERALD_VERSION}" && \
+    if [ "${hver}" = "dev" ]; then hver=""; fi && \
+    if [ -z "${hver}" ]; then \
+        if [ -n "${HERALD_COMMIT}" ]; then hver="dev-${HERALD_COMMIT}"; \
+        else hver="dev-$(date -u +%Y%m%d-%H%M%S)-h$(find /usr/src/herald/src /usr/src/herald/container -type f | LC_ALL=C sort | xargs sha256sum 2>/dev/null | sha256sum | cut -c1-7)"; fi && \
+    fi && \
     HERALD_BUILD_DEPS_ALPINE=" \
                                 make \
                           " \
@@ -78,14 +94,21 @@ RUN echo "" && \
         ;; \
     esac ; \
     \
-    make && \
-    make install && \
+    make build-release HERALD_VERSION="${hver}" && \
+    cp -aR \
+                herald \
+                LICENSE \
+                LICENSES \
+                README.md \
+                SECURITY.md \
+           /app \
+           && \
     \
     cp -aR \
                 /usr/src/herald/container/rootfs/*  \
             / && \
     \
-    container_build_log add "Herald" "${HERALD_VERSION}" "${HERALD_REPO_URL}" && \
+    container_build_log add "Herald" "${hver}" "${HERALD_REPO_URL}" && \
     package remove \
                     HERALD_BUILD_DEPS \
                     && \
