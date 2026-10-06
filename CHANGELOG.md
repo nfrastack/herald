@@ -17,6 +17,7 @@
     - (output/dns/godaddy) add provider
     - (output/dns/azure) add provider
     - (output/dns/google) add provider
+    - (output/dns/route53) add provider
 
    ### Changed
     - (output/dns) rework provider format
