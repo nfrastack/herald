@@ -7,6 +7,8 @@
 
    ### Changed
     - (output/dns) rework provider format
+    - (output/dns/cloudflare) refactor provider
+    - (output/dns/powerdns) refactor provider
     - Support IPV6 safely
     - rework repository layout
     - constant format strings
