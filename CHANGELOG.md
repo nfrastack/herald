@@ -18,6 +18,7 @@
     - (output/dns/azure) add provider
     - (output/dns/google) add provider
     - (output/dns/route53) add provider
+    - (output/dns/external) add provider
 
    ### Changed
     - (output/dns) rework provider format

@@ -280,6 +280,10 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 				for nk, nv := range t {
 					providerConfig[k+"."+nk] = fmt.Sprintf("%v", nv)
 				}
+			case []interface{}:
+				for i, item := range t {
+					providerConfig[fmt.Sprintf("%s.%d", k, i)] = fmt.Sprintf("%v", item)
+				}
 			default:
 				providerConfig[k] = fmt.Sprintf("%v", v)
 			}
