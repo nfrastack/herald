@@ -13,6 +13,8 @@
     - (output/dns/vultr) add provider
     - (output/dns/spaceship) add provider
     - (output/dns/linode) add provider
+    - (output/dns/gandi) add provider
+
 
    ### Changed
     - (output/dns) rework provider format
