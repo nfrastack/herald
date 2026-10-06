@@ -6,6 +6,7 @@
     - (input/zerotier) support additional_domains
 
    ### Changed
+    - (output/dns) rework provider format
     - Support IPV6 safely
     - rework repository layout
     - constant format strings
