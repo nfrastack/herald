@@ -14,7 +14,7 @@
     - (output/dns/spaceship) add provider
     - (output/dns/linode) add provider
     - (output/dns/gandi) add provider
-
+    - (output/dns/godaddy) add provider
 
    ### Changed
     - (output/dns) rework provider format
