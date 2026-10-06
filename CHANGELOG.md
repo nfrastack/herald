@@ -11,6 +11,8 @@
     - (output/dns/easydns) add provider
     - (output/dns/porkbun) add provider
     - (output/dns/vultr) add provider
+    - (output/dns/spaceship) add provider
+    - (output/dns/linode) add provider
 
    ### Changed
     - (output/dns) rework provider format
