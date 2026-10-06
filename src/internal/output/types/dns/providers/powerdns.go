@@ -21,10 +21,8 @@ import (
 	"time"
 )
 
-// PowerDNSProviderName is exported to ensure this file is included in builds
 var PowerDNSProviderName = "powerdns"
 
-// PowerDNSConfig holds configuration for the PowerDNS provider
 type PowerDNSConfig struct {
 	APIHost  string `yaml:"api_host"`
 	APIToken string `yaml:"api_token"`
@@ -37,7 +35,6 @@ type PowerDNSConfig struct {
 	ServerID string `yaml:"server_id"`
 }
 
-// PowerDNSProvider implements the DNSProvider interface for PowerDNS
 type PowerDNSProvider struct {
 	config     PowerDNSConfig
 	httpClient *http.Client
@@ -50,7 +47,6 @@ func NewPowerDNSProvider(profileName string, cfg PowerDNSConfig) (*PowerDNSProvi
 		return nil, err
 	}
 
-	// Create logger with profile prefix
 	logPrefix := fmt.Sprintf("[output/dns/powerdns/%s]", profileName)
 	logger := log.NewScopedLogger(logPrefix, "")
 
@@ -65,7 +61,6 @@ func newPowerDNSHTTPClient(cfg PowerDNSConfig) (*http.Client, error) {
 	if cfg.TLS.CA == "" && cfg.TLS.Cert == "" && cfg.TLS.Key == "" && !cfg.TLS.SkipVerify {
 		return http.DefaultClient, nil
 	}
-	// Load CA cert
 	rootCAs, _ := x509.SystemCertPool()
 	if rootCAs == nil {
 		rootCAs = x509.NewCertPool()
@@ -77,7 +72,6 @@ func newPowerDNSHTTPClient(cfg PowerDNSConfig) (*http.Client, error) {
 		}
 		rootCAs.AppendCertsFromPEM(caCert)
 	}
-	// Load client cert
 	var certs []tls.Certificate
 	if cfg.TLS.Cert != "" && cfg.TLS.Key != "" {
 		cert, err := tls.LoadX509KeyPair(cfg.TLS.Cert, cfg.TLS.Key)
@@ -96,12 +90,10 @@ func newPowerDNSHTTPClient(cfg PowerDNSConfig) (*http.Client, error) {
 	return &http.Client{Transport: tr, Timeout: 30 * time.Second}, nil
 }
 
-// CreateOrUpdateRecord creates or updates a DNS record
 func (p *PowerDNSProvider) CreateOrUpdateRecord(domain, recordType, hostname, target string, ttl int, proxied bool, overwrite bool) error {
 	return p.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, proxied, "", "herald", overwrite)
 }
 
-// CreateOrUpdateRecordWithSource creates or updates a DNS record with source/comment
 func (p *PowerDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostname, target string, ttl int, proxied bool, comment, source string, overwrite bool) error {
 	p.logger.Debug("Creating/updating record: domain=%s, type=%s, hostname=%s, target=%s, ttl=%d", domain, recordType, hostname, target, ttl)
 
@@ -118,8 +110,6 @@ func (p *PowerDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, ho
 		recordName = hostname + "." + domain
 	}
 
-	// PowerDNS API expects a RRset structure
-	// For CNAME records, ensure target ends with a dot (FQDN)
 	recordContent := target
 	if recordType == "CNAME" && !strings.HasSuffix(target, ".") {
 		recordContent = target + "."
@@ -147,7 +137,6 @@ func (p *PowerDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, ho
 	return p.sendPowerDNSPatch(apiURL, body)
 }
 
-// DeleteRecord deletes a DNS record
 func (p *PowerDNSProvider) DeleteRecord(domain, recordType, hostname string) error {
 	p.logger.Debug("Deleting record: domain=%s, type=%s, hostname=%s", domain, recordType, hostname)
 
@@ -204,9 +193,7 @@ func NewPowerDNSProviderFromConfig(profileName string, config map[string]string)
 }
 
 func init() {
-	// Register in the main DNS package registry, not the providers subpackage
 	dns.RegisterProvider("powerdns", func(config map[string]string) (interface{}, error) {
-		// Extract profile name from config or use default
 		profileName := "default"
 		if pn, ok := config["profile_name"]; ok {
 			profileName = pn
@@ -215,12 +202,10 @@ func init() {
 	})
 }
 
-// GetName returns the provider name
 func (p *PowerDNSProvider) GetName() string {
 	return "powerdns"
 }
 
-// Validate checks the PowerDNS API connection
 func (p *PowerDNSProvider) Validate() error {
 	p.logger.Debug("Validating PowerDNS API connection")
 
@@ -255,9 +240,7 @@ func (p *PowerDNSProvider) Validate() error {
 	return nil
 }
 
-// --- Helpers ---
 func (p *PowerDNSProvider) apiURL(format string, args ...interface{}) string {
-	// Ensure API host doesn't end with slash, and format doesn't start with slash
 	apiHost := strings.TrimSuffix(p.config.APIHost, "/")
 	format = strings.TrimPrefix(format, "/")
 	return fmt.Sprintf(apiHost+"/"+format, args...)
@@ -276,7 +259,6 @@ func (p *PowerDNSProvider) sendPowerDNSPatch(apiURL string, body map[string]inte
 		return err
 	}
 
-	// Debug: log the request details
 	p.logger.Debug("API Request: %s", apiURL)
 	p.logger.Trace("API Request Body: %s", string(jsonBody))
 

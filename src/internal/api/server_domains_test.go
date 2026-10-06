@@ -121,7 +121,6 @@ func TestOwnershipAndHostnameScope(t *testing.T) {
 		"narrow": {Token: "t3", OutputProfile: "p", Hostnames: []string{"web", "*.edge"}},
 		"spare":  {Token: "t4", OutputProfile: "p", SharedWrites: true},
 	})
-	// atlas owns web.tiredofit.ca.
 	s.clients["atlas"] = &ClientData{
 		ClientID: "atlas", Received: time.Now(),
 		Domains: map[string]*Domain{
@@ -130,7 +129,6 @@ func TestOwnershipAndHostnameScope(t *testing.T) {
 	}
 	s.aggregateAndWriteWithRemovals("t1", "atlas", nil)
 
-	// sneaky tries to overwrite it and to add its own name.
 	s.clients["sneaky"] = &ClientData{
 		ClientID: "sneaky", Received: time.Now(),
 		Domains: map[string]*Domain{
@@ -143,7 +141,6 @@ func TestOwnershipAndHostnameScope(t *testing.T) {
 	s.aggregateAndWriteWithRemovals("t2", "sneaky", map[string][][2]string{
 		"tiredofit.ca": {{"web", "A"}},
 	})
-	// narrow is outside its hostname scope; spare shares writes.
 	s.clients["narrow"] = &ClientData{
 		ClientID: "narrow", Received: time.Now(),
 		Domains: map[string]*Domain{
@@ -165,9 +162,6 @@ func TestOwnershipAndHostnameScope(t *testing.T) {
 	if !got["web.tiredofit.ca"] || !got["sneaky.tiredofit.ca"] {
 		t.Errorf("expected atlas + sneaky-own writes, got %v", allowFakeInst.writes)
 	}
-	// Every aggregation rewrites all clients: t1 atlas/web, t2 atlas/web +
-	// sneaky/sneaky (overwrite + removal rejected), t3 atlas/web +
-	// sneaky/sneaky + spare/web-overwrite (narrow/db rejected) = 6 writes.
 	if len(allowFakeInst.writes) != 6 {
 		t.Errorf("expected 6 writes, got %v", allowFakeInst.writes)
 	}

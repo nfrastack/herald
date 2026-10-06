@@ -16,27 +16,21 @@ import (
 	"time"
 )
 
-// DomainConfig represents a minimal domain config for output filtering
-// Now includes GetName() for domain identification
 type DomainConfig interface {
 	GetOutputs() []string
 	GetName() string
 }
 
-// GlobalConfigForOutput represents the minimal config interface needed by output
 type GlobalConfigForOutput interface {
 	GetDomains() map[string]DomainConfig
 }
 
-// globalConfigGetter is a function that returns the global config
 var globalConfigGetter func() GlobalConfigForOutput
 
-// SetGlobalConfigGetter sets the function to retrieve global config
 func SetGlobalConfigGetter(getter func() GlobalConfigForOutput) {
 	globalConfigGetter = getter
 }
 
-// getGlobalConfigForOutput safely gets the global config without import cycles
 func getGlobalConfigForOutput() GlobalConfigForOutput {
 	if globalConfigGetter != nil {
 		return globalConfigGetter()
@@ -44,8 +38,6 @@ func getGlobalConfigForOutput() GlobalConfigForOutput {
 	return nil
 }
 
-// writeToProfile writes a single record to a profile, handling DNS special-case and change tracking.
-// Returns (written, errorString).
 func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool) (bool, string) {
 	if df, ok := profile.(*dns.DNSOutputFormat); ok {
 		if df.Provider == nil {
@@ -54,7 +46,6 @@ func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat
 		applyProxied := false
 		if proxied {
 			pname := strings.ToLower(df.Provider.GetName())
-			// Janky, but I am not aware of any other providers right now that would support this
 			if pname == "cloudflare" || strings.Contains(pname, "cloudflare") {
 				applyProxied = true
 			}
@@ -70,7 +61,6 @@ func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat
 		mgrLog.With("profile", profileName).Debug("Successfully wrote record to profile")
 	}
 
-	// Mark this profile as changed for this source
 	om.changesMutex.Lock()
 	if om.changedProfiles[source] == nil {
 		om.changedProfiles[source] = make(map[string]bool)
@@ -81,20 +71,15 @@ func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat
 	return true, ""
 }
 
-// outLog scopes registry messages.
 var outLog = log.NewScopedLogger("[output]", "")
 
-// init automatically registers all output types when the package is imported
 func init() {
 	outLog.Debug("Auto-registering core output types")
 
-	// Register core output formats directly to avoid import cycles
 	registerAllCoreFormats()
 }
 
-// registerAllCoreFormats registers all built-in output formats
 func registerAllCoreFormats() {
-	// Register only the canonical file output factory for all file-based formats
 	RegisterFormat("file", fileoutput.NewFileOutput)
 	RegisterFormat("file/json", fileoutput.NewFileOutput)
 	RegisterFormat("file/yaml", fileoutput.NewFileOutput)
@@ -104,14 +89,12 @@ func registerAllCoreFormats() {
 	outLog.Debug("Registered core formats: file")
 }
 
-// Global registry for output format creators
 var (
 	outputFormatRegistry   = make(map[string]func(string, map[string]interface{}) (OutputFormat, error))
 	registryMutex          sync.RWMutex
 	outputManagerInitCount int // Track how many times output manager is initialized
 )
 
-// RegisterFormat registers an output format creator function
 func RegisterFormat(formatName string, createFunc func(string, map[string]interface{}) (OutputFormat, error)) {
 	registryMutex.Lock()
 	defer registryMutex.Unlock()
@@ -123,16 +106,12 @@ func RegisterFormat(formatName string, createFunc func(string, map[string]interf
 	outLog.With("format", formatName).Debug("Registered format creator")
 }
 
-// GetOutputManager returns the global output manager instance
 func GetOutputManager() *OutputManager {
 	return GetGlobalOutputManager()
 }
 
-// OutputFormat defines the interface that all output formats must implement
-// Use the canonical interface from fileoutput to avoid duplication and type mismatch
 type OutputFormat = common.OutputFormat
 
-// OutputManager manages multiple output formats
 type OutputManager struct {
 	profiles        map[string]OutputFormat
 	mutex           sync.RWMutex
@@ -143,7 +122,6 @@ type OutputManager struct {
 	changesMutex    sync.RWMutex               // Protect changes tracking
 }
 
-// NewOutputManager creates a new output manager
 func NewOutputManager() *OutputManager {
 	return &OutputManager{
 		profiles:        make(map[string]OutputFormat),
@@ -152,31 +130,24 @@ func NewOutputManager() *OutputManager {
 	}
 }
 
-// Global output manager instance
 var globalOutputManager *OutputManager
 var globalOutputManagerMutex sync.RWMutex
 
-// SetGlobalOutputManager sets the global output manager instance
 func SetGlobalOutputManager(manager *OutputManager) {
 	globalOutputManagerMutex.Lock()
 	defer globalOutputManagerMutex.Unlock()
 	globalOutputManager = manager
 }
 
-// GetGlobalOutputManager returns the global output manager instance
 func GetGlobalOutputManager() *OutputManager {
 	globalOutputManagerMutex.RLock()
 	defer globalOutputManagerMutex.RUnlock()
 	return globalOutputManager
 }
 
-// WriteRecordWithSourceAndDomainFilter writes a DNS record with source and domain filtering
-// Now requires domainConfigKey for strict config-based routing
 func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool, domainManager interface{}) error {
-	// Use domainConfigKey to get the correct domain config and allowed outputs
 	var allowedOutputs []string
 
-	// Try to get allowed outputs from domainManager if possible
 	if dm, ok := domainManager.(interface {
 		GetAllDomains() map[string]DomainConfig
 	}); ok {
@@ -185,7 +156,6 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 		}
 	}
 
-	// Fallback: use global config if available
 	if len(allowedOutputs) == 0 {
 		globalConfig := getGlobalConfigForOutput()
 		if globalConfig != nil {
@@ -195,7 +165,6 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 		}
 	}
 
-	// Extra safety: filter allowedOutputs using domainManager.ValidateOutputProfileAccess if available
 	if dm, ok := domainManager.(interface {
 		ValidateOutputProfileAccess(domainConfigKey, outputProfileName string) bool
 	}); ok {
@@ -248,7 +217,6 @@ func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, d
 	return nil
 }
 
-// GetProfile returns a specific output profile by name
 func (om *OutputManager) GetProfile(profileName string) OutputFormat {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
@@ -256,7 +224,6 @@ func (om *OutputManager) GetProfile(profileName string) OutputFormat {
 	return om.profiles[profileName]
 }
 
-// AddProfile adds an output profile to the manager
 func (om *OutputManager) AddProfile(profileName, path string, domains []string, config map[string]interface{}) error {
 	om.mutex.Lock()
 	defer om.mutex.Unlock()
@@ -269,7 +236,6 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 	var outputFormat OutputFormat
 	var err error
 
-	// Support both 'format' and 'type' as synonyms for output format
 	format, _ := config["format"].(string)
 	if format == "" {
 		if t, ok := config["type"].(string); ok && t != "" {
@@ -277,14 +243,11 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 		}
 	}
 
-	// Patch: For file/hosts outputs, ensure the real DNS domain is passed as the first argument
-	// and is also set in the config map for downstream constructors.
 	if format == "file" || format == "json" || format == "yaml" || format == "hosts" || format == "zone" {
 		domainArg := profileName // fallback
 		if domainFromConfig, ok := config["domain"].(string); ok && domainFromConfig != "" {
 			domainArg = domainFromConfig
 		} else {
-			// Try to infer from domains config if available
 			globalConfig := getGlobalConfigForOutput()
 			if globalConfig != nil {
 				for _, domainConfig := range globalConfig.GetDomains() {
@@ -297,17 +260,13 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 				}
 			}
 		}
-		// Always set the domain in the config for downstream constructors (hosts/zone need it)
 		config["domain"] = domainArg
-		// FIX: Pass the output profile name as the first argument, not the domain
 		outputFormat, err = fileoutput.NewFileOutput(profileName, config)
 	} else if format == "dns" {
-		// Use the DNS provider registry to instantiate the provider
 		providerName, ok := config["provider"].(string)
 		if !ok || providerName == "" {
 			return fmt.Errorf("dns output requires 'provider' field")
 		}
-		// Pass profileName in config for per-profile log prefixing
 		providerConfig := make(map[string]string)
 		for k, v := range config {
 			if str, ok := v.(string); ok {
@@ -325,7 +284,6 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 			Config:      config,
 		}
 	} else {
-		// Generic registry lookup for any other format (e.g., remote)
 		registryMutex.RLock()
 		createFunc, exists := outputFormatRegistry[format]
 		registryMutex.RUnlock()
@@ -341,17 +299,14 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 	}
 
 	om.profiles[profileName] = outputFormat
-	// Only log here, and only once, at INFO level
 	outLog.With("profile", profileName).Info("Registered output profile (%s)", format)
 	return nil
 }
 
-// WriteRecord writes a DNS record to all output formats
 func (om *OutputManager) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
 	return om.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
 }
 
-// WriteRecordWithSource writes a DNS record with source information to all output formats
 func (om *OutputManager) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
@@ -363,20 +318,17 @@ func (om *OutputManager) WriteRecordWithSource(domain, hostname, target, recordT
 			return err
 		}
 
-		// Mark this profile as changed for this source - use more specific key
 		om.changesMutex.Lock()
 		if om.changedProfiles[source] == nil {
 			om.changedProfiles[source] = make(map[string]bool)
 		}
 		om.changedProfiles[source][profileName] = true
-		// Debug: print changedProfiles for this source
 		mgrLog.With("source", source).Debug("changedProfiles after WriteRecordWithSource: %v", om.changedProfiles[source])
 		om.changesMutex.Unlock()
 	}
 	return nil
 }
 
-// RemoveRecord removes a DNS record from all output formats
 func (om *OutputManager) RemoveRecord(domain, hostname, recordType string) error {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
@@ -391,13 +343,10 @@ func (om *OutputManager) RemoveRecord(domain, hostname, recordType string) error
 	return nil
 }
 
-// SyncAll syncs all output formats
 func (om *OutputManager) SyncAll() error {
-	// Prevent concurrent sync operations
 	om.syncMutex.Lock()
 	defer om.syncMutex.Unlock()
 
-	// Check if we're within the cooldown period
 	if time.Since(om.lastSync) < om.syncCooldown {
 		mgrLog.Debug("Sync throttled - last sync was %v ago (cooldown: %v)", time.Since(om.lastSync), om.syncCooldown)
 		return nil
@@ -408,7 +357,6 @@ func (om *OutputManager) SyncAll() error {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
 
-	// Get list of changed profiles from all sources
 	om.changesMutex.RLock()
 	changedProfilesSet := make(map[string]bool)
 	for _, profileMap := range om.changedProfiles {
@@ -446,25 +394,20 @@ func (om *OutputManager) SyncAll() error {
 		}
 	}
 
-	// Clear change tracking after successful sync
 	om.changesMutex.Lock()
 	om.changedProfiles = make(map[string]map[string]bool)
 	om.changesMutex.Unlock()
 
-	// Update last sync time
 	om.lastSync = time.Now()
 
 	mgrLog.Debug("Completed sync for %d changed profiles", len(changedProfiles))
 	return nil
 }
 
-// SyncAllFromSource syncs only output formats that have changes from a specific source
 func (om *OutputManager) SyncAllFromSource(source string) error {
-	// Prevent concurrent sync operations
 	om.syncMutex.Lock()
 	defer om.syncMutex.Unlock()
 
-	// Check if we're within the cooldown period
 	if time.Since(om.lastSync) < om.syncCooldown {
 		mgrLog.With("source", source).Debug("Sync throttled for source - last sync was %v ago (cooldown: %v)", time.Since(om.lastSync), om.syncCooldown)
 		return nil
@@ -473,7 +416,6 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
 
-	// Get list of changed profiles for this specific source
 	om.changesMutex.RLock()
 	sourceChanges, exists := om.changedProfiles[source]
 	mgrLog.With("source", source).Trace("changedProfiles at start of SyncAllFromSource: %v", sourceChanges)
@@ -510,19 +452,16 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 		}
 	}
 
-	// Clear change tracking for this source after successful sync
 	om.changesMutex.Lock()
 	delete(om.changedProfiles, source)
 	om.changesMutex.Unlock()
 
-	// Update last sync time
 	om.lastSync = time.Now()
 
 	mgrLog.With("source", source).Debug("Completed sync for %d changed profiles", len(changedProfiles))
 	return nil
 }
 
-// InitializeOutputManagerWithProfiles initializes the output manager with specific profiles from config
 func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, enabledProfiles []string) error {
 	outputManagerInitCount++
 	outLog.Trace("InitializeOutputManagerWithProfiles called %d time(s)", outputManagerInitCount)
@@ -540,13 +479,11 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 
 	if outputConfigs != nil {
 
-		// Create a set for faster lookup
 		enabledSet := make(map[string]bool)
 		for _, profile := range enabledProfiles {
 			enabledSet[profile] = true
 		}
 
-		// Register all profiles from config, not just enabledProfiles
 		for profileName, profileConfig := range outputConfigs {
 			outLog.With("profile", profileName).Debug("Processing profile")
 

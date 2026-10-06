@@ -39,14 +39,12 @@ type DNSEntry struct {
 	SourceName             string `json:"source_name"`
 }
 
-// Enhanced regex to support Host(), HostSNI(), HostRegexp(), and multiple hosts
 var (
 	hostRuleRegex       = regexp.MustCompile(`Host\(([^)]*)\)`)
 	hostSniRuleRegex    = regexp.MustCompile(`HostSNI\(([^)]*)\)`)
 	hostRegexpRuleRegex = regexp.MustCompile(`HostRegexp\(([^)]*)\)`)
 )
 
-// TraefikProvider is an input provider that monitors Traefik routers
 type TraefikProvider struct {
 	apiURL       string
 	pollInterval time.Duration
@@ -63,7 +61,6 @@ type TraefikProvider struct {
 	logPrefix    string            // Store log prefix for consistent logging
 	tlsConfig    *common.TLSConfig // Store TLS configuration
 
-	// Filters
 	filterConfig common.FilterConfig
 
 	initialPollDone bool // Track if initial poll is complete
@@ -77,12 +74,10 @@ type TraefikProvider struct {
 	domainConfigs map[string]config.DomainConfig // Add domain configs for domain matching
 }
 
-// SetDomainConfigs allows injection of loaded domain configs (like Docker/Caddy)
 func (p *TraefikProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
 	p.domainConfigs = domainConfigs
 }
 
-// Helper to find the best matching domain config by suffix match on the 'name' field
 func (p *TraefikProvider) getParentDomainForFQDN(fqdn string) string {
 	var bestMatch string
 	for _, cfg := range p.domainConfigs {
@@ -95,7 +90,6 @@ func (p *TraefikProvider) getParentDomainForFQDN(fqdn string) string {
 	return bestMatch
 }
 
-// evaluateTraefikFilter evaluates a single filter against a Traefik router using conditions
 func evaluateTraefikFilter(filter common.Filter, entry any) bool {
 	router, ok := entry.(map[string]interface{})
 	if !ok {
@@ -173,9 +167,7 @@ func evaluateTraefikFilter(filter common.Filter, entry any) bool {
 	}
 }
 
-// NewProviderFromStructured creates a new Traefik input provider from structured options
 func NewProviderFromStructured(options map[string]interface{}) (Provider, error) {
-	// Parse the filter configuration BEFORE other processing to preserve structured data
 	filterLogPrefix := "[input/traefik/filter]"
 	if name, ok := options["name"]; ok && name != "" {
 		if strName, ok := name.(string); ok {
@@ -193,7 +185,6 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
-	// Convert interface{} options to string options for compatibility with existing functions
 	stringOptions := make(map[string]string)
 	for key, value := range options {
 		if strValue, ok := value.(string); ok {
@@ -216,23 +207,19 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 	}
 	logPrefix := common.BuildLogPrefix("traefik", profileName)
 
-	// Trace all options keys at the start to help troubleshoot
 	log.NewScopedLogger("", "").With("provider", profileName).Trace("Provider options received: %+v", options)
 
 	log.NewScopedLogger("", "").With("provider", profileName).Trace("Resolved profile name: %s", profileName)
 
-	// Get api URL from options
 	apiURL := common.ReadFileValue(stringOptions["api_url"])
 	if apiURL == "" {
 		apiURL = "http://localhost:8080/api/http/routers"
 	}
 	log.NewScopedLogger("", "").With("provider", profileName).Debug("Using configured URL: %s", apiURL)
 
-	// Get basic auth credentials if provided
 	authUser := common.ReadFileValue(stringOptions["api_auth_user"])
 	authPass := common.ReadFileValue(stringOptions["api_auth_pass"])
 
-	// Log whether auth credentials were found
 	if authUser != "" {
 		log.NewScopedLogger("", "").With("provider", profileName).Trace("Basic auth user configured: %s", authUser)
 		if authPass != "" {
@@ -244,13 +231,11 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		log.NewScopedLogger("", "").With("provider", profileName).Debug("No basic auth user found in options or environment")
 	}
 
-	// Parse TLS configuration
 	tlsConfig := common.ParseTLSConfigFromOptions(stringOptions)
 	if err := tlsConfig.ValidateConfig(); err != nil {
 		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
 	}
 
-	// Log TLS configuration
 	if !tlsConfig.Verify {
 		log.NewScopedLogger("", "").With("provider", profileName).Debug("TLS certificate verification disabled")
 	}
@@ -261,11 +246,9 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		log.NewScopedLogger("", "").With("provider", profileName).Debug("Using client certificate authentication")
 	}
 
-	// Check if we have active filters (not just "none" filter)
 	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone)
 
 	if hasActiveFilters {
-		// Log active filter details for user awareness in verbose mode
 		var filterDescription strings.Builder
 		for i, filter := range filterConfig.Filters {
 			if filter.Type == common.FilterTypeNone || filter.Type == "" {
@@ -348,10 +331,8 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 
 	logLevel := stringOptions["log_level"] // Get provider-specific log level
 
-	// Create scoped logger
 	scopedLogger := common.CreateScopedLogger("traefik", profileName, stringOptions)
 
-	// Only log override message if there's actually a log level override
 	if logLevel != "" {
 		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
 	}
@@ -379,9 +360,7 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		outputSyncer:    nil, // Will be set by SetDomainConfigs
 	}
 
-	// Log the actual filterConfig.Filters slice for diagnosis
 	scopedLogger.Debug("Filter Configuration: %+v", filterConfig.Filters)
-	// Only show a count if there are real, user-configured filters
 	filterSummary := "none"
 	realFilterCount := 0
 	for _, f := range filterConfig.Filters {
@@ -400,9 +379,7 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 	return provider, nil
 }
 
-// NewProvider creates a new Traefik poll provider with injected dependencies
 func NewProvider(options map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
-	// Convert string options to interface{} for structured parsing
 	structuredOptions := make(map[string]interface{})
 	for key, value := range options {
 		structuredOptions[key] = value
@@ -444,29 +421,24 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	}
 	logPrefix := common.BuildLogPrefix("traefik", profileName)
 
-	// Get api URL from options
 	apiURL := common.ReadFileValue(options["api_url"])
 	if apiURL == "" {
 		apiURL = "http://localhost:8080/api/http/routers"
 	}
 	log.NewScopedLogger("", "").With("provider", profileName).Debug("Using configured URL: %s", apiURL)
 
-	// Get basic auth credentials if provided
 	authUser := common.ReadFileValue(options["api_auth_user"])
 	authPass := common.ReadFileValue(options["api_auth_pass"])
 
-	// Log whether auth credentials were found
 	if authUser != "" {
 		log.NewScopedLogger("", "").With("provider", profileName).Debug("Using basic auth user: %s", authUser)
 	}
 
-	// Parse TLS configuration
 	tlsConfig := common.ParseTLSConfigFromOptions(options)
 	if err := tlsConfig.ValidateConfig(); err != nil {
 		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
 	}
 
-	// Log TLS configuration
 	if !tlsConfig.Verify {
 		log.NewScopedLogger("", "").With("provider", profileName).Debug("TLS certificate verification disabled")
 	}
@@ -477,11 +449,9 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		log.NewScopedLogger("", "").With("provider", profileName).Debug("Using client certificate authentication")
 	}
 
-	// Check if we have active filters (not just "none" filter)
 	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone)
 
 	if hasActiveFilters {
-		// Log active filter details for user awareness in verbose mode
 		var filterDescription strings.Builder
 		for i, filter := range filterConfig.Filters {
 			if filter.Type == common.FilterTypeNone || filter.Type == "" {
@@ -564,10 +534,8 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 
 	logLevel := options["log_level"] // Get provider-specific log level
 
-	// Create scoped logger
 	scopedLogger := common.CreateScopedLogger("traefik", profileName, options)
 
-	// Only log override message if there's actually a log level override
 	if logLevel != "" {
 		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
 	}
@@ -602,12 +570,10 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	return provider, nil
 }
 
-// GetDNSEntries returns all DNS entries from the provider (stub for interface compliance)
 func (t *TraefikProvider) GetDNSEntries() ([]DNSEntry, error) {
 	return nil, nil
 }
 
-// GetName returns the provider name
 func (tp *TraefikProvider) GetName() string {
 	return "traefik"
 }
@@ -624,13 +590,11 @@ func (t *TraefikProvider) StartPolling() error {
 	return nil
 }
 
-// DiscoverHosts implements the input.Provider interface
 func (t *TraefikProvider) DiscoverHosts(callback func(hostnames []string) error) error {
 	t.logger.Debug("DiscoverHosts called with callback function")
 	return t.MonitorTraefik(callback)
 }
 
-// StopPolling stops polling Traefik
 func (t *TraefikProvider) StopPolling() error {
 	if !t.running {
 		return nil
@@ -647,13 +611,11 @@ func (t *TraefikProvider) StopPolling() error {
 	return nil
 }
 
-// IsRunning returns whether the provider is running
 func (t *TraefikProvider) IsRunning() bool {
 	t.logger.Trace("IsRunning check, current value: %v", t.running)
 	return t.running
 }
 
-// MonitorTraefik sets the callback and starts polling
 func (t *TraefikProvider) MonitorTraefik(callback func(hostnames []string) error) error {
 	t.logger.Debug("MonitorTraefik called with callback function")
 	if callback == nil {
@@ -664,9 +626,7 @@ func (t *TraefikProvider) MonitorTraefik(callback func(hostnames []string) error
 	return t.StartPolling()
 }
 
-// pollLoop continuously polls the Traefik API at the specified interval
 func (t *TraefikProvider) pollLoop() {
-	// Always perform an initial poll immediately on startup
 	if t.opts.ProcessExisting {
 		t.logger.Trace("Processing existing Traefik routers on startup (process_existing=true)")
 		err := t.processTraefikRouters()
@@ -692,24 +652,19 @@ func (t *TraefikProvider) pollLoop() {
 	}
 }
 
-// processTraefikRouters polls the Traefik API for routers
 func (t *TraefikProvider) processTraefikRouters() error {
 	t.logger.Debug("Processing Traefik routers from API")
 
-	// Fetch data from Traefik API using common.FetchRemoteResource
 	body, err := t.fetchTraefikAPI(t.apiURL, t.authUser, t.authPass, t.logPrefix)
 	if err != nil {
 		t.logger.Error("Failed to fetch data from Traefik API: %v", err)
 		return fmt.Errorf("%s failed to fetch data: %w", t.logPrefix, err)
 	}
 
-	// Parse JSON response
 	t.logger.Debug("Parsing JSON response")
 
-	// Try to parse as an array first (which is what the Traefik API returns)
 	var routersArray []map[string]interface{}
 	if err := json.Unmarshal(body, &routersArray); err != nil {
-		// If parsing as array fails, try as a map (older API versions or different formats)
 		var routersMap map[string]interface{}
 		if err := json.Unmarshal(body, &routersMap); err != nil {
 			t.logger.Error("Failed to parse JSON response: %v", err)
@@ -717,7 +672,6 @@ func (t *TraefikProvider) processTraefikRouters() error {
 		}
 		t.logger.Debug("Found %d routers in API response (map format)", len(routersMap))
 
-		// Process the map format (convert to our array format for processing)
 		routersArray = make([]map[string]interface{}, 0, len(routersMap))
 		for name, router := range routersMap {
 			if r, ok := router.(map[string]interface{}); ok {
@@ -751,7 +705,6 @@ func (t *TraefikProvider) processTraefikRouters() error {
 		}
 	}
 
-	// Build set of hostnames from filtered routers (deduplicated) and map to RouterState
 	hostnameToRouter := make(map[string]domain.RouterState)
 	hostnameSet := make(map[string]struct{})
 	for _, router := range filteredRouters {
@@ -786,7 +739,6 @@ func (t *TraefikProvider) processTraefikRouters() error {
 		}
 	}
 
-	// Convert set to slice
 	currentHostnames := make([]string, 0, len(hostnameSet))
 	for h := range hostnameSet {
 		currentHostnames = append(currentHostnames, h)
@@ -796,7 +748,6 @@ func (t *TraefikProvider) processTraefikRouters() error {
 		if len(currentHostnames) == 0 {
 			t.logger.Info("No routers to process")
 		} else {
-			// Build a slice of 'routerName (hostname)' strings
 			var routerHostPairs []string
 			for _, h := range currentHostnames {
 				state := hostnameToRouter[h]
@@ -808,7 +759,6 @@ func (t *TraefikProvider) processTraefikRouters() error {
 				routerHostPairs = append(routerHostPairs, pair)
 			}
 			t.logger.Info("Initial routers to process [%s]", strings.Join(routerHostPairs, ", "))
-			// Initial run: process all routers and hostnames as adds
 			for _, h := range currentHostnames {
 				state := hostnameToRouter[h]
 				t.logger.Trace("Preparing to add DNS for hostname: %s | RouterState: %+v", h, state)
@@ -823,7 +773,6 @@ func (t *TraefikProvider) processTraefikRouters() error {
 		return nil
 	}
 
-	// Compare with previous cache to determine added/removed hostnames
 	added := []string{}
 	removed := []string{}
 	prevHostnames := make(map[string]struct{})
@@ -849,7 +798,6 @@ func (t *TraefikProvider) processTraefikRouters() error {
 			}
 		}
 		if len(removed) > 0 {
-			// Build a slice of 'routerName (hostname)' strings for removed routers
 			var removedRouterHostPairs []string
 			for _, h := range removed {
 				if prevState, ok := t.routerCache[h]; ok {
@@ -875,7 +823,6 @@ func (t *TraefikProvider) processTraefikRouters() error {
 		}
 	}
 
-	// Update cache
 	t.routerCache = make(map[string]domain.RouterState)
 	for _, h := range currentHostnames {
 		t.routerCache[h] = hostnameToRouter[h]
@@ -889,12 +836,9 @@ func (t *TraefikProvider) processTraefikRouters() error {
 	return nil
 }
 
-// fetchTraefikAPI fetches data from the Traefik API using common.FetchRemoteResource
 func (p *TraefikProvider) fetchTraefikAPI(url, user, pass, logPrefix string) ([]byte, error) {
-	// Parse TLS configuration using common utilities
 	tlsConfig := common.ParseTLSConfigFromOptions(p.options)
 
-	// Log TLS configuration details
 	if !tlsConfig.Verify {
 		p.logger.Debug("TLS certificate verification disabled")
 	}
@@ -908,7 +852,6 @@ func (p *TraefikProvider) fetchTraefikAPI(url, user, pass, logPrefix string) ([]
 	return common.FetchRemoteResourceWithTLSConfig(url, user, pass, nil, &tlsConfig, logPrefix)
 }
 
-// routerStatesEqual compares two RouterState structs for equality
 func routerStatesEqual(a, b domain.RouterState) bool {
 	if a.Name != b.Name || a.Rule != b.Rule || a.Service != b.Service {
 		return false
@@ -924,17 +867,13 @@ func routerStatesEqual(a, b domain.RouterState) bool {
 	return true
 }
 
-// pollRouters fetches routers and processes add/update/remove using cache
 func (p *TraefikProvider) pollRouters() error {
-	// TODO: Integrate with actual router fetching logic (e.g., from processTraefikRouters)
-	// For now, use an empty slice to avoid build errors
 	currentRouters := []domain.RouterState{} // Replace with real router fetching logic
 	currentMap := make(map[string]domain.RouterState)
 	for _, r := range currentRouters {
 		currentMap[r.Name] = r
 	}
 
-	// On first run, if opts.ProcessExisting is true, just populate cache
 	if len(p.routerCache) == 0 && p.opts.ProcessExisting {
 		for k, v := range currentMap {
 			p.routerCache[k] = v
@@ -943,21 +882,17 @@ func (p *TraefikProvider) pollRouters() error {
 		return nil
 	}
 
-	// Detect new and updated routers
 	for name, state := range currentMap {
 		prev, exists := p.routerCache[name]
 		if !exists {
-			// New router
 			p.logger.Info("New router detected: %s", name)
 			p.processRouterAdd(state)
 		} else if !routerStatesEqual(prev, state) {
-			// Updated router
 			p.logger.Info("Router updated: %s", name)
 			p.processRouterUpdate(state)
 		}
 	}
 
-	// Detect removed routers
 	for name := range p.routerCache {
 		if _, exists := currentMap[name]; !exists {
 			p.logger.Info("Router removed: %s", name)
@@ -967,14 +902,11 @@ func (p *TraefikProvider) pollRouters() error {
 		}
 	}
 
-	// Update cache
 	p.routerCache = currentMap
 	return nil
 }
 
-// processRouterAdd processes a router add event and triggers DNS actions
 func (t *TraefikProvider) processRouterAdd(state domain.RouterState) {
-	// Create batch processor for efficient sync handling
 	batchProcessor := domain.NewBatchProcessor(t.logPrefix, t.outputWriter, t.outputSyncer)
 
 	hostnames := util.ExtractHostsFromRule(state.Rule)
@@ -990,17 +922,14 @@ func (t *TraefikProvider) processRouterAdd(state domain.RouterState) {
 		}
 	}
 
-	// Finalize the batch - this will sync output files only if there were changes
 	batchProcessor.FinalizeBatch()
 }
 
 func (t *TraefikProvider) processRouterUpdate(state domain.RouterState) {
-	// For updates, use the same logic as add
 	t.processRouterAdd(state)
 }
 
 func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
-	// Create batch processor for efficient sync handling
 	batchProcessor := domain.NewBatchProcessor(t.logPrefix, t.outputWriter, t.outputSyncer)
 
 	hostnames := util.ExtractHostsFromRule(state.Rule)
@@ -1016,16 +945,13 @@ func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
 		}
 	}
 
-	// Finalize the batch - this will sync output files only if there were changes
 	batchProcessor.FinalizeBatch()
 }
 
-// extractHostsFromRule extracts hostnames from Traefik router rules
 func extractHostsFromRule(rule string) []string {
 	log.NewScopedLogger("", "").With("provider", "traefik").Trace("Extracting hosts from rule: '%s'", rule)
 	var hostnames []string
 
-	// Helper to parse host args (handles single or multiple, with/without quotes)
 	parseHosts := func(arg string) []string {
 		var hosts []string
 		for _, h := range strings.Split(arg, ",") {
@@ -1038,19 +964,16 @@ func extractHostsFromRule(rule string) []string {
 		return hosts
 	}
 
-	// Host(...)
 	for _, match := range hostRuleRegex.FindAllStringSubmatch(rule, -1) {
 		if len(match) > 1 {
 			hostnames = append(hostnames, parseHosts(match[1])...)
 		}
 	}
-	// HostSNI(...)
 	for _, match := range hostSniRuleRegex.FindAllStringSubmatch(rule, -1) {
 		if len(match) > 1 {
 			hostnames = append(hostnames, parseHosts(match[1])...)
 		}
 	}
-	// HostRegexp(...)
 	for _, match := range hostRegexpRuleRegex.FindAllStringSubmatch(rule, -1) {
 		if len(match) > 1 {
 			hostnames = append(hostnames, parseHosts(match[1])...)
@@ -1060,7 +983,6 @@ func extractHostsFromRule(rule string) []string {
 	return hostnames
 }
 
-// getDomainFromHostname extracts the domain from a FQDN
 func getDomainFromHostname(hostname string) string {
 	parts := strings.Split(hostname, ".")
 	if len(parts) < 2 {

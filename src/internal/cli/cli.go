@@ -10,7 +10,6 @@ import (
 	"flag"
 )
 
-// Options holds all command line options
 type Options struct {
 	ConfigFile    string
 	DryRun        bool
@@ -21,7 +20,6 @@ type Options struct {
 	ShowVersion   bool
 }
 
-// ParseFlags parses command line flags and returns the options
 func ParseFlags() *Options {
 	opts := &Options{}
 	flag.StringVar(&opts.ConfigFile, "config-file", "", "Path to configuration file")
@@ -35,7 +33,6 @@ func ParseFlags() *Options {
 	return opts
 }
 
-// ApplyOverrides applies command line options to the configuration system
 func ApplyOverrides(opts *Options) {
 	if opts.LogLevel != "" {
 		config.SetEnvVar("LOG_LEVEL", opts.LogLevel)
@@ -54,7 +51,6 @@ func ApplyOverrides(opts *Options) {
 	}
 }
 
-// RegisterConfigFlags registers -config and -config-file flags for config files
 func RegisterConfigFlags(fs *flag.FlagSet, configs *config.StringSliceFlag) {
 	fs.Var(configs, "config", "Path to config file (can be specified multiple times)")
 	fs.Var(configs, "config-file", "Path to config file (can be specified multiple times)")

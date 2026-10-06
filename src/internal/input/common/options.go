@@ -42,16 +42,12 @@ func ParsePollProviderOptions(options map[string]string, defaults PollProviderOp
 	return parsed
 }
 
-// GetOptionOrEnv gets a configuration option or falls back to environment variable
-// Only supports global environment variables: DRY_RUN, CONFIG_FILE, LOG_LEVEL, LOG_TIMESTAMPS
-// Also supports file:// and env:// references for reading values from files or environment variables
 func GetOptionOrEnv(options map[string]string, key, envKey, defaultValue string) string {
 	var value string
 
 	if val, exists := options[key]; exists && val != "" {
 		value = val
 	} else {
-		// Only allow specific global environment variables
 		allowedEnvVars := map[string]bool{
 			"DRY_RUN":        true,
 			"LOG_LEVEL":      true,
@@ -65,12 +61,10 @@ func GetOptionOrEnv(options map[string]string, key, envKey, defaultValue string)
 		}
 	}
 
-	// If still empty, use default
 	if value == "" {
 		value = defaultValue
 	}
 
-	// Support file:// and env:// references - use ReadFileValue for this functionality
 	value = ReadFileValue(value)
 
 	return value

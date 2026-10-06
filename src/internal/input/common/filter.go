@@ -14,17 +14,14 @@ import (
 	"strings"
 )
 
-// FilterType represents the type of filter to apply
 type FilterType string
 
-// Filter operation types
 const (
 	FilterOperationAND = "AND"
 	FilterOperationOR  = "OR"
 	FilterOperationNOT = "NOT"
 )
 
-// Generic filter types (extend as needed for other providers)
 const (
 	FilterTypeNone       FilterType = "none"
 	FilterTypeLabel      FilterType = "label"
@@ -43,8 +40,6 @@ const (
 	FilterTypeUser       FilterType = "user"
 )
 
-// Filter defines a generic filter
-// (can be used for containers, routers, etc.)
 type Filter struct {
 	Type       FilterType        // Type of filter
 	Value      string            // Filter value for simple filters
@@ -53,7 +48,6 @@ type Filter struct {
 	Conditions []FilterCondition // Filter conditions
 }
 
-// FilterCondition represents individual filter criteria in the modern format
 type FilterCondition struct {
 	Key   string `yaml:"key" mapstructure:"key"`
 	Value string `yaml:"value" mapstructure:"value"`
@@ -70,19 +64,14 @@ func DefaultFilterConfig() FilterConfig {
 	}
 }
 
-// NewFilterFromStructuredOptions creates a FilterConfig from structured options
-// This supports the new format where options contain a 'filter' array
 func NewFilterFromStructuredOptions(options map[string]interface{}, logger *log.ScopedLogger) (FilterConfig, error) {
 	logger.Debug("NewFilterFromStructuredOptions called with: %+v", options)
 
-	// Check for new structured filter format
 	if filterInterface, exists := options["filter"]; exists {
 		logger.Debug("Found filter interface: %+v (type: %T)", filterInterface, filterInterface)
 
-		// Handle JSON string case - which is what we're getting
 		if filterStr, ok := filterInterface.(string); ok {
 
-			// Parse the JSON string into []interface{}
 			var filterArray []interface{}
 			if err := json.Unmarshal([]byte(filterStr), &filterArray); err != nil {
 				logger.Error("Failed to parse filter JSON string: %v", err)
@@ -111,7 +100,6 @@ func NewFilterFromStructuredOptions(options map[string]interface{}, logger *log.
 			}
 		}
 
-		// Handle []interface{} case - original structured case
 		if filterArray, ok := filterInterface.([]interface{}); ok {
 			logger.Debug("Filter is []interface{} with %d elements", len(filterArray))
 
@@ -141,20 +129,10 @@ func NewFilterFromStructuredOptions(options map[string]interface{}, logger *log.
 		}
 	}
 
-	// No filter configuration found
 	logger.Debug("No filter configuration found, returning default")
 	return DefaultFilterConfig(), nil
 }
 
-// ParseFilterFromYAML parses the filter configuration format
-// filter:
-//   - type: label
-//     conditions:
-//   - key: traefik.proxy.visibility
-//     value: internal
-//   - key: another.key
-//     value: another_value
-//     logic: or
 func ParseFilterFromYAML(filterConfigs []map[string]interface{}, logger *log.ScopedLogger) (FilterConfig, error) {
 	logger.Debug("ParseFilterFromYAML called with %d filter configs: %+v", len(filterConfigs), filterConfigs)
 
@@ -168,7 +146,6 @@ func ParseFilterFromYAML(filterConfigs []map[string]interface{}, logger *log.Sco
 			Negate:    false,
 		}
 
-		// Parse type
 		if filterType, ok := filterMap["type"].(string); ok {
 			filter.Type = FilterType(filterType)
 			logger.Debug("Filter %d type set to: %s", i, filterType)
@@ -177,19 +154,16 @@ func ParseFilterFromYAML(filterConfigs []map[string]interface{}, logger *log.Sco
 			return config, fmt.Errorf("filter type is required")
 		}
 
-		// Parse operation (optional, defaults to AND)
 		if operation, ok := filterMap["operation"].(string); ok {
 			filter.Operation = strings.ToUpper(operation)
 			logger.Debug("Filter %d operation set to: %s", i, filter.Operation)
 		}
 
-		// Parse negate (optional, defaults to false)
 		if negate, ok := filterMap["negate"].(bool); ok {
 			filter.Negate = negate
 			logger.Debug("Filter %d negate set to: %t", i, negate)
 		}
 
-		// Parse conditions array (new format)
 		if conditionsInterface, ok := filterMap["conditions"]; ok {
 			logger.Debug("Filter %d has conditions: %+v (type: %T)", i, conditionsInterface, conditionsInterface)
 
@@ -256,14 +230,12 @@ func ParseFilterFromYAML(filterConfigs []map[string]interface{}, logger *log.Sco
 	return config, nil
 }
 
-// Generic multi-filter evaluation logic (AND/OR/NOT/Negate)
 func (fc FilterConfig) Evaluate(entry any, matchFunc func(Filter, any) bool) bool {
 	if len(fc.Filters) == 0 || (len(fc.Filters) == 1 && fc.Filters[0].Type == FilterTypeNone) {
 		return true
 	}
 	var result bool
 	for i, filter := range fc.Filters {
-		// Skip filters with no type set or type "none"
 		if filter.Type == FilterTypeNone || filter.Type == "" {
 			continue
 		}
@@ -290,7 +262,6 @@ func (fc FilterConfig) Evaluate(entry any, matchFunc func(Filter, any) bool) boo
 	return result
 }
 
-// Generic helpers for wildcard/regex matching
 func WildcardMatch(pattern, value string) bool {
 	matched, err := filepath.Match(pattern, value)
 	if err != nil {
@@ -307,11 +278,6 @@ func RegexMatch(pattern, value string) bool {
 	return matched
 }
 
-// Provider-specific match functions (to be passed to Evaluate)
-// e.g., for Docker: func matchDockerFilter(filter Filter, entry any) bool { ... }
-// e.g., for Traefik: func matchTraefikFilter(filter Filter, entry any) bool { ... }
-
-// FilterEntries applies a filter function to a slice of entries and returns the filtered result.
 func FilterEntries[T any](entries []T, filterFunc func(T) bool) []T {
 	var filtered []T
 	for _, entry := range entries {
@@ -322,17 +288,14 @@ func FilterEntries[T any](entries []T, filterFunc func(T) bool) []T {
 	return filtered
 }
 
-// FilterByHostname returns only entries matching the given hostname
 func FilterByHostname[T interface{ GetHostname() string }](entries []T, hostname string) []T {
 	return FilterEntries(entries, func(e T) bool { return e.GetHostname() == hostname })
 }
 
-// FilterByRecordType returns only entries matching the given record type
 func FilterByRecordType[T interface{ GetRecordType() string }](entries []T, recordType string) []T {
 	return FilterEntries(entries, func(e T) bool { return e.GetRecordType() == recordType })
 }
 
-// FilterByLabel returns only entries with a label key/value (for Docker/Traefik, if applicable)
 func FilterByLabel(entries []map[string]string, key, value string) []map[string]string {
 	var filtered []map[string]string
 	for _, entry := range entries {

@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-// Entry tracks presence metadata for a single DNS record.
 type Entry struct {
 	Domain    string    `json:"domain"`
 	Hostname  string    `json:"hostname"`
@@ -26,7 +25,6 @@ type Entry struct {
 	LastSeen  time.Time `json:"last_seen"`
 }
 
-// Tracker holds record presence state with debounced disk persistence.
 type Tracker struct {
 	mu         sync.RWMutex
 	dir        string
@@ -43,7 +41,6 @@ func key(domain, hostname, recordType string) string {
 	return domain + "\x00" + hostname + "\x00" + recordType
 }
 
-// NewTracker creates a tracker rooted at dir (created on save).
 func NewTracker(dir string, staleAfter time.Duration) *Tracker {
 	return &Tracker{
 		dir:        dir,
@@ -55,7 +52,6 @@ func NewTracker(dir string, staleAfter time.Duration) *Tracker {
 	}
 }
 
-// Load reads persisted state if present. Unknown/corrupt files log and start empty.
 func (t *Tracker) Load() {
 	data, err := os.ReadFile(t.path)
 	if err != nil {
@@ -81,7 +77,6 @@ func (t *Tracker) Load() {
 	t.logger.Debug("Loaded %d tracked records from %s", len(t.entries), t.path)
 }
 
-// Touch records confirmed presence of a record (poll hit, event, API upload).
 func (t *Tracker) Touch(domain, hostname, recordType, target, source, client string) {
 	if t == nil {
 		return
@@ -109,12 +104,10 @@ func (t *Tracker) Touch(domain, hostname, recordType, target, source, client str
 	t.dirty = true
 }
 
-// hostnameDomain keeps domain as given (FQDN assembly happens at call sites).
 func hostnameDomain(domain string) string {
 	return strings.TrimSuffix(domain, ".")
 }
 
-// Remove drops a record from tracking (it was deleted upstream).
 func (t *Tracker) Remove(domain, hostname, recordType string) {
 	if t == nil {
 		return
@@ -127,7 +120,6 @@ func (t *Tracker) Remove(domain, hostname, recordType string) {
 	}
 }
 
-// Stale returns entries unseen for longer than the threshold.
 func (t *Tracker) Stale() []*Entry {
 	if t == nil || t.staleAfter <= 0 {
 		return nil
@@ -144,7 +136,6 @@ func (t *Tracker) Stale() []*Entry {
 	return out
 }
 
-// Count returns the number of tracked records.
 func (t *Tracker) Count() int {
 	if t == nil {
 		return 0
@@ -154,7 +145,6 @@ func (t *Tracker) Count() int {
 	return len(t.entries)
 }
 
-// Save persists state atomically when dirty.
 func (t *Tracker) Save() {
 	if t == nil {
 		return
@@ -196,7 +186,6 @@ func (t *Tracker) Save() {
 	t.mu.Unlock()
 }
 
-// Start begins periodic flush and stale reporting.
 func (t *Tracker) Start(reportInterval time.Duration) {
 	if t == nil {
 		return
@@ -223,7 +212,6 @@ func (t *Tracker) Start(reportInterval time.Duration) {
 	}()
 }
 
-// Stop flushes and halts background work.
 func (t *Tracker) Stop() {
 	if t == nil {
 		return
@@ -247,7 +235,6 @@ func (t *Tracker) reportStale() {
 	}
 }
 
-// Default is the process-wide tracker.
 var Default *Tracker
 
 func Init(dir string, staleAfter time.Duration) {

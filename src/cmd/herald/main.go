@@ -28,25 +28,18 @@ import (
 	"time"
 )
 
-// Version information
 var (
-	// Version is the current version of the application
 	Version = "development"
 
-	// BuildTime is when the application was built
 	BuildTime = "unknown"
 
-	// buildChannel is the release channel (auto, edge, beta, stable)
 	buildChannel = "auto"
 
-	// buildCommit is the short git commit the binary was built from
 	buildCommit = "unknown"
 
-	// Force package inclusion to register providers
 	_ = providers.PowerDNSProviderName
 )
 
-// String returns a string representation of the version information
 func versionString(showBuild bool) string {
 	if showBuild {
 		return fmt.Sprintf("%s-%s-%s (built: %s)", Version, buildChannel, buildCommit, BuildTime)
@@ -73,24 +66,19 @@ var (
 )
 
 func main() {
-	// Hide the -c flag from help output
 	flag.Lookup("c").Usage = ""
 
 	flag.Parse()
 
-	// Detect if running under systemd as early as possible
 	system, user := IsRunningUnderSystemd()
 
-	// Set default log_timestamps based on systemd detection
 	defaultLogTimestamps := true
 	if system {
 		defaultLogTimestamps = false
 	}
 
-	// Initialize logger early to avoid singleton lock-in at wrong level
 	log.Initialize("info", true)
 
-	// Show version if requested
 	if *showVersion {
 		fmt.Println(versionString(true))
 		os.Exit(0)
@@ -114,7 +102,6 @@ func main() {
 
 	log.Trace("Built: %s", BuildTime)
 
-	// Determine the config file path
 	configFile := "herald.yml"
 	if *configFilePath != "" {
 		configFile = *configFilePath
@@ -122,7 +109,6 @@ func main() {
 		configFile = *configFilePathC
 	}
 
-	// Find the config file using pkg/config logic
 	configFilePath, err := config.FindConfigFile(configFile)
 	if err != nil {
 		fmt.Printf("[config] Failed to find configuration file: %v\n", err)
@@ -135,8 +121,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// CONFIGURE LOGGER FIRST - before any other initialization
-	// Only override log_timestamps if explicitly set by config/env/flag
 	logTimestamps := defaultLogTimestamps
 	if *logLevelFlag != "" {
 		cfg.General.LogLevel = *logLevelFlag
@@ -145,7 +129,6 @@ func main() {
 	}
 	cfg.General.DryRun = *dryRunFlag || strings.ToLower(os.Getenv("DRY_RUN")) == "true"
 
-	// Check for explicit log_timestamps in env or config
 	if val := os.Getenv("LOG_TIMESTAMPS"); val != "" {
 		valLower := strings.ToLower(val)
 		if valLower == "false" || valLower == "0" || valLower == "no" {
@@ -154,33 +137,27 @@ func main() {
 			logTimestamps = true
 		}
 	} else if config.FieldSetInConfigFile(configFilePath, "log_timestamps") {
-		// Use config file setting
 		logTimestamps = cfg.General.LogTimestamps
 	}
 
-	// Force timestamps on for verbose logging if not explicitly disabled in config
 	if cfg.General.LogLevel == "verbose" && cfg.General.LogTimestamps == false {
 		log.Debug("[config] Verbose mode detected but timestamps disabled in config - consider enabling log_timestamps: true")
 	}
 
 	cfg.General.LogTimestamps = logTimestamps
 
-	// Apply final logger configuration FIRST
 	log.GetLogger().SetLevel(cfg.General.LogLevel)
 	log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
 
 	log.Info("[config] Using config file: %s", configFilePath)
 	log.Debug("[config] Logger configured with level: %s, timestamps: %t", cfg.General.LogLevel, cfg.General.LogTimestamps)
 
-	// NOW set the global config and continue with initialization
 	config.GlobalConfig = *cfg
 
-	// Set up the global config getter for output manager to avoid import cycles
 	output.SetGlobalConfigGetter(func() output.GlobalConfigForOutput {
 		return &config.GlobalConfig
 	})
 
-	// Initialize operational state tracking (presence/last-seen).
 	stateDir := cfg.ResolveStateDir()
 	var staleAfter time.Duration
 	if cfg.StaleAfter != "" {
@@ -195,14 +172,11 @@ func main() {
 		log.Info("[state] Tracking record presence in %s", stateDir)
 	}
 
-	// NOW initialize the domain system with validation (after logger is properly configured)
-	// Convert config types for domain validation
 	domainsInterface := make(map[string]interface{})
 	for k, v := range cfg.Domains {
 		domainMap := make(map[string]interface{})
 		domainMap["name"] = v.Name
 
-		// Handle new profiles structure first
 		if v.Profiles != nil && (len(v.Profiles.Inputs) > 0 || len(v.Profiles.Outputs) > 0) {
 			profilesMap := make(map[string]interface{})
 			if len(v.Profiles.Inputs) > 0 {
@@ -214,14 +188,12 @@ func main() {
 			domainMap["profiles"] = profilesMap
 		}
 
-		// Handle profiles structure
 		inputProfiles := v.GetInputProfiles()
 		outputs := v.GetOutputs()
 
 		domainMap["input_profiles"] = inputProfiles
 		domainMap["output_profiles"] = outputs
 
-		// Add record configuration
 		if v.Record.Type != "" || v.Record.TTL != 0 || v.Record.Target != "" {
 			recordMap := make(map[string]interface{})
 			recordMap["type"] = v.Record.Type
@@ -246,12 +218,10 @@ func main() {
 		outputsInterface[k] = v
 	}
 
-	// Initialize the domain system with validation
 	if err := domain.InitializeDomainSystem(domainsInterface, inputsInterface, outputsInterface, map[string]interface{}{}); err != nil {
 		log.Fatal("[domain] Failed to initialize domain system: %v", err)
 	}
 
-	// Start API server if enabled
 	if cfg.API != nil && cfg.API.Enabled {
 		apiLogger := log.NewScopedLogger("[api]", cfg.API.LogLevel)
 		apiLogger.Info("Starting API server")
@@ -260,8 +230,6 @@ func main() {
 		}
 	}
 
-	// Initialize output manager - now domain-driven, not general config driven
-	// Extract unique output profiles from all domains
 	outputProfiles := make(map[string]bool)
 	for _, domainConfig := range domain.GlobalDomainManager.GetAllDomains() {
 		for _, outputProfile := range domainConfig.GetOutputs() {
@@ -269,7 +237,6 @@ func main() {
 		}
 	}
 
-	// Convert to slice
 	activeOutputProfiles := make([]string, 0, len(outputProfiles))
 	for profile := range outputProfiles {
 		activeOutputProfiles = append(activeOutputProfiles, profile)
@@ -287,15 +254,11 @@ func main() {
 		log.Fatal("[output] Failed to initialize output manager: %v", err)
 	}
 
-	// Ensure timestamps stay enabled after output manager initialization
 	log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
 
-	// Ensure timestamps stay enabled after provider registration
 	log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
 
-	// Input provider logic - now domain-driven, not general config driven
 	if !(cfg.API != nil && cfg.API.Enabled && len(cfg.Inputs) == 0) {
-		// Extract unique input providers from all domains
 		inputProviders := make(map[string]bool)
 		for _, domainConfig := range domain.GlobalDomainManager.GetAllDomains() {
 			for _, inputProvider := range domainConfig.GetInputProfiles() {
@@ -303,13 +266,11 @@ func main() {
 			}
 		}
 
-		// Convert to slice
 		activeInputProfiles := make([]string, 0, len(inputProviders))
 		for provider := range inputProviders {
 			activeInputProfiles = append(activeInputProfiles, provider)
 		}
 
-		// Validate that all referenced input providers exist
 		if len(activeInputProfiles) == 0 {
 			log.Fatal("[input] No input providers specified in domain configurations")
 		}
@@ -321,7 +282,6 @@ func main() {
 		}
 
 		log.Debug("[input] Using input providers from domain configurations: %v", activeInputProfiles)
-		// Initialize input providers
 		inputProviderInstances := []input.Provider{}
 		for _, inputProviderName := range activeInputProfiles {
 			inputProviderConfig, ok := cfg.Inputs[inputProviderName]
@@ -336,29 +296,21 @@ func main() {
 
 			log.Verbose("[input] Initializing input provider: '%s'", inputProviderName)
 
-			// Create options map for the provider
 			providerOptions := inputProviderConfig.GetOptions(inputProviderName)
 
-			// For backward compatibility, add expose_containers directly
 			if inputProviderConfig.ExposeContainers {
 				providerOptions["expose_containers"] = "true"
 				log.Debug("[input] Adding expose_containers=true to provider options")
 			}
 
-			// Handle filter configuration properly for inputcommon
 			if filterConfig, exists := inputProviderConfig.Options["filter"]; exists {
 				log.Debug("[input] Found filter configuration for %s: %+v", inputProviderName, filterConfig)
-				// The filter should be passed as the original interface{} structure for inputcommon to parse
-				// Don't convert it to string
 			}
 
-			// Add or override with any additional options from the options map
 			for k, v := range inputProviderConfig.Options {
 				if strVal, ok := v.(string); ok {
 					providerOptions[k] = strVal
 				} else {
-					// For complex types like filters, convert to string representation
-					// But log what we're doing
 					if k == "filter" {
 						log.Debug("[input] Converting filter to string for provider %s: %+v", inputProviderName, v)
 					}
@@ -370,11 +322,9 @@ func main() {
 			log.Debug("[input] Provider %s raw config Options field: %+v", inputProviderName, inputProviderConfig.Options)
 			log.Debug("[input] Provider %s final options: %v", inputProviderName, providerOptions)
 
-			// Check if GetOptions is even being called and working
 			if filterOpt, exists := providerOptions["filter"]; exists {
 				log.Debug("[input] Filter found in final options: %s (type: %T)", filterOpt, filterOpt)
 
-				// Force JSON conversion for all filters
 				log.Debug("[input] Forcing JSON conversion for filter")
 				if filterRaw, exists := inputProviderConfig.Options["filter"]; exists {
 					if filterJSON, err := json.Marshal(filterRaw); err == nil {
@@ -386,7 +336,6 @@ func main() {
 				}
 			}
 
-			// Special debug for filter configuration
 			if filterStr, exists := providerOptions["filter"]; exists {
 				log.Debug("[input] Provider %s filter option (as string): %s", inputProviderName, filterStr)
 			}
@@ -397,11 +346,8 @@ func main() {
 
 			log.Trace("[input] Provider %s options: %v", inputProviderName, util.MaskSensitiveOptions(providerOptions))
 
-			// Special handling for providers with filter configuration
 			if _, hasFilter := inputProviderConfig.Options["filter"]; hasFilter {
 				log.Debug("[input] Provider %s has filter configuration, attempting to apply filters", inputProviderName)
-				// DON'T delete the filter - let it pass through to the provider
-				// delete(providerOptions, "filter")
 			}
 
 			inputProvider, err := input.NewInputProvider(inputProviderType, providerOptions, output.GetOutputManager(), output.GetOutputManager())
@@ -410,7 +356,6 @@ func main() {
 				log.Fatal("[input] Failed to initialize input provider '%s': %v", inputProviderName, err)
 			}
 
-			// Set domain configs on the provider if it supports it
 			if providerWithDomains, ok := inputProvider.(interface {
 				SetDomainConfigs(map[string]config.DomainConfig)
 			}); ok {
@@ -420,41 +365,33 @@ func main() {
 				log.Debug("[input] Provider '%s' does not support domain configs", inputProviderName)
 			}
 
-			// Post-creation filter configuration if needed
 			if filterConfig, hasFilter := inputProviderConfig.Options["filter"]; hasFilter {
 				log.Debug("[input] Attempting to configure filters for %s after creation: %+v", inputProviderName, filterConfig)
 			}
 
-			// For Docker providers, check if we need to set filters differently
 			if inputProviderType == "docker" {
-				// Try to access the raw filter configuration and apply it directly
 				if filterConfig, exists := inputProviderConfig.Options["filter"]; exists {
 					log.Debug("[input] Attempting to apply filter configuration for Docker provider %s: %+v", inputProviderName, filterConfig)
 				}
 			}
 
-			// Start polling
 			if err := inputProvider.StartPolling(); err != nil {
 				log.Fatal("[input] Failed to start polling with provider '%s': %v", inputProviderName, err)
 			}
 
 			inputProviderInstances = append(inputProviderInstances, inputProvider)
 
-			// Re-ensure timestamps after each input provider
 			log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
 		}
 
-		// Handle signals for graceful shutdown
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-		// Wait for signal
 		<-sigChan
 		fmt.Printf("\nShutting down Herald\n")
 
 		shutdownGracefully(inputProviderInstances)
 	} else {
-		// API-only mode: handle signals for graceful shutdown
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		<-sigChan
@@ -464,7 +401,6 @@ func main() {
 	}
 }
 
-// shutdownGracefully stops API listeners, flushes state, then stops inputs.
 func shutdownGracefully(instances []input.Provider) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

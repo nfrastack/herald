@@ -17,7 +17,6 @@ import (
 	"time"
 )
 
-// Log levels
 const (
 	LevelTrace   = "trace"
 	LevelDebug   = "debug"
@@ -36,7 +35,6 @@ const (
 	slogError   = slog.LevelError
 )
 
-// LogLevel represents the log level as an enum-like type
 type LogLevel int
 
 const (
@@ -49,7 +47,6 @@ const (
 	LogLevelNone                    // 6 - For invalid levels
 )
 
-// ParseLogLevel converts a string to LogLevel
 func ParseLogLevel(levelStr string) LogLevel {
 	switch strings.ToLower(levelStr) {
 	case LevelError:
@@ -88,7 +85,6 @@ func toSlogLevel(level LogLevel) slog.Level {
 	}
 }
 
-// ScopedLogger provides provider-specific logging with optional level override
 type ScopedLogger struct {
 	prefix string
 	level  *slog.LevelVar
@@ -97,7 +93,6 @@ type ScopedLogger struct {
 
 var globalLevel = new(slog.LevelVar)
 
-// NewScopedLogger creates a new scoped logger with an optional log level override
 func NewScopedLogger(prefix, logLevel string) *ScopedLogger {
 	if logLevel == "" {
 		return &ScopedLogger{prefix: prefix, level: globalLevel, logger: scopeLogger(prefix, globalLevel)}
@@ -119,7 +114,6 @@ func scopeLogger(prefix string, level *slog.LevelVar) *slog.Logger {
 	return logger
 }
 
-// With returns a child logger carrying structured fields.
 func (sl *ScopedLogger) With(keyvals ...interface{}) *ScopedLogger {
 	if sl == nil {
 		return NewScopedLogger("", "")
@@ -141,37 +135,30 @@ func (sl *ScopedLogger) log(level slog.Level, format string, args ...interface{}
 	sl.logger.Log(context.Background(), level, msg)
 }
 
-// Debug logs a debug message through the scoped logger
 func (sl *ScopedLogger) Debug(format string, args ...interface{}) {
 	sl.log(slogDebug, format, args...)
 }
 
-// Trace logs a trace message through the scoped logger
 func (sl *ScopedLogger) Trace(format string, args ...interface{}) {
 	sl.log(slogTrace, format, args...)
 }
 
-// Verbose logs a verbose message through the scoped logger
 func (sl *ScopedLogger) Verbose(format string, args ...interface{}) {
 	sl.log(slogVerbose, format, args...)
 }
 
-// Info logs an info message through the scoped logger
 func (sl *ScopedLogger) Info(format string, args ...interface{}) {
 	sl.log(slogInfo, format, args...)
 }
 
-// Warn logs a warning message through the scoped logger
 func (sl *ScopedLogger) Warn(format string, args ...interface{}) {
 	sl.log(slogWarn, format, args...)
 }
 
-// Error logs an error message through the scoped logger
 func (sl *ScopedLogger) Error(format string, args ...interface{}) {
 	sl.log(slogError, format, args...)
 }
 
-// shouldLog checks if a message should be logged based on the scoped logger's level
 func (sl *ScopedLogger) shouldLog(messageLevel LogLevel) bool {
 	if sl == nil {
 		return false
@@ -179,7 +166,6 @@ func (sl *ScopedLogger) shouldLog(messageLevel LogLevel) bool {
 	return sl.logger.Enabled(context.Background(), toSlogLevel(messageLevel))
 }
 
-// splitHandler routes records below Error to stdout and errors to stderr, preserving the historical stream split. An optional file receives both.
 type splitHandler struct {
 	out     slog.Handler
 	err     slog.Handler
@@ -206,7 +192,6 @@ func (h *splitHandler) WithGroup(name string) slog.Handler {
 	return &splitHandler{out: h.out.WithGroup(name), err: h.err.WithGroup(name), minErr: h.minErr}
 }
 
-// Logger provides logging functionality for the application
 type Logger struct {
 	mu             sync.Mutex
 	level          string
@@ -221,7 +206,6 @@ var (
 	once          sync.Once
 )
 
-// Initialize creates the default logger with the specified level and timestamp visibility
 func Initialize(level string, showTimestamps bool) {
 	once.Do(func() {
 		defaultLogger = NewLogger(level, showTimestamps)
@@ -236,7 +220,6 @@ func orDefault(level, fallback string) string {
 	return level
 }
 
-// GetLogger returns the default logger instance
 func GetLogger() *Logger {
 	once.Do(func() {
 		defaultLogger = NewLogger(os.Getenv("LOG_LEVEL"), true)
@@ -251,7 +234,6 @@ func (l *Logger) slogLogger() *slog.Logger {
 	return l.logger
 }
 
-// NewLogger creates a new logger with the specified level and timestamp visibility
 func NewLogger(level string, showTimestamps bool) *Logger {
 	parsed := ParseLogLevel(level)
 	if parsed == LogLevelNone {
@@ -297,7 +279,6 @@ func NewLogger(level string, showTimestamps bool) *Logger {
 	}
 }
 
-// SetLevel sets the logger level
 func (l *Logger) SetLevel(level string) {
 	parsed := ParseLogLevel(level)
 	if parsed == LogLevelNone {
@@ -309,21 +290,18 @@ func (l *Logger) SetLevel(level string) {
 	globalLevel.Set(toSlogLevel(parsed))
 }
 
-// GetLevel returns the current logger level
 func (l *Logger) GetLevel() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.level
 }
 
-// SetShowTimestamps sets the visibility of timestamps in log messages
 func (l *Logger) SetShowTimestamps(show bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.showTimestamps = show
 }
 
-// SetFormat switches output between text and json. Unknown values keep text.
 func (l *Logger) SetFormat(format string) {
 	format = strings.ToLower(format)
 	if format != "json" {
@@ -334,43 +312,35 @@ func (l *Logger) SetFormat(format string) {
 	l.format = format
 }
 
-// Debug logs a debug message with optional formatting
 func (l *Logger) Debug(format string, args ...interface{}) {
 	l.slogLogger().Log(context.Background(), slogDebug, sprintf(format, args...))
 }
 
-// Verbose logs a verbose message with optional formatting
 func (l *Logger) Verbose(format string, args ...interface{}) {
 	l.slogLogger().Log(context.Background(), slogVerbose, sprintf(format, args...))
 }
 
-// Info logs an info message with optional formatting
 func (l *Logger) Info(format string, args ...interface{}) {
 	l.slogLogger().Log(context.Background(), slogInfo, sprintf(format, args...))
 }
 
-// Warn logs a warning message with optional formatting
 func (l *Logger) Warn(format string, args ...interface{}) {
 	l.slogLogger().Log(context.Background(), slogWarn, sprintf(format, args...))
 }
 
-// Error logs an error message with optional formatting
 func (l *Logger) Error(format string, args ...interface{}) {
 	l.slogLogger().Log(context.Background(), slogError, sprintf(format, args...))
 }
 
-// Fatal logs an error message and exits the program
 func (l *Logger) Fatal(format string, args ...interface{}) {
 	l.slogLogger().Log(context.Background(), slogError, sprintf(format, args...))
 	os.Exit(1)
 }
 
-// Trace logs a trace message with optional formatting
 func (l *Logger) Trace(format string, args ...interface{}) {
 	l.slogLogger().Log(context.Background(), slogTrace, sprintf(format, args...))
 }
 
-// TraceFunction logs function entry and exit with timing
 func (l *Logger) TraceFunction(funcName string) func() {
 	start := time.Now()
 	l.Trace("ENTER: %s", funcName)
@@ -387,49 +357,38 @@ func sprintf(format string, args ...interface{}) string {
 	return fmt.Sprintf(format, args...)
 }
 
-// GetTimestampsEnabled returns whether timestamps are enabled for logging
 func GetTimestampsEnabled() bool {
 	return GetLogger().showTimestamps
 }
 
-// Helper functions that use the default logger
-
-// Debug logs a debug message with the default logger
 func Debug(format string, args ...interface{}) {
 	GetLogger().Debug(format, args...)
 }
 
-// Verbose logs a verbose message with the default logger
 func Verbose(format string, args ...interface{}) {
 	GetLogger().Verbose(format, args...)
 }
 
-// Info logs an info message with the default logger
 func Info(format string, args ...interface{}) {
 	GetLogger().Info(format, args...)
 }
 
-// Warn logs a warning message with the default logger
 func Warn(format string, args ...interface{}) {
 	GetLogger().Warn(format, args...)
 }
 
-// Error logs an error message with the default logger
 func Error(format string, args ...interface{}) {
 	GetLogger().Error(format, args...)
 }
 
-// Fatal logs an error message with the default logger and exits
 func Fatal(format string, args ...interface{}) {
 	GetLogger().Fatal(format, args...)
 }
 
-// Trace logs a trace message with the default logger
 func Trace(format string, args ...interface{}) {
 	GetLogger().Trace(format, args...)
 }
 
-// DumpState logs the current state of an object for debugging
 func DumpState(prefix string, obj interface{}) {
 	details := fmt.Sprintf("%+v", obj)
 	if len(details) > 1000 {
@@ -446,16 +405,13 @@ func DumpState(prefix string, obj interface{}) {
 	}
 }
 
-// TracePath logs the execution path with caller information
 func TracePath(path string, args ...interface{}) {
 	message := sprintf(path, args...)
 	now := time.Now().Format("15:04:05.000")
 
-	// Get caller information
 	_, file, line, ok := runtime.Caller(1)
 	callerInfo := "unknown"
 	if ok {
-		// Extract just the filename, not the full path
 		for i := len(file) - 1; i >= 0; i-- {
 			if file[i] == '/' {
 				file = file[i+1:]

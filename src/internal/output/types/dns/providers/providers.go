@@ -9,7 +9,6 @@ import (
 	"sync"
 )
 
-// Provider defines the interface that all DNS providers must implement
 type Provider interface {
 	CreateOrUpdateRecord(domain, recordType, hostname, target string, ttl int, proxied bool, overwrite bool) error
 	CreateOrUpdateRecordWithSource(domain, recordType, hostname, target string, ttl int, proxied bool, comment, source string, overwrite bool) error

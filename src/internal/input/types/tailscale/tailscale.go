@@ -41,7 +41,6 @@ type DNSEntry struct {
 	SourceName             string `json:"source_name"`
 }
 
-// TailscaleDevice represents a device in a Tailscale network
 type TailscaleDevice struct {
 	ID                string    `json:"id"`
 	Name              string    `json:"name"`
@@ -65,7 +64,6 @@ type TailscaleDevice struct {
 	UpdateAvailable   bool      `json:"updateAvailable"`
 }
 
-// HeadscaleDevice represents a device in a Headscale network
 type HeadscaleDevice struct {
 	ID                   uint64     `json:"id"`
 	MachineKey           string     `json:"machineKey"`
@@ -87,13 +85,11 @@ type HeadscaleDevice struct {
 	ForcedTags           []string   `json:"forcedTags"`
 }
 
-// User represents a Headscale user
 type User struct {
 	ID   uint64 `json:"id"`
 	Name string `json:"name"`
 }
 
-// PreAuthKey represents a Headscale pre-auth key
 type PreAuthKey struct {
 	Key        string    `json:"key"`
 	ID         uint64    `json:"id"`
@@ -103,17 +99,14 @@ type PreAuthKey struct {
 	ACLTags    []string  `json:"aclTags"`
 }
 
-// TailscaleAPIResponse represents the response from the Tailscale API
 type TailscaleAPIResponse struct {
 	Devices []TailscaleDevice `json:"devices"`
 }
 
-// HeadscaleAPIResponse represents the response from the Headscale API
 type HeadscaleAPIResponse struct {
 	Machines []HeadscaleDevice `json:"machines"`
 }
 
-// TailscaleProvider implements the polling interface for Tailscale networks
 type TailscaleProvider struct {
 	apiURL             string
 	apiKey             string
@@ -136,7 +129,6 @@ type TailscaleProvider struct {
 	outputWriter       domain.OutputWriter // Injected dependency
 	outputSyncer       domain.OutputSyncer // Injected dependency
 
-	// Token management
 	tokenMutex   sync.RWMutex
 	accessToken  string
 	tokenExpiry  time.Time
@@ -153,7 +145,6 @@ type TailscaleDevicesResponse struct {
 	Devices []TailscaleDevice `json:"devices"`
 }
 
-// TokenResponse represents the OAuth token response from Tailscale
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	TokenType    string `json:"token_type"`
@@ -161,19 +152,16 @@ type TokenResponse struct {
 	RefreshToken string `json:"refresh_token,omitempty"`
 }
 
-// refreshAccessToken obtains a new access token using OAuth client credentials
 func (t *TailscaleProvider) refreshAccessToken() error {
 	if t.clientID == "" || t.clientSecret == "" {
 		return fmt.Errorf("OAuth client credentials not configured")
 	}
 
-	// Create HTTP client with TLS configuration
 	httpClient, err := t.tlsConfig.CreateHTTPClient()
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 
-	// Prepare OAuth request
 	tokenURL := "https://api.tailscale.com/api/v2/oauth/token"
 	data := neturl.Values{
 		"grant_type":    {"client_credentials"},
@@ -206,14 +194,12 @@ func (t *TailscaleProvider) refreshAccessToken() error {
 		return fmt.Errorf("failed to decode token response: %w", err)
 	}
 
-	// Update token information with proper locking
 	t.tokenMutex.Lock()
 	defer t.tokenMutex.Unlock()
 
 	t.accessToken = tokenResp.AccessToken
 	t.refreshToken = tokenResp.RefreshToken
 
-	// Calculate expiry time (subtract 60 seconds for safety margin)
 	expiryDuration := time.Duration(tokenResp.ExpiresIn-60) * time.Second
 	t.tokenExpiry = time.Now().Add(expiryDuration)
 
@@ -221,22 +207,18 @@ func (t *TailscaleProvider) refreshAccessToken() error {
 	return nil
 }
 
-// getValidAccessToken returns a valid access token, refreshing if necessary
 func (t *TailscaleProvider) getValidAccessToken() (string, error) {
 	t.tokenMutex.RLock()
 
-	// Check if token needs refresh (within 5 minutes of expiry)
 	needsRefresh := time.Now().Add(5 * time.Minute).After(t.tokenExpiry)
 	currentToken := t.accessToken
 
 	t.tokenMutex.RUnlock()
 
-	// Refresh token if needed
 	if needsRefresh && t.clientID != "" && t.clientSecret != "" {
 		t.logger.Debug("%s Access token expiring soon, refreshing...", t.logPrefix)
 		if err := t.refreshAccessToken(); err != nil {
 			t.logger.Warn("%s Failed to refresh access token: %v", t.logPrefix, err)
-			// Continue with current token if refresh fails
 			return currentToken, nil
 		}
 
@@ -263,26 +245,21 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	logPrefix := common.BuildLogPrefix("tailscale", parsed.Name)
 	profileName := parsed.Name
 
-	// Parse TLS configuration
 	tlsConfig := common.ParseTLSConfigFromOptions(options)
 	if err := tlsConfig.ValidateConfig(); err != nil {
 		return nil, fmt.Errorf("%s invalid TLS configuration: %w", logPrefix, err)
 	}
 
-	// Handle different authentication methods with file:// and env:// support
 	var apiKey string
 	var clientID string
 	var clientSecret string
 
-	// Method 1: Direct API key (traditional method) - supports file:// and env://
 	apiKey = common.ReadFileValue(options["api_key"])
 
-	// Method 2: OAuth client credentials (new method) - supports file:// and env://
 	if apiKey == "" {
 		clientID = common.ReadFileValue(options["api_auth_id"])
 		clientSecret = common.ReadFileValue(options["api_auth_token"])
 
-		// Also check for client_id/client_secret aliases
 		if clientID == "" {
 			clientID = common.ReadFileValue(options["client_id"])
 		}
@@ -291,13 +268,11 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		}
 	}
 
-	// Method 3: Legacy auth token exchange (for backwards compatibility)
 	if apiKey == "" && clientID == "" && clientSecret == "" {
 		authToken := options["api_auth_token"]
 		authID := options["api_auth_id"]
 
 		if authToken != "" && authID != "" {
-			// Exchange auth token for access token using the old method
 			exchangedKey, err := exchangeAuthToken(authToken, authID, logPrefix)
 			if err != nil {
 				return nil, fmt.Errorf("%s failed to exchange auth token: %v", logPrefix, err)
@@ -306,12 +281,10 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		}
 	}
 
-	// Validate authentication
 	if apiKey == "" && (clientID == "" || clientSecret == "") {
 		return nil, fmt.Errorf("%s authentication required: provide either api_key OR (client_id + client_secret)", logPrefix)
 	}
 
-	// Support both network and tailnet for flexibility - supports file:// and env://
 	tailnet := options["tailnet"]
 	if tailnet == "" {
 		tailnet = options["network"]
@@ -320,13 +293,11 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	domain := options["domain"]
 	additionalDomains := common.ParseDomainList(common.ReadFileValue(options["additional_domains"]))
 
-	// Hostname format options: "simple", "tailscale", "full"
 	hostnameFormat := options["hostname_format"]
 	if hostnameFormat == "" {
 		hostnameFormat = "simple"
 	}
 
-	// Auto-detect API URL - default to Tailscale, assume Headscale if custom URL
 	apiURL := options["api_url"]
 	if apiURL == "" {
 		apiURL = "https://api.tailscale.com/api/v2"
@@ -339,19 +310,16 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		return nil, fmt.Errorf("%s domain is required", logPrefix)
 	}
 
-	// If no network/tailnet specified, we'll use "-" which is Tailscale's shorthand for default tailnet
 	if tailnet == "" {
 		tailnet = "-"
 		log.Debug("%s Using default tailnet", logPrefix)
 	}
 
-	// Convert string options to structured options for filtering
 	structuredOptions := make(map[string]interface{})
 	for key, value := range options {
 		structuredOptions[key] = value
 	}
 
-	// Parse filter configuration using structured format
 	filterLogPrefix := logPrefix + "/filter"
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
@@ -360,7 +328,6 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		filterConfig = common.DefaultFilterConfig()
 	}
 
-	// Add default online=true filter if no filters are configured
 	if len(filterConfig.Filters) == 0 || (len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone) {
 		log.Debug("%s Adding default online=true filter", logPrefix)
 		filterConfig.Filters = []common.Filter{
@@ -379,14 +346,12 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	ctx, cancel := context.WithCancel(context.Background())
 	logLevel := options["log_level"]
 
-	// Create scoped logger
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
 	if logLevel != "" {
 		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
 	}
 
-	// Log filter configuration
 	if len(filterConfig.Filters) > 1 || (len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type != common.FilterTypeNone) {
 		log.Debug("%s Filter configuration: %d filters", logPrefix, len(filterConfig.Filters))
 		for i, filter := range filterConfig.Filters {
@@ -422,14 +387,11 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		clientSecret:       clientSecret,
 	}
 
-	// Set initial token state
 	if apiKey != "" {
-		// Static API key - set far future expiry
 		provider.accessToken = apiKey
 		provider.tokenExpiry = time.Now().Add(365 * 24 * time.Hour)
 		log.Debug("%s Using static API key", logPrefix)
 	} else {
-		// OAuth credentials - will get token on first API call
 		log.Debug("%s Using OAuth client credentials (client_id: %s)", logPrefix, clientID)
 	}
 
@@ -459,17 +421,14 @@ func (p *TailscaleProvider) IsRunning() bool {
 	return p.running
 }
 
-// logMemberAdded logs when a member is added with appropriate message based on filter type
 func (p *TailscaleProvider) logMemberAdded(fqdn string) {
 	p.logger.With("device", fqdn).Info("Device added")
 }
 
-// logMemberRemoved logs when a member is removed with appropriate message based on filter type
 func (p *TailscaleProvider) logMemberRemoved(fqdn string) {
 	p.logger.With("device", fqdn).Info("Device removed")
 }
 
-// logMemberChanged logs when a member's IP changes
 func (p *TailscaleProvider) logMemberChanged(fqdn, oldIP, newIP string) {
 	p.logger.With("device", fqdn).Info("Device changed: %s -> %s", oldIP, newIP)
 }
@@ -485,7 +444,6 @@ func (p *TailscaleProvider) GetDNSEntries() ([]DNSEntry, error) {
 
 	var entries []DNSEntry
 	for _, device := range devices {
-		// Apply filters
 		if !EvaluateTailscaleFilters(p.filterConfig, device) {
 			continue
 		}
@@ -502,7 +460,6 @@ func (p *TailscaleProvider) GetDNSEntries() ([]DNSEntry, error) {
 		}
 
 		for _, ip := range device.Addresses {
-			// Clean up IP address - remove CIDR notation if present
 			cleanIP := ip
 			if strings.Contains(ip, "/") {
 				cleanIP = strings.Split(ip, "/")[0]
@@ -533,7 +490,6 @@ func (p *TailscaleProvider) GetDNSEntries() ([]DNSEntry, error) {
 }
 
 func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
-	// Get valid access token (will refresh if needed)
 	accessToken, err := p.getValidAccessToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get valid access token: %w", err)
@@ -544,7 +500,6 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 	p.logger.Trace("Fetching devices from URL: %s", url)
 	p.logger.Trace("Using tailnet: %s", p.tailnet)
 
-	// Create HTTP client with TLS configuration
 	httpClient, err := p.tlsConfig.CreateHTTPClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
@@ -569,13 +524,11 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode == http.StatusUnauthorized {
-			// Token might be expired, try to refresh
 			if p.clientID != "" && p.clientSecret != "" {
 				p.logger.Debug("Received 401, attempting token refresh")
 				if refreshErr := p.refreshAccessToken(); refreshErr != nil {
 					return nil, fmt.Errorf("HTTP %d and failed to refresh token: %s", resp.StatusCode, string(body))
 				}
-				// Retry the request with new token
 				return p.fetchTailscaleDevices()
 			}
 		}
@@ -606,7 +559,6 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 
 	switch p.hostnameFormat {
 	case "simple":
-		// Use just the device name, removing .tail suffix if present
 		hostname := device.Name
 		if hostname == "" {
 			hostname = device.Hostname
@@ -614,7 +566,6 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 
 		p.logger.Trace("Before processing: '%s'", hostname)
 
-		// Remove .tail... suffix if present for simple mode
 		if idx := strings.Index(hostname, ".tail"); idx != -1 {
 			hostname = hostname[:idx]
 			p.logger.Trace("After removing .tail suffix: '%s'", hostname)
@@ -625,7 +576,6 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 		return result
 
 	case "tailscale":
-		// Use device name but sanitize it for DNS
 		hostname := device.Name
 		if hostname == "" {
 			hostname = device.Hostname
@@ -634,12 +584,10 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 			return ""
 		}
 
-		// Remove .tail... suffix if present and sanitize
 		if idx := strings.Index(hostname, ".tail"); idx != -1 {
 			hostname = hostname[:idx]
 		}
 
-		// Replace any non-DNS safe characters with hyphens
 		hostname = strings.ReplaceAll(hostname, ".", "-")
 		hostname = strings.ReplaceAll(hostname, "_", "-")
 
@@ -648,7 +596,6 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 		return result
 
 	case "full":
-		// Use the full Tailscale hostname as-is
 		hostname := device.Hostname
 		if hostname == "" {
 			hostname = device.Name
@@ -658,13 +605,11 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 		return result
 
 	default:
-		// Fallback to simple
 		hostname := device.Name
 		if hostname == "" {
 			hostname = device.Hostname
 		}
 
-		// Remove .tail... suffix if present for simple mode
 		if idx := strings.Index(hostname, ".tail"); idx != -1 {
 			hostname = hostname[:idx]
 		}
@@ -676,12 +621,10 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 }
 
 func sanitizeHostname(hostname string) string {
-	// Remove invalid characters and make lowercase
 	hostname = strings.ToLower(hostname)
 	hostname = strings.ReplaceAll(hostname, "_", "-")
 	hostname = strings.ReplaceAll(hostname, " ", "-")
 
-	// Remove any characters that aren't alphanumeric or hyphens
 	result := ""
 	for _, r := range hostname {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
@@ -689,13 +632,11 @@ func sanitizeHostname(hostname string) string {
 		}
 	}
 
-	// Remove leading/trailing hyphens
 	result = strings.Trim(result, "-")
 
 	return result
 }
 
-// EvaluateTailscaleFilters evaluates structured filters against a Tailscale device
 func EvaluateTailscaleFilters(filterConfig common.FilterConfig, device TailscaleDevice) bool {
 	return filterConfig.Evaluate(device, func(filter common.Filter, entry any) bool {
 		dev := entry.(TailscaleDevice)
@@ -789,7 +730,6 @@ func evaluateTailscaleFilter(filter common.Filter, device TailscaleDevice) bool 
 	}
 }
 
-// exchangeAuthToken exchanges an auth token for an access token
 func exchangeAuthToken(authToken, authID, logPrefix string) (string, error) {
 	log.Debug("%s Exchanging auth token for access token", logPrefix)
 	log.Debug("%s Client ID: %s", logPrefix, authID)
@@ -797,12 +737,10 @@ func exchangeAuthToken(authToken, authID, logPrefix string) (string, error) {
 
 	url := "https://api.tailscale.com/api/v2/oauth/token"
 
-	// OAuth2 client credentials grant with credentials in form data
 	formData := fmt.Sprintf("client_id=%s&client_secret=%s&grant_type=client_credentials",
 		neturl.QueryEscape(authID), neturl.QueryEscape(authToken))
 	log.Debug("%s Form data: client_id=%s&client_secret=[REDACTED]&grant_type=client_credentials", logPrefix, authID)
 
-	// Create HTTP client with default TLS settings
 	tlsConfig := common.DefaultTLSConfig()
 	client, err := tlsConfig.CreateHTTPClient()
 	if err != nil {
@@ -851,7 +789,6 @@ func exchangeAuthToken(authToken, authID, logPrefix string) (string, error) {
 }
 
 func (p *TailscaleProvider) pollLoop() {
-	// Always perform an initial poll immediately on startup
 	if p.processExisting {
 		p.logger.Trace("Processing existing Tailscale devices on startup (process_existing=true)")
 		p.processDevices()
@@ -894,7 +831,6 @@ func (p *TailscaleProvider) SetDomainConfigs(domainConfigs map[string]config.Dom
 	p.domainConfigs = domainConfigs
 }
 
-// Helper to find the best matching domain config by suffix match on the 'name' field
 func (p *TailscaleProvider) getParentDomainForFQDN(fqdn string) string {
 	var bestMatch string
 	for _, cfg := range p.domainConfigs {
@@ -907,8 +843,6 @@ func (p *TailscaleProvider) getParentDomainForFQDN(fqdn string) string {
 	return bestMatch
 }
 
-// targetDomains returns the primary domain plus any additional domains,
-// deduplicated. Devices are published under each domain from a single poll.
 func (p *TailscaleProvider) targetDomains() []string {
 	domains := []string{p.domain}
 	seen := map[string]bool{p.domain: true}
@@ -931,7 +865,6 @@ func (p *TailscaleProvider) processDevices() {
 
 	p.logger.Trace("Processing devices and building current records map")
 
-	// Create batch processor for efficient sync handling
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
 	current := make(map[string]string) // hostname:recordType -> target
 
@@ -942,7 +875,6 @@ func (p *TailscaleProvider) processDevices() {
 	for i, device := range devices {
 		p.logger.Trace("Processing device %d/%d: %s (%s)", i+1, len(devices), device.Name, device.ID)
 
-		// Apply filters
 		if !EvaluateTailscaleFilters(p.filterConfig, device) {
 			filteredCount++
 			p.logger.Trace("Device %s filtered out", device.Name)
@@ -963,11 +895,9 @@ func (p *TailscaleProvider) processDevices() {
 		p.logger.Trace("Device %s has %d IP addresses", hostname, len(device.Addresses))
 		processedCount++
 
-		// Process each IP address
 		for addrIdx, ip := range device.Addresses {
 			p.logger.Trace("Processing IP %d/%d: %s for device %s", addrIdx+1, len(device.Addresses), ip, hostname)
 
-			// Clean up IP address - remove CIDR notation if present
 			cleanIP := ip
 			if strings.Contains(ip, "/") {
 				cleanIP = strings.Split(ip, "/")[0]
@@ -980,7 +910,6 @@ func (p *TailscaleProvider) processDevices() {
 				p.logger.Trace("IPv6 address detected: %s", cleanIP)
 			}
 
-			// Create records under each target domain (single poll, N writes)
 			key := hostname + ":" + recordType
 			current[key] = cleanIP
 
@@ -998,12 +927,10 @@ func (p *TailscaleProvider) processDevices() {
 				fqdn := hostname + "." + targetDomain
 				p.logger.Trace("Checking record %s (%s) -> %s", fqdn, recordType, cleanIP)
 
-				// Use helper to get parent domain for correct domain config matching
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 				p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
 
-				// Check if this is a new or changed record
 				if changed {
 					state := domain.RouterState{
 						SourceType:           "tailscale",
@@ -1033,13 +960,11 @@ func (p *TailscaleProvider) processDevices() {
 	}
 
 	p.logger.Trace("Checking for removed records (recordRemoveOnStop=%t)", p.recordRemoveOnStop)
-	// Process removals if recordRemoveOnStop is enabled
 	if p.recordRemoveOnStop {
 		removedCount := 0
 		for key, oldTarget := range p.lastKnownRecords {
 			if _, exists := current[key]; !exists {
 				removedCount++
-				// Parse the key to get hostname and record type
 				parts := strings.Split(key, ":")
 				if len(parts) != 2 {
 					continue
@@ -1077,18 +1002,15 @@ func (p *TailscaleProvider) processDevices() {
 		p.logger.Trace("Record removal disabled (recordRemoveOnStop=false)")
 	}
 
-	// Update the cache
 	p.lastKnownRecords = current
 	p.logger.Trace("Updated lastKnownRecords cache with %d entries", len(current))
 
-	// Finalize the batch - this will sync output files only if there were changes
 	batchProcessor.FinalizeBatch()
 }
 
 func init() {
 }
 
-// GetName returns the provider name
 func (tp *TailscaleProvider) GetName() string {
 	return "tailscale"
 }

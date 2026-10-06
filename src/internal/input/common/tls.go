@@ -15,7 +15,6 @@ import (
 	"time"
 )
 
-// TLSConfig represents TLS configuration for HTTP clients
 type TLSConfig struct {
 	Verify bool   `mapstructure:"verify" yaml:"verify" json:"verify"`
 	CA     string `mapstructure:"ca" yaml:"ca" json:"ca"`
@@ -23,7 +22,6 @@ type TLSConfig struct {
 	Key    string `mapstructure:"key" yaml:"key" json:"key"`
 }
 
-// DefaultTLSConfig returns a default TLS configuration with verification enabled
 func DefaultTLSConfig() TLSConfig {
 	return TLSConfig{
 		Verify: true,
@@ -33,16 +31,13 @@ func DefaultTLSConfig() TLSConfig {
 	}
 }
 
-// ParseTLSConfigFromOptions parses TLS configuration from options map
 func ParseTLSConfigFromOptions(options map[string]string) TLSConfig {
 	config := DefaultTLSConfig()
 
-	// Parse tls_verify from options
 	if verify, ok := options["tls_verify"]; ok {
 		config.Verify = strings.ToLower(verify) != "false" && verify != "0"
 	}
 
-	// Parse nested tls.* options (e.g., tls.verify, tls.ca, tls.cert, tls.key)
 	if verify, ok := options["tls.verify"]; ok {
 		config.Verify = strings.ToLower(verify) != "false" && verify != "0"
 	}
@@ -56,7 +51,6 @@ func ParseTLSConfigFromOptions(options map[string]string) TLSConfig {
 		config.Key = key
 	}
 
-	// Also check for non-nested versions with file:// and env:// support
 	if config.CA == "" {
 		config.CA = GetOptionOrEnv(options, "tls_ca", "", "")
 	}
@@ -70,19 +64,15 @@ func ParseTLSConfigFromOptions(options map[string]string) TLSConfig {
 	return config
 }
 
-// IsSecure returns true if TLS verification is enabled or custom certificates are provided
 func (tc TLSConfig) IsSecure() bool {
 	return tc.Verify || (tc.CA != "" || tc.Cert != "" || tc.Key != "")
 }
 
-// HasCustomCerts returns true if custom certificates are configured
 func (tc TLSConfig) HasCustomCerts() bool {
 	return tc.CA != "" || (tc.Cert != "" && tc.Key != "")
 }
 
-// ValidateConfig validates the TLS configuration
 func (tc TLSConfig) ValidateConfig() error {
-	// If both cert and key are specified, both must exist
 	if tc.Cert != "" && tc.Key != "" {
 		if _, err := os.Stat(tc.Cert); os.IsNotExist(err) {
 			return fmt.Errorf("client certificate file not found: %s", tc.Cert)
@@ -94,7 +84,6 @@ func (tc TLSConfig) ValidateConfig() error {
 		return fmt.Errorf("both tls.cert and tls.key must be specified for client certificate authentication")
 	}
 
-	// If CA is specified, it must exist
 	if tc.CA != "" {
 		if _, err := os.Stat(tc.CA); os.IsNotExist(err) {
 			return fmt.Errorf("CA certificate file not found: %s", tc.CA)
@@ -104,13 +93,11 @@ func (tc TLSConfig) ValidateConfig() error {
 	return nil
 }
 
-// CreateTLSConfig creates a crypto/tls.Config from our TLSConfig
 func (tc TLSConfig) CreateTLSConfig() (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: !tc.Verify,
 	}
 
-	// Load custom CA if specified
 	if tc.CA != "" {
 		caCert, err := os.ReadFile(tc.CA)
 		if err != nil {
@@ -124,7 +111,6 @@ func (tc TLSConfig) CreateTLSConfig() (*tls.Config, error) {
 		tlsConfig.RootCAs = caCertPool
 	}
 
-	// Load client certificate if both cert and key are specified
 	if tc.Cert != "" && tc.Key != "" {
 		cert, err := tls.LoadX509KeyPair(tc.Cert, tc.Key)
 		if err != nil {
@@ -136,7 +122,6 @@ func (tc TLSConfig) CreateTLSConfig() (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-// CreateHTTPClient creates an HTTP client with the TLS configuration applied
 func (tc TLSConfig) CreateHTTPClient() (*http.Client, error) {
 	tlsConfig, err := tc.CreateTLSConfig()
 	if err != nil {
@@ -144,8 +129,7 @@ func (tc TLSConfig) CreateHTTPClient() (*http.Client, error) {
 	}
 
 	transport := &http.Transport{
-		TLSClientConfig: tlsConfig,
-		// Connection pooling optimizations
+		TLSClientConfig:     tlsConfig,
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
@@ -158,7 +142,6 @@ func (tc TLSConfig) CreateHTTPClient() (*http.Client, error) {
 	}, nil
 }
 
-// CreateConfiguredHTTPClient creates an HTTP client with TLS configuration from options
 func CreateConfiguredHTTPClient(options map[string]string, logPrefix string) (*http.Client, error) {
 	tlsConfig := ParseTLSConfigFromOptions(options)
 	if err := tlsConfig.ValidateConfig(); err != nil {
@@ -173,14 +156,12 @@ func CreateConfiguredHTTPClient(options map[string]string, logPrefix string) (*h
 	return client, nil
 }
 
-// RemoteProviderConfig represents configuration for remote-based providers
 type RemoteProviderConfig struct {
 	TLS      TLSConfig `yaml:"tls" json:"tls"`
 	Endpoint string    `yaml:"endpoint" json:"endpoint"`
 	Timeout  int       `yaml:"timeout" json:"timeout"`
 }
 
-// ParseRemoteProviderConfig parses remote provider configuration from options
 func ParseRemoteProviderConfig(options map[string]string) RemoteProviderConfig {
 	config := RemoteProviderConfig{
 		TLS:     ParseTLSConfigFromOptions(options),
@@ -199,7 +180,6 @@ func ParseRemoteProviderConfig(options map[string]string) RemoteProviderConfig {
 	return config
 }
 
-// CreateHTTPClient creates an HTTP client with the configured TLS settings
 func (r RemoteProviderConfig) CreateHTTPClient() (*http.Client, error) {
 	tlsConfig, err := r.TLS.CreateTLSConfig()
 	if err != nil {
@@ -218,7 +198,6 @@ func (r RemoteProviderConfig) CreateHTTPClient() (*http.Client, error) {
 	return client, nil
 }
 
-// ValidateConfig validates the remote provider configuration
 func (r RemoteProviderConfig) ValidateConfig() error {
 	if err := r.TLS.ValidateConfig(); err != nil {
 		return fmt.Errorf("TLS configuration error: %w", err)

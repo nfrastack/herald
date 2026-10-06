@@ -11,7 +11,6 @@ import (
 	"strings"
 )
 
-// ParseHostsFile parses a hosts file and returns FileRecords (A/AAAA only)
 func ParseHostsFile(data []byte) ([]common.FileRecord, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	var records []common.FileRecord
@@ -20,7 +19,6 @@ func ParseHostsFile(data []byte) ([]common.FileRecord, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		// Remove inline comment
 		commentIdx := strings.Index(line, "#")
 		if commentIdx >= 0 {
 			line = strings.TrimSpace(line[:commentIdx])

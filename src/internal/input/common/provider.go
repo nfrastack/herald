@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// ProviderOptions contains common configuration options for all providers
 type ProviderOptions struct {
 	Name               string
 	Interval           time.Duration
@@ -22,15 +21,11 @@ type ProviderOptions struct {
 	TLS                TLSConfig
 }
 
-// ParseProviderOptions parses common provider options from a map
 func ParseProviderOptions(options map[string]string, defaults PollProviderOptions) ProviderOptions {
 	parsed := ParsePollProviderOptions(options, defaults)
 
-	// Use default filter config for simple string options
-	// Complex filter parsing should use NewFilterFromStructuredOptions instead
 	filterConfig := DefaultFilterConfig()
 
-	// Parse TLS configuration
 	tlsConfig := ParseTLSConfigFromOptions(options)
 
 	return ProviderOptions{
@@ -44,7 +39,6 @@ func ParseProviderOptions(options map[string]string, defaults PollProviderOption
 	}
 }
 
-// BaseProvider provides common functionality for all poll providers
 type BaseProvider struct {
 	name               string
 	interval           time.Duration
@@ -60,7 +54,6 @@ type BaseProvider struct {
 	lastKnownRecords   map[string]string // hostname:recordType -> target
 }
 
-// NewBaseProvider creates a new base provider with common functionality
 func NewBaseProvider(providerType string, options ProviderOptions) *BaseProvider {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -86,7 +79,6 @@ func NewBaseProvider(providerType string, options ProviderOptions) *BaseProvider
 	}
 }
 
-// Common provider methods
 func (bp *BaseProvider) GetContext() context.Context  { return bp.ctx }
 func (bp *BaseProvider) GetLogger() *log.ScopedLogger { return bp.logger }
 func (bp *BaseProvider) GetLogPrefix() string         { return bp.logPrefix }

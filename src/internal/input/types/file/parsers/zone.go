@@ -11,7 +11,6 @@ import (
 	"strings"
 )
 
-// ParseZoneFile parses a DNS zone file and returns FileRecords (A/AAAA/CNAME only)
 func ParseZoneFile(data []byte) ([]common.FileRecord, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	var records []common.FileRecord
@@ -30,7 +29,6 @@ func ParseZoneFile(data []byte) ([]common.FileRecord, error) {
 			}
 			continue
 		}
-		// Remove inline comment
 		commentIdx := strings.Index(line, ";")
 		if commentIdx >= 0 {
 			line = strings.TrimSpace(line[:commentIdx])
@@ -39,7 +37,6 @@ func ParseZoneFile(data []byte) ([]common.FileRecord, error) {
 		if len(fields) < 4 {
 			continue
 		}
-		// Try to parse: [name] [ttl] [class] [type] [target]
 		name := fields[0]
 		ttl := defaultTTL
 		classIdx := 1

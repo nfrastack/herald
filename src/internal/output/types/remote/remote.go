@@ -15,7 +15,6 @@ import (
 	"time"
 )
 
-// RemoteFormat implements OutputFormat for remote API endpoints
 type RemoteFormat struct {
 	url      string
 	clientID string
@@ -25,7 +24,6 @@ type RemoteFormat struct {
 	logger   *log.ScopedLogger
 }
 
-// RemoteRecord represents a DNS record for remote API
 type RemoteRecord struct {
 	Domain     string `json:"domain"`
 	Hostname   string `json:"hostname"`
@@ -35,7 +33,6 @@ type RemoteRecord struct {
 	Source     string `json:"source"`
 }
 
-// NewRemoteFormat creates a new remote format instance
 func NewRemoteFormat(profileName string, config map[string]interface{}) (common.OutputFormat, error) {
 	url, ok := config["url"].(string)
 	if !ok || url == "" {
@@ -52,7 +49,6 @@ func NewRemoteFormat(profileName string, config map[string]interface{}) (common.
 		return nil, fmt.Errorf("remote output requires 'token' field")
 	}
 
-	// Create scoped logger
 	logLevel := ""
 	if level, ok := config["log_level"].(string); ok {
 		logLevel = level
@@ -70,17 +66,14 @@ func NewRemoteFormat(profileName string, config map[string]interface{}) (common.
 	}, nil
 }
 
-// GetName returns the format name
 func (r *RemoteFormat) GetName() string {
 	return "remote"
 }
 
-// WriteRecord writes a DNS record to the remote endpoint
 func (r *RemoteFormat) WriteRecord(domain, hostname, target, recordType string, ttl int) error {
 	return r.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
 }
 
-// WriteRecordWithSource writes a DNS record with source information to the remote endpoint
 func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
 	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
 
@@ -99,7 +92,6 @@ func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 	return nil
 }
 
-// RemoveRecord removes a DNS record from the remote endpoint
 func (r *RemoteFormat) RemoveRecord(domain, hostname, recordType string) error {
 	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
 	if rec, exists := r.records[key]; exists {
@@ -117,24 +109,18 @@ func (r *RemoteFormat) RemoveRecord(domain, hostname, recordType string) error {
 	return nil
 }
 
-// Sync sends all records to the remote endpoint
 func (r *RemoteFormat) Sync() error {
-	// Always perform sync, even if there are no records or removals
-	// This ensures zone files and remote endpoints are updated for SOA/NS/serial, etc.
 
-	// Group additions by domain
 	additionsByDomain := make(map[string][]*RemoteRecord)
 	for _, record := range r.records {
 		additionsByDomain[record.Domain] = append(additionsByDomain[record.Domain], record)
 	}
 
-	// Group removals by domain
 	removalsByDomain := make(map[string][]*RemoteRecord)
 	for _, record := range r.removals {
 		removalsByDomain[record.Domain] = append(removalsByDomain[record.Domain], record)
 	}
 
-	// Collect all domains that have either additions or removals
 	allDomains := make(map[string]struct{})
 	for domain := range additionsByDomain {
 		allDomains[domain] = struct{}{}
@@ -150,7 +136,6 @@ func (r *RemoteFormat) Sync() error {
 		"last_updated": time.Now().Format(time.RFC3339),
 	}
 
-	// Build domains map for payload, always include all domains
 	domains := make(map[string]map[string]interface{})
 	for domain := range allDomains {
 		records := additionsByDomain[domain]
@@ -176,7 +161,6 @@ func (r *RemoteFormat) Sync() error {
 
 	r.logger.Trace("Sync payload: %s", string(jsonData))
 
-	// Create HTTP request
 	req, err := http.NewRequest("POST", r.url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -199,7 +183,6 @@ func (r *RemoteFormat) Sync() error {
 	}
 
 	r.logger.Info("Successfully synced %d records and %d removals to remote endpoint", len(r.records), len(r.removals))
-	// Clear records and removals after successful sync
 	r.records = make(map[string]*RemoteRecord)
 	r.removals = make(map[string]*RemoteRecord)
 	return nil

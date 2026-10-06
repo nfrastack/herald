@@ -84,14 +84,12 @@ func TestStaticMigrationAndCollisions(t *testing.T) {
 	}
 	raw1, _ := os.ReadFile(fp)
 
-	// Simulate a legacy file: manual lines sitting in the managed section.
 	seeded := strings.Replace(string(raw1), "; Managed Records",
 		"; Managed Records\nlegacy               60     IN   A     10.9.9.9        ; input: manual\na                    60     IN   CNAME a.tiredofit.ca  ; input: manual", 1)
 	if err := os.WriteFile(fp, []byte(seeded), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Fresh instance (new process): warm-load + migrate on sync.
 	f2, err := NewZoneFormat("testprofile", "example.com", testZoneConfig(path))
 	if err != nil {
 		t.Fatal(err)
