@@ -5,6 +5,7 @@
     - (input/tailscale) support additional_domains
     - (input/zerotier) support additional_domains
     - (output/dns/technitium) add provider
+    - (output/dns/digitalocean) add provider
 
    ### Changed
     - (output/dns) rework provider format
