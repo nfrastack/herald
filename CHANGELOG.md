@@ -4,6 +4,7 @@
     - state tracking to assist in detecting stale records
     - (input/tailscale) support additional_domains
     - (input/zerotier) support additional_domains
+    - (output/dns/technitium) add provider
 
    ### Changed
     - (output/dns) rework provider format
