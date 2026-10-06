@@ -15,6 +15,7 @@
     - (output/dns/linode) add provider
     - (output/dns/gandi) add provider
     - (output/dns/godaddy) add provider
+    - (output/dns/azure) add provider
 
    ### Changed
     - (output/dns) rework provider format
