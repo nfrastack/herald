@@ -22,7 +22,6 @@ type Provider interface {
 	GetName() string
 }
 
-// DNSEntry represents a DNS entry from input providers - local definition
 type DNSEntry struct {
 	Name                   string `json:"name"`
 	Hostname               string `json:"hostname"`
@@ -36,12 +35,10 @@ type DNSEntry struct {
 	SourceName             string `json:"source_name"`
 }
 
-// GetFQDN returns the fully qualified domain name
 func (d DNSEntry) GetFQDN() string {
 	return d.Name
 }
 
-// GetRecordType returns the DNS record type
 func (d DNSEntry) GetRecordType() string {
 	return d.RecordType
 }
@@ -88,13 +85,11 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	logPrefix := common.BuildLogPrefix("remote", parsed.Name)
 	logLevel := options["log_level"]
 
-	// Convert string options to structured options for filtering
 	structuredOptions := make(map[string]interface{})
 	for key, value := range options {
 		structuredOptions[key] = value
 	}
 
-	// Parse filter configuration using structured format
 	filterLogPrefix := logPrefix + "/filter"
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
@@ -103,10 +98,8 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		filterConfig = common.DefaultFilterConfig()
 	}
 
-	// Create scoped logger
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
-	// Only log override message if there's actually a log level override
 	if logLevel != "" {
 		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
 	}
@@ -151,7 +144,6 @@ func (p *RemoteProvider) GetDNSEntries() ([]DNSEntry, error) {
 }
 
 func (p *RemoteProvider) pollLoop() {
-	// Always perform an initial poll immediately on startup
 	if p.opts.ProcessExisting {
 		p.logger.Trace("Processing existing remote records on startup (process_existing=true)")
 		p.processRemote()
@@ -187,7 +179,6 @@ func (p *RemoteProvider) processRemote() {
 	}
 	p.logger.Verbose("Processing %d DNS entries from remote", len(entries))
 
-	// Set the provider name for batch processor
 	providerName := p.name
 	if providerName == "" {
 		providerName = p.options["name"]
@@ -211,7 +202,6 @@ func (p *RemoteProvider) processRemote() {
 				p.logger.With("fqdn", fqdnNoDot).Info("New record detected (%s)", recordType)
 			}
 
-			// Use helper to get parent domain for correct domain config matching
 			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 			p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
 
@@ -238,7 +228,6 @@ func (p *RemoteProvider) processRemote() {
 				recordType := old.GetRecordType()
 				p.logger.With("fqdn", fqdnNoDot).Info("Record removed (%s)", recordType)
 
-				// Use helper to get parent domain for correct domain config matching
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 				p.logger.Trace("Using real domain name '%s' for DNS provider (removal)", realDomain)
 
@@ -260,7 +249,6 @@ func (p *RemoteProvider) processRemote() {
 
 	p.lastRecords = current
 
-	// Finalize the batch - this will sync output files only if there were changes
 	batchProcessor.FinalizeBatch()
 }
 
@@ -269,10 +257,8 @@ func (p *RemoteProvider) readRemote() ([]DNSEntry, error) {
 	httpUser := common.ReadFileValue(p.options["remote_auth_user"])
 	httpPass := common.ReadFileValue(p.options["remote_auth_pass"])
 
-	// Parse TLS configuration using common utilities
 	tlsConfig := common.ParseTLSConfigFromOptions(p.options)
 
-	// Log TLS configuration details
 	if !tlsConfig.Verify {
 		p.logger.Debug("TLS certificate verification disabled")
 	}
@@ -318,7 +304,6 @@ func (p *RemoteProvider) readRemote() ([]DNSEntry, error) {
 	}
 	entries := common.ConvertRecordsToDNSEntries(records, p.opts.Name)
 
-	// Convert from common.DNSEntry to local DNSEntry type
 	var localEntries []DNSEntry
 	for _, entry := range entries {
 		localEntries = append(localEntries, DNSEntry{
@@ -338,17 +323,14 @@ func (p *RemoteProvider) readRemote() ([]DNSEntry, error) {
 	return localEntries, nil
 }
 
-// GetName returns the provider name
 func (rp *RemoteProvider) GetName() string {
 	return "remote"
 }
 
-// SetDomainConfigs allows injection of loaded domain configs (like Docker/Caddy/File)
 func (p *RemoteProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
 	p.domainConfigs = domainConfigs
 }
 
-// Helper to find the best matching domain config by suffix match on the 'name' field
 func (p *RemoteProvider) getParentDomainForFQDN(fqdn string) string {
 	p.logger.Trace("getParentDomainForFQDN called with fqdn='%s'", fqdn)
 	var bestMatch string

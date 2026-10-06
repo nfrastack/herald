@@ -16,7 +16,6 @@ import (
 	"github.com/docker/docker/client"
 )
 
-// SharedConnection represents a shared Docker client connection
 type SharedConnection struct {
 	client      *client.Client
 	apiURL      string
@@ -29,7 +28,6 @@ type SharedConnection struct {
 	logPrefix   string
 }
 
-// ConnectionManager manages shared Docker connections
 type ConnectionManager struct {
 	connections map[string]*SharedConnection // keyed by API URL + auth hash
 	mutex       sync.RWMutex
@@ -40,7 +38,6 @@ var (
 	connectionManagerOnce   sync.Once
 )
 
-// GetConnectionManager returns the global connection manager singleton
 func GetConnectionManager() *ConnectionManager {
 	connectionManagerOnce.Do(func() {
 		globalConnectionManager = &ConnectionManager{
@@ -50,24 +47,19 @@ func GetConnectionManager() *ConnectionManager {
 	return globalConnectionManager
 }
 
-// getConnectionKey creates a unique key for connection sharing based on API URL and auth
 func (cm *ConnectionManager) getConnectionKey(apiURL, authUser, authPass string) string {
-	// Include auth in key so different auth configs don't share connections
 	return fmt.Sprintf("%s|%s|%s", apiURL, authUser, authPass)
 }
 
-// GetOrCreateConnection gets an existing shared connection or creates a new one
 func (cm *ConnectionManager) GetOrCreateConnection(provider *DockerProvider) (*SharedConnection, error) {
 	connKey := cm.getConnectionKey(provider.config.APIURL, provider.config.APIAuthUser, provider.config.APIAuthPass)
 
 	cm.mutex.Lock()
 	defer cm.mutex.Unlock()
 
-	// Check if connection already exists
 	if conn, exists := cm.connections[connKey]; exists {
 		log.NewScopedLogger("", "").With("component", "docker/connection-manager", "provider", provider.profileName).Debug("Reusing existing connection (key: %s)", connKey)
 
-		// Add this provider as a subscriber
 		conn.mutex.Lock()
 		conn.subscribers[provider.profileName] = provider
 		subscriberCount := len(conn.subscribers)
@@ -78,7 +70,6 @@ func (cm *ConnectionManager) GetOrCreateConnection(provider *DockerProvider) (*S
 		return conn, nil
 	}
 
-	// Create new shared connection
 	log.NewScopedLogger("", "").With("component", "docker/connection-manager", "provider", provider.profileName).Debug("Creating new shared connection (key: %s)", connKey)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -93,10 +84,8 @@ func (cm *ConnectionManager) GetOrCreateConnection(provider *DockerProvider) (*S
 		logPrefix:   fmt.Sprintf("[docker/connection-manager/%s]", provider.config.APIURL),
 	}
 
-	// Add the initial provider as a subscriber
 	conn.subscribers[provider.profileName] = provider
 
-	// Store the connection
 	cm.connections[connKey] = conn
 
 	log.NewScopedLogger("", "").With("component", "docker/connection-manager", "provider", provider.profileName).Info("Created shared connection to %s", provider.config.APIURL)
@@ -104,7 +93,6 @@ func (cm *ConnectionManager) GetOrCreateConnection(provider *DockerProvider) (*S
 	return conn, nil
 }
 
-// RemoveProvider removes a provider from a shared connection
 func (cm *ConnectionManager) RemoveProvider(provider *DockerProvider) {
 	connKey := cm.getConnectionKey(provider.config.APIURL, provider.config.APIAuthUser, provider.config.APIAuthPass)
 
@@ -123,7 +111,6 @@ func (cm *ConnectionManager) RemoveProvider(provider *DockerProvider) {
 
 	log.NewScopedLogger("", "").With("component", "docker/connection-manager", "provider", provider.profileName).Debug("Left shared connection to %s (%d remaining subscribers)", provider.config.APIURL, subscriberCount)
 
-	// If no more subscribers, clean up the connection
 	if subscriberCount == 0 {
 		log.NewScopedLogger("", "").With("component", "docker/connection-manager").Debug("No more subscribers, cleaning up shared connection to %s", provider.config.APIURL)
 		conn.Stop()
@@ -131,7 +118,6 @@ func (cm *ConnectionManager) RemoveProvider(provider *DockerProvider) {
 	}
 }
 
-// StartEventStreaming starts the event streaming for this shared connection
 func (sc *SharedConnection) StartEventStreaming() error {
 	if sc.running {
 		return nil
@@ -139,14 +125,12 @@ func (sc *SharedConnection) StartEventStreaming() error {
 
 	sc.running = true
 
-	// Set up filters for events
 	f := dfilters.NewArgs()
 	f.Add("type", "container")
 	f.Add("event", "start")
 	f.Add("event", "stop")
 	f.Add("event", "die")
 
-	// Check if any subscriber needs swarm mode
 	needsSwarm := false
 	sc.mutex.RLock()
 	for _, provider := range sc.subscribers {
@@ -165,14 +149,12 @@ func (sc *SharedConnection) StartEventStreaming() error {
 		log.Debug("%s Added service events to filter (swarm mode needed)", sc.logPrefix)
 	}
 
-	// Get event stream
 	eventChan, errChan := sc.client.Events(sc.ctx, events.ListOptions{
 		Filters: f,
 	})
 
 	log.Info("%s Started shared event streaming", sc.logPrefix)
 
-	// Start goroutine to distribute events to subscribers
 	go func() {
 		for {
 			select {
@@ -183,7 +165,6 @@ func (sc *SharedConnection) StartEventStreaming() error {
 			case err := <-errChan:
 				if err != nil {
 					log.NewScopedLogger("", "").With("component", "docker/shared").Error("Docker event stream error: %v", err)
-					// Log error for all subscribers - they'll handle reconnection in their own polling loops
 					sc.mutex.RLock()
 					for profileName := range sc.subscribers {
 						log.NewScopedLogger("", "").With("component", "docker/shared").Error("Event stream error affects subscriber '%s'", profileName)
@@ -193,7 +174,6 @@ func (sc *SharedConnection) StartEventStreaming() error {
 				return
 
 			case event := <-eventChan:
-				// Distribute event to all subscribers
 				sc.distributeEvent(event)
 			}
 		}
@@ -202,10 +182,8 @@ func (sc *SharedConnection) StartEventStreaming() error {
 	return nil
 }
 
-// distributeEvent sends an event to all subscribers, which then filter it themselves.
 func (sc *SharedConnection) distributeEvent(event events.Message) {
 	sc.mutex.RLock()
-	// Create a snapshot of subscribers to avoid holding the lock during event processing
 	subscribers := make([]*DockerProvider, 0, len(sc.subscribers))
 	for _, provider := range sc.subscribers {
 		subscribers = append(subscribers, provider)
@@ -215,25 +193,20 @@ func (sc *SharedConnection) distributeEvent(event events.Message) {
 	containerName := event.Actor.Attributes["name"]
 	containerName = strings.TrimPrefix(containerName, "/")
 
-	// Log the event once at the connection level
 	log.NewScopedLogger("", "").With("component", "docker/shared", "container", containerName, "id", event.Actor.ID[:12]).Verbose("Container event: '%s'", event.Action)
 
-	// Distribute the event to all subscribers. Each provider is responsible for its own filtering.
 	for _, provider := range subscribers {
 		go func(p *DockerProvider) {
 			ctx := context.Background()
 			if event.Type == "container" {
-				// Use the filtered handler, which will decide if the event is relevant
 				p.handleContainerEventFiltered(ctx, event)
 			} else if event.Type == "service" && p.swarmMode {
-				// For services, only swarm-enabled providers should process
 				p.handleServiceEventFiltered(ctx, event)
 			}
 		}(provider)
 	}
 }
 
-// Stop stops the shared connection
 func (sc *SharedConnection) Stop() {
 	if !sc.running {
 		return
@@ -244,7 +217,6 @@ func (sc *SharedConnection) Stop() {
 	sc.cancel()
 }
 
-// GetSubscriberCount returns the number of subscribers to this connection
 func (sc *SharedConnection) GetSubscriberCount() int {
 	sc.mutex.RLock()
 	defer sc.mutex.RUnlock()

@@ -17,10 +17,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// SecretRegex matches environment variable references like ${ENV_VAR}
 var SecretRegex = regexp.MustCompile(`\${([^}]+)}`)
 
-// StringSliceFlag is a flag.Value that collects multiple string values
 type StringSliceFlag []string
 
 func (s *StringSliceFlag) String() string {
@@ -32,7 +30,6 @@ func (s *StringSliceFlag) Set(value string) error {
 	return nil
 }
 
-// LoadConfigFile loads the configuration from a YAML file (any extension)
 func LoadConfigFile(path string) (*ConfigFile, error) {
 	log.Debug("[config/file] Loading configuration from %s", path)
 
@@ -43,7 +40,6 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 		return nil, fmt.Errorf("[config/file] failed to read config file: %w", err)
 	}
 
-	// Preprocess for includes
 	processed, err := preprocessIncludes(data, path, map[string]bool{})
 	if err != nil {
 		return nil, fmt.Errorf("[config/file] failed to process includes: %w", err)
@@ -55,12 +51,10 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 		return nil, fmt.Errorf("[config/file] failed to decode YAML: %w", err)
 	}
 
-	// Basic environment loading - only core global settings
 	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
 		cfg.General.LogLevel = logLevel
 	}
 
-	// Set application-level defaults ONLY if still unset after config and env
 	if cfg.General.LogLevel == "" {
 		cfg.General.LogLevel = "verbose"
 	}
@@ -74,7 +68,6 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	return &cfg, nil
 }
 
-// deepMergeSectionMap merges only matching top-level keys as maps, others are overwritten
 func deepMergeSectionMap(dst, src map[string]interface{}) map[string]interface{} {
 	if dst == nil {
 		dst = map[string]interface{}{}
@@ -93,10 +86,8 @@ func deepMergeSectionMap(dst, src map[string]interface{}) map[string]interface{}
 	return dst
 }
 
-// preprocessIncludes recursively processes 'include' keys in YAML files
 func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]byte, error) {
 	log.Trace("[config/file] Parsing config file: %s", basePath)
-	// Prevent circular includes
 	absPath, _ := os.Getwd()
 	if !strings.HasPrefix(basePath, "/") && absPath != "" {
 		basePath = absPath + "/" + basePath
@@ -119,7 +110,6 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 	}
 	log.Trace("[config/file] Top-level keys in %s: %v", basePath, topKeys)
 
-	// Check for 'include' key (can be string or list)
 	if inc, ok := raw["include"]; ok {
 		var includeFiles []string
 		switch v := inc.(type) {
@@ -133,7 +123,6 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 			}
 		}
 		for _, incFile := range includeFiles {
-			// Resolve relative to basePath
 			incPath := incFile
 			if !strings.HasPrefix(incFile, "/") && basePath != "" {
 				incPath = getIncludePath(basePath, incFile)
@@ -159,7 +148,6 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 			for _, k := range topKeys {
 				log.Trace("[config/file] Key '%s' from %s: %v", k, incPath, util.MaskSensitiveMapRecursive(map[string]interface{}{k: incRaw[k]})[k])
 			}
-			// Only merge known top-level sections as maps
 			for _, section := range []string{"inputs", "domains", "defaults", "general", "outputs", "api"} {
 				if v, ok := incRaw[section]; ok {
 					if dstMap, ok := raw[section].(map[string]interface{}); ok {
@@ -171,7 +159,6 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 					}
 				}
 			}
-			// For any other keys, just set/overwrite
 			for k, v := range incRaw {
 				if k == "include" || k == "inputs" || k == "domains" || k == "defaults" || k == "general" || k == "outputs" || k == "api" {
 					continue
@@ -182,11 +169,9 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 		delete(raw, "include")
 	}
 
-	// Marshal back to YAML
 	return yaml.Marshal(raw)
 }
 
-// getIncludePath resolves incFile relative to basePath
 func getIncludePath(basePath, incFile string) string {
 	dir := basePath
 	if idx := strings.LastIndex(basePath, "/"); idx != -1 {
@@ -195,29 +180,24 @@ func getIncludePath(basePath, incFile string) string {
 	return dir + "/" + incFile
 }
 
-// FindConfigFile searches for the config file in the current directory and common locations
 func FindConfigFile(requested string) (string, error) {
 	candidates := []string{}
 	if requested != "" {
 		candidates = append(candidates, requested)
 	}
-	// Always prefer herald.yml, then .yaml, then .conf
 	candidates = append(candidates,
 		"herald.yml",
 		"herald.yaml",
 		"herald.conf",
 	)
 	for _, name := range candidates {
-		// Check current directory
 		if _, err := os.Stat(name); err == nil {
 			return name, nil
 		}
-		// Check /etc directory
 		etcPath := "/etc/" + name
 		if _, err := os.Stat(etcPath); err == nil {
 			return etcPath, nil
 		}
-		// Check root directory if not absolute path
 		if !strings.HasPrefix(name, "/") {
 			rootPath := "/" + name
 			if _, err := os.Stat(rootPath); err == nil {
@@ -228,7 +208,6 @@ func FindConfigFile(requested string) (string, error) {
 	return "", fmt.Errorf("no configuration file found (tried: %v)", candidates)
 }
 
-// FieldSetInConfigFile checks if a field is explicitly set in the config file (top-level only)
 func FieldSetInConfigFile(configFilePath, field string) bool {
 	data, err := os.ReadFile(configFilePath)
 	if err != nil {
@@ -246,61 +225,46 @@ func FieldSetInConfigFile(configFilePath, field string) bool {
 	return exists
 }
 
-// processConfigFileSecrets replaces environment variable references in the config file
 func processConfigFileSecrets(content string) string {
-	// Replace ${ENV_VAR} with the environment variable value
 	processedContent := SecretRegex.ReplaceAllStringFunc(content, func(match string) string {
-		// Extract variable name (remove ${ and })
 		varName := match[2 : len(match)-1]
 
-		// Check if it's prefixed with "file:"
 		if strings.HasPrefix(varName, "file:") {
-			// Extract file path
 			filePath := strings.TrimPrefix(varName, "file:")
 
-			// Read file content
 			fileData, err := os.ReadFile(filePath)
 			if err != nil {
 				log.Error("[config/file] Failed to read secret file %s: %v", filePath, err)
 				return match // Keep original if error
 			}
 
-			// Trim whitespace and return content
 			return strings.TrimSpace(string(fileData))
 		}
 
-		// Check if it's prefixed with "env:"
 		if strings.HasPrefix(varName, "env:") {
-			// Extract environment variable name
 			envVar := strings.TrimPrefix(varName, "env:")
 
-			// Look up environment variable
 			if value, exists := os.LookupEnv(envVar); exists {
 				return value
 			}
 
-			// If environment variable doesn't exist, keep original
 			return match
 		}
 
-		// Look up environment variable
 		if value, exists := os.LookupEnv(varName); exists {
 			return value
 		}
 
-		// If environment variable doesn't exist, keep original
 		return match
 	})
 
 	return processedContent
 }
 
-// ProcessSecrets is a centralized function for processing secrets in any configuration value
 func ProcessSecrets(value string) string {
 	return processConfigFileSecrets(value)
 }
 
-// ProcessSecretsInMap processes secrets in all string values within a map
 func ProcessSecretsInMap(options map[string]string) map[string]string {
 	processed := make(map[string]string, len(options))
 	for k, v := range options {
@@ -309,7 +273,6 @@ func ProcessSecretsInMap(options map[string]string) map[string]string {
 	return processed
 }
 
-// MergeConfigFile merges src into dst, with src overriding dst where set
 func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 	if dst == nil {
 		dst = &ConfigFile{}
@@ -317,7 +280,6 @@ func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 	if src == nil {
 		return dst
 	}
-	// Merge General section
 	if src.General.LogLevel != "" {
 		dst.General.LogLevel = src.General.LogLevel
 	}
@@ -333,25 +295,21 @@ func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 	if src.General.DryRun {
 		dst.General.DryRun = src.General.DryRun
 	}
-	// Merge Defaults
 	if (src.Defaults != DefaultsConfig{}) {
 		dst.Defaults = src.Defaults
 	}
-	// Merge state settings (src wins when set)
 	if src.StateDir != "" {
 		dst.StateDir = src.StateDir
 	}
 	if src.StaleAfter != "" {
 		dst.StaleAfter = src.StaleAfter
 	}
-	// Merge Input Providers (src overrides dst)
 	if dst.Inputs == nil {
 		dst.Inputs = map[string]InputProviderConfig{}
 	}
 	for k, v := range src.Inputs {
 		dst.Inputs[k] = v
 	}
-	// Merge Domains (src overrides dst)
 	if dst.Domains == nil {
 		dst.Domains = map[string]DomainConfig{}
 	}

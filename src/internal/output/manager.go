@@ -12,7 +12,6 @@ import (
 	"strings"
 )
 
-// mgrLog scopes manager messages; call sites add domain/profile/source fields.
 var mgrLog = log.NewScopedLogger("[output/manager]", "")
 
 func (m *OutputManager) RouteRecords(domainConfigKey, domain string, records []common.Record) error {
@@ -20,7 +19,6 @@ func (m *OutputManager) RouteRecords(domainConfigKey, domain string, records []c
 	fmt.Printf("%s Routing %d records\n", logPrefix, len(records))
 	mgrLog.With("domain", domain, "config", domainConfigKey).Debug("Successfully routed records")
 
-	// After routing, flush outputs if any changes occurred
 	if err := m.SyncAll(); err != nil {
 		mgrLog.With("domain", domain, "config", domainConfigKey).Error("OutputManager SyncAll failed after routing records: %v", err)
 		return err
@@ -29,7 +27,6 @@ func (m *OutputManager) RouteRecords(domainConfigKey, domain string, records []c
 	return nil
 }
 
-// WriteRecordToOutputs writes a DNS record to the specified list of output profiles.
 func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool) error {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
@@ -68,7 +65,6 @@ func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, h
 	return nil
 }
 
-// RemoveRecordFromOutputs removes a record from the specified list of output profiles.
 func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain, hostname, recordType, source string) error {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
@@ -118,7 +114,6 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 	return nil
 }
 
-// ListProfileNames returns a slice of all registered output profile names
 func (om *OutputManager) ListProfileNames() []string {
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()

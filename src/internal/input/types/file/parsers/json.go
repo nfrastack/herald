@@ -11,7 +11,6 @@ import (
 	"fmt"
 )
 
-// ParseStructuredJSON parses the structured JSON format and returns FileRecords
 func ParseStructuredJSON(data []byte) ([]common.FileRecord, error) {
 	var file StructuredFile
 	if err := json.Unmarshal(data, &file); err != nil {

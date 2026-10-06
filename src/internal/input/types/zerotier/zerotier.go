@@ -39,12 +39,10 @@ type DNSEntry struct {
 	SourceName             string `json:"source_name"`
 }
 
-// GetFQDN returns the fully qualified domain name
 func (d DNSEntry) GetFQDN() string {
 	return d.Name
 }
 
-// GetRecordType returns the DNS record type
 func (d DNSEntry) GetRecordType() string {
 	return d.RecordType
 }
@@ -81,7 +79,6 @@ type ZerotierProvider struct {
 }
 
 func NewProvider(options map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
-	// Use file:// and env:// support for all configuration options
 	apiURL := common.ReadFileValue(options["api_url"])
 	apiToken := common.ReadFileValue(options["api_token"])
 	networkID := common.ReadFileValue(options["network_id"])
@@ -112,26 +109,21 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		profileName = "zerotier"
 	}
 
-	// Convert string options to structured options for filtering
 	structuredOptions := make(map[string]interface{})
 	for key, value := range options {
 		structuredOptions[key] = value
 	}
 
-	// Parse filter configuration using structured format
 	filterLogPrefix := fmt.Sprintf("[poll/zerotier/%s/filter]", profileName)
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		// Build logPrefix for this debug message - we need it before the full logPrefix is created
 		tempLogPrefix := fmt.Sprintf("[poll/zerotier/%s]", profileName)
 		log.Debug("%s Error creating filter configuration: %v, using default", tempLogPrefix, err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
-	// Add default online=true filter if no filters are configured
 	if len(filterConfig.Filters) == 0 || (len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone) {
-		// Build logPrefix for this debug message - we need it before the full logPrefix is created
 		tempLogPrefix := fmt.Sprintf("[poll/zerotier/%s]", profileName)
 		log.Debug("%s Adding default online=true filter", tempLogPrefix)
 		filterConfig.Filters = []common.Filter{
@@ -149,19 +141,16 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	logLevel := options["log_level"] // Get provider-specific log level
 	logPrefix := common.BuildLogPrefix("zerotier", profileName)
 
-	// Auto-detect API URL if not provided - default to ZeroTier Central
 	if apiURL == "" {
 		apiURL = "https://my.zerotier.com"
 		log.Warn("No api_url specified, defaulting to ZeroTier Central: %s", apiURL)
 	}
 
-	// Auto-detect API type based on URL if not explicitly set
 	if apiType == "" {
 		if strings.Contains(apiURL, "my.zerotier.com") || strings.Contains(apiURL, "zerotier.com") {
 			apiType = "zerotier"
 			log.Debug("Auto-detected API type as 'zerotier' based on URL: %s", apiURL)
 		} else {
-			// For custom URLs, we'll still try auto-detection later in detectAPIType()
 			log.Debug("Custom API URL detected: %s, will auto-detect API type", apiURL)
 		}
 	}
@@ -180,36 +169,29 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		return nil, fmt.Errorf("%s missing required parameter(s): %s", logPrefix, strings.Join(missing, ", "))
 	}
 
-	// Create scoped logger - if no specific log level set, pass empty string to inherit global level
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
-	// Only log override message if there's actually a log level override
 	if logLevel != "" {
 		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
 	}
 
-	// Log address fallback configuration
 	if useAddressAsFallback {
 		scopedLogger.Verbose("Address fallback enabled - will use member address as hostname when name is empty")
 	} else {
 		scopedLogger.Debug("Address fallback disabled - members without names will be skipped (enable with use_address_fallback: true)")
 	}
-	// Log online timeout configuration if non-default
 	if onlineTimeoutSeconds != 60 {
-		// Determine API type name for logging
 		apiTypeName := "ZeroTier Central"
 		if apiType == "ztnet" {
 			apiTypeName = "ZT-Net"
 		} else if strings.Contains(apiURL, "my.zerotier.com") || strings.Contains(apiURL, "zerotier.com") {
 			apiTypeName = "ZeroTier Central"
 		} else {
-			// For custom URLs where we haven't detected the type yet
 			apiTypeName = "ZeroTier API"
 		}
 		scopedLogger.Verbose("%s Online timeout set to %d seconds", apiTypeName, onlineTimeoutSeconds)
 	}
 
-	// Warn if timeout is too low - can cause erratic behavior
 	if onlineTimeoutSeconds < 60 {
 		scopedLogger.Warn("Warning: online_timeout_seconds is set to %d seconds, which may cause erratic behavior due to ZeroTier Central's heartbeat timing. Consider using 60+ seconds.", onlineTimeoutSeconds)
 	}
@@ -303,17 +285,14 @@ func (p *ZerotierProvider) pollLoop() {
 	}
 }
 
-// logMemberAdded logs when a member is added with appropriate message based on filter type
 func (p *ZerotierProvider) logMemberAdded(name string) {
 	p.logger.With("member", name).Info("Member added: %s", name)
 }
 
-// logMemberRemoved logs when a member is removed with appropriate message based on filter type
 func (p *ZerotierProvider) logMemberRemoved(name string) {
 	p.logger.With("member", name).Info("Member removed: %s", name)
 }
 
-// targetDomains returns the primary domain plus any additional domains,deduplicated. Members are published under each domain from a single poll.
 func (p *ZerotierProvider) targetDomains() []string {
 	domains := []string{p.domain}
 	seen := map[string]bool{p.domain: true}
@@ -326,7 +305,6 @@ func (p *ZerotierProvider) targetDomains() []string {
 	return domains
 }
 
-// resolveRealDomain resolves a domain config key to its real domain name, falling back to the input unchanged when unresolvable.
 func (p *ZerotierProvider) resolveRealDomain(domainKey string) string {
 	realDomain := domainKey
 	domainConfig := config.GetDomainConfig(domainKey)
@@ -344,7 +322,6 @@ func (p *ZerotierProvider) resolveRealDomain(domainKey string) string {
 	return realDomain
 }
 
-// shortHostname returns the member short name without any domain suffix.
 func shortHostname(entry DNSEntry, primaryDomain string) string {
 	if entry.Hostname != "" {
 		return entry.Hostname
@@ -364,7 +341,6 @@ func shortHostname(entry DNSEntry, primaryDomain string) string {
 	return name
 }
 
-// publishEntry writes one member entry under every target domain.
 func (p *ZerotierProvider) publishEntry(batchProcessor *domain.BatchProcessor, entry DNSEntry, remove bool) {
 	hostname := shortHostname(entry, p.domain)
 	state := domain.RouterState{
@@ -398,9 +374,7 @@ func (p *ZerotierProvider) publishEntry(batchProcessor *domain.BatchProcessor, e
 	}
 }
 
-// updateDNSEntries compares current and previous entries and updates DNS accordingly
 func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntries []DNSEntry) error {
-	// Build maps for comparison
 	current := make(map[string]DNSEntry)
 	for _, entry := range currentEntries {
 		key := entry.GetFQDN() + ":" + entry.GetRecordType()
@@ -413,23 +387,18 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 		last[key] = entry
 	}
 
-	// Use a domain-specific log prefix for batch processor logs
 	batchLogPrefix := fmt.Sprintf("[domain/%s/%s]", p.domain, p.profileName)
 	batchProcessor := domain.NewBatchProcessorWithProvider(batchLogPrefix, p.profileName, p.outputWriter, p.outputSyncer)
 
-	// Process additions and changes
 	for key, entry := range current {
 		if lastEntry, exists := last[key]; !exists {
-			// NEW ENTRY
 			p.logMemberAdded(entry.GetFQDN())
 			p.publishEntry(batchProcessor, entry, false)
 		} else {
-			// CHANGED ENTRY: compare fields
 			if entry.Target != lastEntry.Target || entry.TTL != lastEntry.TTL || entry.RecordType != lastEntry.RecordType {
 				p.logger.With("member", entry.GetFQDN()).Info("Member changed: %s (target: %s -> %s, ttl: %d -> %d, type: %s -> %s)", entry.GetFQDN(), lastEntry.Target, entry.Target, lastEntry.TTL, entry.TTL, lastEntry.RecordType, entry.RecordType)
 				p.publishEntry(batchProcessor, entry, false)
 			} else {
-				// Unchanged but confirmed present: refresh last-seen only.
 				hostname := shortHostname(entry, p.domain)
 				for _, targetDomain := range p.targetDomains() {
 					realDomain := p.resolveRealDomain(targetDomain)
@@ -439,7 +408,6 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 		}
 	}
 
-	// Process removals
 	for key, entry := range last {
 		if _, exists := current[key]; !exists {
 			p.logMemberRemoved(entry.GetFQDN())
@@ -476,7 +444,6 @@ func diffKeys(old, new map[string]struct{}) (added, removed []string) {
 func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
 	p.logger.Trace("fetchMembers called (apiType=%s, detected=%v)", p.apiType, p.apiTypeDetected)
 	if !p.apiTypeDetected {
-		// Try ZTNet first if apiType is empty or ztnet
 		p.logger.Debug("Attempting ZTNet API detection")
 		entries, err := p.fetchZTNetMembers()
 		if err == nil && len(entries) > 0 {
@@ -487,7 +454,6 @@ func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
 		} else if err != nil {
 			p.logger.Debug("ZTNet API error: %v", err)
 		}
-		// If ZTNet fails, try Zerotier Central
 		p.logger.Debug("ZTNet API not detected, falling back to Zerotier Central")
 		entries, err = p.fetchZerotierMembers()
 		if err == nil && len(entries) > 0 {
@@ -498,11 +464,9 @@ func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
 		} else if err != nil {
 			p.logger.Debug("Zerotier Central API error: %v", err)
 		}
-		// If both fail, log error and return
 		p.logger.Error("Could not detect working Zerotier API (tried ZTNet and Zerotier Central)")
 		return nil, fmt.Errorf("could not detect working Zerotier API (tried ZTNet and Zerotier Central)")
 	}
-	// Use cached type for all future polls
 	if p.apiType == "ztnet" {
 		return p.fetchZTNetMembers()
 	}
@@ -512,7 +476,6 @@ func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
 func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 	p.logger.Debug("Fetching Zerotier members from %s", p.apiURL)
 
-	// Parse network_id to handle ZT-Net format gracefully if fallback occurs
 	networkid := p.networkID
 	parts := strings.Split(networkid, ":")
 	if len(parts) >= 2 { // It can be 2 or 3 parts for ZT-Net format
@@ -521,7 +484,6 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 	url := strings.TrimRight(p.apiURL, "/") + "/api/network/" + networkid + "/member"
 	p.logger.Trace("Member API URL: %s", url)
 
-	// Use shared HTTP function with Bearer token header
 	headers := map[string]string{
 		"Authorization": "bearer " + p.token,
 	}
@@ -546,7 +508,6 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 	}
 
 	domain := p.domain
-	// Always use the configured domain. Remove autodetect from network config.
 	if domain == "" {
 		p.logger.Warn("No domain configured for Zerotier, skipping DNS entry creation")
 		return nil, nil
@@ -555,8 +516,6 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 	p.logger.Debug("Filtering members using filter system")
 	var entries []DNSEntry
 	for _, m := range members {
-		// Determine if member is "online" based on recent activity
-		// Use configurable timeout (default 5 minutes)
 		currentTime := time.Now().Unix() * 1000 // Convert to milliseconds
 		timeoutMs := int64(p.onlineTimeoutSeconds * 1000)
 		timeSinceLastSeen := currentTime - m.LastSeen
@@ -567,7 +526,6 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 
 		p.logger.Trace("Evaluating member: id=%s, name=%s, online=%v (lastSeen %dms ago, timeout %dms), authorized=%v, ips=%v, address=%s", m.ID, m.Name, isOnline, timeSinceLastSeen, timeoutMs, m.Config.Authorized, m.Config.IPAssignments, m.Config.Address)
 
-		// Apply filtering
 		memberData := ZerotierCentralMember{
 			ID:            m.ID,
 			Name:          m.Name,
@@ -583,14 +541,11 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 			continue
 		}
 
-		// Determine hostname to use
 		hostname := m.Name
 		if hostname == "" {
 			if p.useAddressAsFallback && m.Config.Address != "" {
 				hostname = m.Config.Address
-				// Track that this member is using address fallback
 				p.addressFallbackMembers[hostname] = true
-				// Only log fallback message once per member hostname, or always in debug mode
 				if !p.loggedFallbackMembers[hostname] {
 					p.logger.With("member", hostname).Verbose("Member has no name, using address as hostname")
 					p.loggedFallbackMembers[hostname] = true
@@ -613,7 +568,6 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 			if strings.Contains(ip, ":") {
 				recordType = "AAAA"
 			}
-			// Always use the configured domain for DNS entry creation
 			entry := DNSEntry{
 				Hostname:   hostname,
 				Domain:     p.domain, // Force use of configured domain
@@ -631,7 +585,6 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 
 func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	p.logger.Debug("Fetching ZT-Net members from %s", p.apiURL)
-	// Parse network_id for org, dnsname, networkid
 	org := ""
 	networkid := p.networkID
 	parts := strings.Split(networkid, ":")
@@ -650,7 +603,6 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	}
 	p.logger.Trace("ZT-Net members API URL: %s", url)
 
-	// Use shared HTTP function with ZTNet auth header
 	headers := map[string]string{
 		"x-ztnet-auth": p.token,
 	}
@@ -676,7 +628,6 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	}
 
 	domain := p.domain
-	// Always use the configured domain. Remove fallback to dnsname.
 	if domain == "" {
 		p.logger.Warn("No domain configured for ZT-Net, skipping DNS entry creation")
 		return nil, nil
@@ -685,7 +636,6 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	p.logger.Debug("Filtering members using filter system")
 	var entries []DNSEntry
 	for _, m := range members {
-		// Determine if member is "online" based on lastSeen timestamp
 		isOnline := true // Default to online if we can't parse lastSeen
 		if m.LastSeen != "" {
 			if lastSeenTime, err := time.Parse(time.RFC3339, m.LastSeen); err == nil {
@@ -697,17 +647,14 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 					timeSinceLastSeen.Truncate(time.Second), timeoutDuration, p.onlineTimeoutSeconds, isOnline)
 			} else {
 				p.logger.With("member", m.Name).Warn("Failed to parse lastSeen timestamp: %s", m.LastSeen)
-				// Fall back to the boolean online field if timestamp parsing fails
 				isOnline = m.Online
 			}
 		} else {
-			// If no lastSeen field, fall back to boolean online field
 			isOnline = m.Online
 		}
 
 		p.logger.Trace("Evaluating member: id=%s, name=%s, online=%v, authorized=%v, tags=%v, address=%s, nodeid=%d, physicalAddress=%s", m.ID, m.Name, isOnline, m.Authorized, m.Tags, m.Address, m.NodeID, m.PhysicalAddress)
 
-		// Apply filtering
 		memberData := ZTNetMember{
 			ID:              m.ID,
 			Name:            m.Name,
@@ -726,14 +673,11 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 			continue
 		}
 
-		// Determine hostname to use
 		hostname := m.Name
 		if hostname == "" {
 			if p.useAddressAsFallback && m.Address != "" {
 				hostname = m.Address
-				// Track that this member is using address fallback
 				p.addressFallbackMembers[hostname] = true
-				// Only log fallback message once per member hostname, or always in debug mode
 				if !p.loggedFallbackMembers[hostname] {
 					p.logger.With("member", hostname).Verbose("Member has no name, using address as hostname")
 					p.loggedFallbackMembers[hostname] = true
@@ -758,7 +702,6 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 			}
 			fqdn := hostname + "." + domain
 			p.logger.Debug("Constructed FQDN: hostname='%s', domain='%s', fqdn='%s'", hostname, domain, fqdn)
-			// Create DNS entry
 			entry := DNSEntry{
 				Name:       fqdn,
 				Hostname:   hostname,
@@ -774,7 +717,6 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	return entries, nil
 }
 
-// ZerotierCentralMember represents a member from ZeroTier Central API
 type ZerotierCentralMember struct {
 	ID            string   `json:"id"`
 	Name          string   `json:"name"`
@@ -785,25 +727,21 @@ type ZerotierCentralMember struct {
 	Address       string   `json:"address"`
 }
 
-// StringArray is a helper type that unmarshals from either a JSON|array of strings into a go [] string.
 type StringArray []string
 
 func (sa *StringArray) UnmarshalJSON(b []byte) error {
-	// single string
 	var s string
 	if err := json.Unmarshal(b, &s); err == nil {
 		*sa = StringArray{s}
 		return nil
 	}
 
-	// array of strings
 	var strs []string
 	if err := json.Unmarshal(b, &strs); err == nil {
 		*sa = StringArray(strs)
 		return nil
 	}
 
-	// generic array (or recursive arrays or multiple types)
 	var arr []interface{}
 	if err := json.Unmarshal(b, &arr); err == nil {
 		out := make([]string, 0, len(arr))
@@ -836,7 +774,6 @@ func (sa *StringArray) UnmarshalJSON(b []byte) error {
 	return fmt.Errorf("invalid tags field: %s", string(b))
 }
 
-// formatInterfaceValue formats interface{} into simple string
 func formatInterfaceValue(v interface{}) string {
 	switch x := v.(type) {
 	case string:
@@ -851,7 +788,6 @@ func formatInterfaceValue(v interface{}) string {
 	}
 }
 
-// ZTNetMember represents a member from ZT-Net API
 type ZTNetMember struct {
 	ID              string      `json:"id"`
 	Name            string      `json:"name"`
@@ -865,7 +801,6 @@ type ZTNetMember struct {
 	PhysicalAddress string      `json:"physicalAddress"`
 }
 
-// EvaluateZerotierFilters evaluates structured filters against ZeroTier members
 func EvaluateZerotierFilters(filterConfig common.FilterConfig, member interface{}) bool {
 	return filterConfig.Evaluate(member, func(filter common.Filter, entry any) bool {
 		return evaluateZerotierFilter(filter, entry)
@@ -922,7 +857,6 @@ func evaluateZerotierFilter(filter common.Filter, member interface{}) bool {
 		return true
 
 	case common.FilterTypeTag:
-		// Only supported by ZT-Net
 		if ztnetMember, ok := member.(ZTNetMember); ok {
 			for _, condition := range filter.Conditions {
 				found := false
@@ -970,7 +904,6 @@ func evaluateZerotierFilter(filter common.Filter, member interface{}) bool {
 		return true
 
 	case "nodeid":
-		// Only supported by ZT-Net
 		if ztnetMember, ok := member.(ZTNetMember); ok {
 			for _, condition := range filter.Conditions {
 				nodeIDStr := fmt.Sprintf("%d", ztnetMember.NodeID)
@@ -1007,7 +940,6 @@ func evaluateZerotierFilter(filter common.Filter, member interface{}) bool {
 		return true
 
 	case "physicalAddress":
-		// Only supported by ZT-Net
 		if ztnetMember, ok := member.(ZTNetMember); ok {
 			for _, condition := range filter.Conditions {
 				if !common.RegexMatch(condition.Value, ztnetMember.PhysicalAddress) {
@@ -1040,7 +972,6 @@ func detectAPIType(apiURL, networkID, apiToken string) string {
 		url = strings.TrimRight(apiURL, "/") + "/api/v1/network/" + networkid + "/member/"
 	}
 
-	// Try ZTNet detection using shared HTTP function
 	headers := map[string]string{
 		"x-ztnet-auth": apiToken,
 	}
@@ -1052,11 +983,9 @@ func detectAPIType(apiURL, networkID, apiToken string) string {
 		}
 	}
 
-	// Fallback to Zerotier Central
 	return "zerotier"
 }
 
-// GetName returns the provider name
 func (zp *ZerotierProvider) GetName() string {
 	return "zerotier"
 }

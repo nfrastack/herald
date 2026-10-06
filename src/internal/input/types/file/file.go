@@ -41,12 +41,10 @@ type DNSEntry struct {
 	SourceName             string `json:"source_name"`
 }
 
-// GetFQDN returns the fully qualified domain name
 func (d DNSEntry) GetFQDN() string {
 	return d.Name
 }
 
-// GetRecordType returns the DNS record type
 func (d DNSEntry) GetRecordType() string {
 	return d.RecordType
 }
@@ -88,13 +86,11 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		return nil, fmt.Errorf("%s source option (file path) is required", logPrefix)
 	}
 
-	// Convert string options to structured options for filtering
 	structuredOptions := make(map[string]interface{})
 	for key, value := range options {
 		structuredOptions[key] = value
 	}
 
-	// Parse filter configuration using structured format
 	filterLogPrefix := logPrefix + "/filter"
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
@@ -130,7 +126,6 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 				finalInterval = d
 				watchMode = false
 			} else {
-				// Use global logger here since scoped logger doesn't exist yet
 				log.NewScopedLogger("", "").With("provider", parsed.Name).Warn("Invalid interval '%s', using default: watchMode=true", v)
 			}
 		}
@@ -143,10 +138,8 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	}
 	logLevel := options["log_level"] // Get provider-specific log level
 
-	// Create scoped logger
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
-	// Only log override message if there's actually a log level override
 	if logLevel != "" {
 		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
 	}
@@ -182,7 +175,6 @@ func (p *FileProvider) StartPolling() error {
 	if p.watchMode {
 		go p.watchLoop()
 	} else if p.interval == 0 {
-		// Run once only
 		go func() {
 			p.processFile()
 			p.running = false
@@ -215,7 +207,6 @@ func (p *FileProvider) pollLoop() {
 		p.logger.Trace("Processing existing file on startup")
 		p.processFile()
 	}
-	// Always process once immediately on startup
 	if !p.processExisting {
 		p.processFile()
 	}
@@ -256,11 +247,9 @@ func (p *FileProvider) watchLoop() {
 				return
 			}
 
-			// Check if this event is for our actual source file
 			absSource, _ := filepath.Abs(p.source)
 			absEvent, _ := filepath.Abs(event.Name)
 
-			// Only log and process events for our actual source file, not other files in directory
 			if absEvent == absSource && (event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) != 0) {
 				p.logger.Trace("fsnotify event: Name='%s', Op=%v", event.Name, event.Op)
 				switch {
@@ -293,7 +282,6 @@ func (p *FileProvider) processFile() {
 		return
 	}
 	p.logger.Debug("Processing %d DNS entries from file", len(entries))
-	// p.logger.Trace("%s Available domains in config: %v", p.logPrefix, keys(config.GlobalConfig.Domains)) // Removed direct access
 
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
 	current := make(map[string]DNSEntry)
@@ -312,13 +300,6 @@ func (p *FileProvider) processFile() {
 			}
 			p.logger.With("fqdn", fqdnNoDot).Trace("New or changed record detected, type='%s'", recordType)
 
-			// The domain.EnsureDNSForRouterStateWithProvider will handle domain config lookup
-			// and input provider validation.
-			// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-			// This is consistent with how other input providers pass the FQDN.
-			// The domain.EnsureDNSForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
-
-			// Use helper to get parent domain for correct domain config matching
 			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 			p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
 			state := domain.RouterState{
@@ -342,13 +323,6 @@ func (p *FileProvider) processFile() {
 				recordType := old.GetRecordType()
 				p.logger.With("fqdn", fqdnNoDot).Info("Record removed (%s)", recordType)
 
-				// The domain.EnsureDNSRemoveForRouterStateWithProvider will handle domain config lookup
-				// and input provider validation.
-				// We pass the fqdnNoDot as the domain for now, and the domain package will resolve it to the correct domain config.
-				// This is consistent with how other input providers pass the FQDN.
-				// The domain.EnsureDNSRemoveForRouterStateWithProvider will extract the domain and subdomain from fqdnNoDot.
-
-				// Use helper to get parent domain for correct domain config matching
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 				p.logger.Trace("Using real domain name '%s' for DNS provider (removal)", realDomain)
 				state := domain.RouterState{
@@ -370,7 +344,6 @@ func (p *FileProvider) processFile() {
 	p.isInitialLoad = false // Mark that we've completed the initial load
 	p.mutex.Unlock()
 
-	// Finalize the batch - this will sync output files only if there were changes
 	batchProcessor.FinalizeBatch()
 }
 
@@ -384,7 +357,6 @@ func (p *FileProvider) readFile() ([]DNSEntry, error) {
 	var records []common.FileRecord
 	if p.format == "yaml" {
 		p.logger.Trace("Parsing YAML file")
-		// Try structured format first, fall back to basic format
 		records, err = parsers.ParseStructuredYAML(data)
 		if err != nil {
 			p.logger.Trace("Structured YAML parse failed, trying basic format: %v", err)
@@ -396,7 +368,6 @@ func (p *FileProvider) readFile() ([]DNSEntry, error) {
 		}
 	} else if p.format == "json" {
 		p.logger.Trace("Parsing JSON file")
-		// Try structured format first, fall back to basic format
 		records, err = parsers.ParseStructuredJSON(data)
 		if err != nil {
 			p.logger.Trace("Structured JSON parse failed, trying basic format: %v", err)
@@ -419,7 +390,6 @@ func (p *FileProvider) readFile() ([]DNSEntry, error) {
 	}
 	entries := common.ConvertRecordsToDNSEntries(records, p.name)
 
-	// Convert from common.DNSEntry to local DNSEntry type
 	var localEntries []DNSEntry
 	for _, entry := range entries {
 		localEntries = append(localEntries, DNSEntry{
@@ -439,17 +409,14 @@ func (p *FileProvider) readFile() ([]DNSEntry, error) {
 	return localEntries, nil
 }
 
-// GetName returns the provider name
 func (fp *FileProvider) GetName() string {
 	return "file"
 }
 
-// SetDomainConfigs allows injection of loaded domain configs (like Docker/Caddy)
 func (p *FileProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
 	p.domainConfigs = domainConfigs
 }
 
-// Helper to find the best matching domain config by suffix match on the 'name' field
 func (p *FileProvider) getParentDomainForFQDN(fqdn string) string {
 	p.logger.Trace("getParentDomainForFQDN called with fqdn='%s'", fqdn)
 	var bestMatch string

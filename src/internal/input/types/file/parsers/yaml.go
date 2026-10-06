@@ -12,7 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ParseStructuredYAML parses the structured YAML format and returns FileRecords
 func ParseStructuredYAML(data []byte) ([]common.FileRecord, error) {
 	var file StructuredFile
 	if err := yaml.Unmarshal(data, &file); err != nil {

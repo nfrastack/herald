@@ -2,10 +2,6 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
-// DNS Provider Template
-// This file serves as a template for implementing new DNS providers for Herald.
-// Replace "PROVIDER" with your actual provider name (e.g., "route53", "digitalocean", etc.)
-
 package output
 
 import (
@@ -21,8 +17,6 @@ import (
 	"time"
 )
 
-// STEP 1: Define your DNS record structure
-// This should match what your DNS provider's API expects
 type providerDNSRecord struct {
 	Domain     string
 	Hostname   string
@@ -31,37 +25,18 @@ type providerDNSRecord struct {
 	TTL        int
 	Source     string
 	ID         string // Provider-specific record ID (if supported)
-	// Add any provider-specific fields here
-	// Example:
-	// Priority int    `json:"priority,omitempty"` // For MX records
-	// Weight   int    `json:"weight,omitempty"`   // For SRV records
 }
 
-// STEP 2: Define your provider format structure
-// This holds the configuration and state for your DNS provider
 type providerFormat struct {
 	profileName string
 	config      map[string]interface{}
 
-	// REQUIRED: Authentication credentials
-	// Choose the appropriate authentication method for your provider:
 	apiToken string // For token-based auth (like Cloudflare)
-	// apiKey      string // For API key-based auth
-	// username    string // For username/password auth
-	// password    string // For username/password auth
-	// secretKey   string // For AWS-style auth
-	// accessKey   string // For AWS-style auth
-
-	// OPTIONAL: Provider-specific configuration
-	// endpoint    string // For custom API endpoints
-	// region      string // For region-specific providers
-	// namespace   string // For namespaced providers
 
 	records map[string]*providerDNSRecord
 	mutex   sync.RWMutex
 }
 
-// STEP 3: Implement the OutputFormat interface
 func (p *providerFormat) GetName() string {
 	return "PROVIDER" // Replace with your provider name
 }
@@ -122,29 +97,19 @@ func (p *providerFormat) Sync() error {
 	return nil
 }
 
-// STEP 4: Implement the main sync logic
 func (p *providerFormat) syncSingleRecord(record *providerDNSRecord) error {
-	// IMPLEMENTATION PATTERN:
-	// 1. Get domain/zone information (if needed)
-	// 2. Check if record already exists
-	// 3. Create or update the record
-	// 4. Handle errors appropriately
 
-	// Example implementation:
 	/*
-		// Step 1: Get zone ID (if your provider uses zones)
 		zoneID, err := p.getZoneID(record.Domain)
 		if err != nil {
 			return fmt.Errorf("failed to get zone ID for domain %s: %v", record.Domain, err)
 		}
 
-		// Step 2: Check if record already exists
 		existingRecordID, err := p.findExistingRecord(zoneID, record)
 		if err != nil {
 			return fmt.Errorf("failed to check existing record: %v", err)
 		}
 
-		// Step 3: Create or update
 		if existingRecordID != "" {
 			return p.updateRecord(zoneID, existingRecordID, record)
 		} else {
@@ -152,18 +117,12 @@ func (p *providerFormat) syncSingleRecord(record *providerDNSRecord) error {
 		}
 	*/
 
-	// For now, just log what would happen
 	log.Info("[output/PROVIDER] Would sync record: %s.%s %s -> %s",
 		record.Hostname, record.Domain, record.RecordType, record.Target)
 	return nil
 }
 
-// STEP 5: Implement helper methods for your provider's API
-// These methods will vary significantly based on your provider's API structure
-
 func (p *providerFormat) getZoneID(domain string) (string, error) {
-	// EXAMPLE: Get zone/domain ID from your provider
-	// This is needed for providers that organize records under zones/domains
 
 	url := "https://api.PROVIDER.com/v1/domains/" + domain // Replace with actual API endpoint
 
@@ -172,10 +131,7 @@ func (p *providerFormat) getZoneID(domain string) (string, error) {
 		return "", err
 	}
 
-	// AUTHENTICATION: Choose the appropriate method
 	req.Header.Set("Authorization", "Bearer "+p.apiToken) // Token auth
-	// req.Header.Set("X-API-Key", p.apiKey)               // API key auth
-	// req.SetBasicAuth(p.username, p.password)            // Basic auth
 
 	req.Header.Set("Content-Type", "application/json")
 
@@ -191,11 +147,9 @@ func (p *providerFormat) getZoneID(domain string) (string, error) {
 		return "", fmt.Errorf("provider API error %d: %s", resp.StatusCode, string(body))
 	}
 
-	// PARSE RESPONSE: Adjust based on your provider's response format
 	var response struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
-		// Add other fields as needed
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
@@ -206,14 +160,12 @@ func (p *providerFormat) getZoneID(domain string) (string, error) {
 }
 
 func (p *providerFormat) findExistingRecord(zoneID string, record *providerDNSRecord) (string, error) {
-	// EXAMPLE: Check if a DNS record already exists
 
 	recordName := record.Hostname + "." + record.Domain
 	if record.Hostname == "@" || record.Hostname == "" {
 		recordName = record.Domain
 	}
 
-	// Construct API URL based on your provider's API
 	url := fmt.Sprintf("https://api.PROVIDER.com/v1/domains/%s/records?name=%s&type=%s",
 		zoneID, recordName, record.RecordType)
 
@@ -240,7 +192,6 @@ func (p *providerFormat) findExistingRecord(zoneID string, record *providerDNSRe
 		return "", fmt.Errorf("provider API error %d: %s", resp.StatusCode, string(body))
 	}
 
-	// PARSE RESPONSE: Adjust based on your provider's response format
 	var response struct {
 		Records []struct {
 			ID      string `json:"id"`
@@ -262,22 +213,17 @@ func (p *providerFormat) findExistingRecord(zoneID string, record *providerDNSRe
 }
 
 func (p *providerFormat) createRecord(zoneID string, record *providerDNSRecord) error {
-	// EXAMPLE: Create a new DNS record
 
 	recordName := record.Hostname + "." + record.Domain
 	if record.Hostname == "@" || record.Hostname == "" {
 		recordName = record.Domain
 	}
 
-	// PAYLOAD: Adjust based on your provider's API requirements
 	payload := map[string]interface{}{
 		"type":    record.RecordType,
 		"name":    recordName,
 		"content": record.Target,
 		"ttl":     record.TTL,
-		// Add provider-specific fields as needed:
-		// "priority": record.Priority, // For MX records
-		// "weight":   record.Weight,   // For SRV records
 	}
 
 	jsonBytes, err := json.Marshal(payload)
@@ -312,14 +258,12 @@ func (p *providerFormat) createRecord(zoneID string, record *providerDNSRecord) 
 }
 
 func (p *providerFormat) updateRecord(zoneID, recordID string, record *providerDNSRecord) error {
-	// EXAMPLE: Update an existing DNS record
 
 	recordName := record.Hostname + "." + record.Domain
 	if record.Hostname == "@" || record.Hostname == "" {
 		recordName = record.Domain
 	}
 
-	// PAYLOAD: Adjust based on your provider's API requirements
 	payload := map[string]interface{}{
 		"type":    record.RecordType,
 		"name":    recordName,
@@ -358,10 +302,7 @@ func (p *providerFormat) updateRecord(zoneID, recordID string, record *providerD
 	return nil
 }
 
-// STEP 6: Create the factory function
-// This function will be called by Herald to create instances of your provider
 func createPROVIDEROutputDirect(profileName string, config map[string]interface{}) (OutputFormat, error) {
-	// VALIDATION: Check required configuration fields
 	apiTokenRaw, ok := config["api_token"]
 	if !ok || apiTokenRaw == nil {
 		return nil, fmt.Errorf("PROVIDER DNS requires 'api_token' field")
@@ -374,24 +315,13 @@ func createPROVIDEROutputDirect(profileName string, config map[string]interface{
 		return nil, fmt.Errorf("PROVIDER DNS api_token cannot be empty after processing")
 	}
 
-	// OPTIONAL: Validate other configuration fields
-	// endpoint, _ := config["endpoint"].(string)
-	// if endpoint == "" {
-	//     endpoint = "https://api.PROVIDER.com" // Default endpoint
-	// }
-
 	return &providerFormat{
 		profileName: profileName,
 		config:      config,
 		apiToken:    apiToken,
-		// endpoint:    endpoint,
-		records: make(map[string]*providerDNSRecord),
+		records:     make(map[string]*providerDNSRecord),
 	}, nil
 }
-
-// STEP 7: Register your provider (add this to the init() function in output.go)
-// You'll need to add this line to the registerAllCoreFormats() function:
-// RegisterFormat("dns/PROVIDER", createPROVIDEROutputDirect)
 
 /*
 CONFIGURATION EXAMPLE:

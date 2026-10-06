@@ -12,13 +12,11 @@ import (
 	"strings"
 )
 
-// DomainProfiles represents the new profiles structure for domains
 type DomainProfiles struct {
 	Inputs  []string `yaml:"inputs" json:"inputs"`
 	Outputs []string `yaml:"outputs" json:"outputs"`
 }
 
-// DomainConfig represents a domain configuration with targeting capabilities
 type DomainConfig struct {
 	Name     string          `yaml:"name" json:"name"`
 	Provider string          `yaml:"provider" json:"provider"`
@@ -34,7 +32,6 @@ type DomainConfig struct {
 	LogLevel string `yaml:"log_level" json:"log_level"`
 }
 
-// GetInputProfiles returns the effective input profiles
 func (dc *DomainConfig) GetInputProfiles() []string {
 	if dc.Profiles != nil {
 		return dc.Profiles.Inputs
@@ -42,7 +39,6 @@ func (dc *DomainConfig) GetInputProfiles() []string {
 	return nil
 }
 
-// GetOutputs returns the effective outputs
 func (dc *DomainConfig) GetOutputs() []string {
 	if dc.Profiles != nil {
 		return dc.Profiles.Outputs
@@ -50,18 +46,15 @@ func (dc *DomainConfig) GetOutputs() []string {
 	return nil
 }
 
-// GetName returns the name of the domain
 func (dc *DomainConfig) GetName() string {
 	return dc.Name
 }
 
-// DomainManager manages domain configurations and their access controls
 type DomainManager struct {
 	domains map[string]*DomainConfig
 	logger  *log.ScopedLogger
 }
 
-// NewDomainManager creates a new domain manager
 func NewDomainManager() *DomainManager {
 	return &DomainManager{
 		domains: make(map[string]*DomainConfig),
@@ -69,31 +62,25 @@ func NewDomainManager() *DomainManager {
 	}
 }
 
-// AddDomain adds a domain configuration
 func (dm *DomainManager) AddDomain(name string, config *DomainConfig) {
 	dm.domains[name] = config
 }
 
-// GetDomain retrieves a domain configuration
 func (dm *DomainManager) GetDomain(name string) (*DomainConfig, bool) {
 	domain, exists := dm.domains[name]
 	return domain, exists
 }
 
-// GetAllDomains returns all domain configurations
 func (dm *DomainManager) GetAllDomains() map[string]*DomainConfig {
 	return dm.domains
 }
 
-// ValidateDomainConfigurations validates that all domain configurations reference existing providers and profiles
 func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfiles, outputProfiles, dnsProviders map[string]interface{}) error {
 	var errors []string
 
 	for domainName, domain := range domains {
-		// Get effective input profiles
 		inputProfilesToValidate := domain.GetInputProfiles()
 
-		// Validate input_profiles exist
 		for _, inputProfile := range inputProfilesToValidate {
 			if _, exists := inputProfiles[inputProfile]; !exists {
 				availableInputs := getMapKeys(inputProfiles)
@@ -102,10 +89,8 @@ func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfile
 			}
 		}
 
-		// Get effective outputs
 		outputsToValidate := domain.GetOutputs()
 
-		// Validate outputs exist
 		for _, output := range outputsToValidate {
 			if _, exists := outputProfiles[output]; !exists {
 				availableOutputs := getMapKeys(outputProfiles)
@@ -114,7 +99,6 @@ func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfile
 			}
 		}
 
-		// Validate DNS provider exists (if specified and not empty)
 		if domain.Provider != "" && domain.Provider != "none" {
 			if _, exists := dnsProviders[domain.Provider]; !exists {
 				availableProviders := getMapKeys(dnsProviders)
@@ -123,7 +107,6 @@ func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfile
 			}
 		}
 
-		// Validate that domain has at least one destination (DNS provider or outputs)
 		hasDestination := (domain.Provider != "" && domain.Provider != "none") || len(domain.GetOutputs()) > 0
 		if !hasDestination {
 			errors = append(errors, fmt.Sprintf("domain '%s' has no destination configured (must have either a DNS provider or outputs)", domainName))
@@ -137,7 +120,6 @@ func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfile
 	return nil
 }
 
-// ValidateInputProviderAccess checks if an input provider is allowed to use a specific domain
 func (dm *DomainManager) ValidateInputProviderAccess(domainName, inputProviderName string) bool {
 	domain, exists := dm.domains[domainName]
 	if !exists {
@@ -145,15 +127,12 @@ func (dm *DomainManager) ValidateInputProviderAccess(domainName, inputProviderNa
 		return false
 	}
 
-	// Get effective input profiles
 	inputProfiles := domain.GetInputProfiles()
 
-	// If no input_profiles specified, allow all
 	if len(inputProfiles) == 0 {
 		return true
 	}
 
-	// Check if this input provider is in the allowed list
 	for _, allowedProvider := range inputProfiles {
 		if allowedProvider == inputProviderName {
 			return true
@@ -165,7 +144,6 @@ func (dm *DomainManager) ValidateInputProviderAccess(domainName, inputProviderNa
 	return false
 }
 
-// ValidateOutputProfileAccess checks if an output profile should process records for a specific domain
 func (dm *DomainManager) ValidateOutputProfileAccess(domainName, outputProfileName string) bool {
 	domain, exists := dm.domains[domainName]
 	if !exists {
@@ -173,15 +151,12 @@ func (dm *DomainManager) ValidateOutputProfileAccess(domainName, outputProfileNa
 		return false
 	}
 
-	// Get effective outputs
 	outputs := domain.GetOutputs()
 
-	// If no outputs specified, don't send to any outputs
 	if len(outputs) == 0 {
 		return false
 	}
 
-	// Check if this output profile is in the allowed list
 	for _, allowedProfile := range outputs {
 		if allowedProfile == outputProfileName {
 			return true
@@ -193,9 +168,7 @@ func (dm *DomainManager) ValidateOutputProfileAccess(domainName, outputProfileNa
 	return false
 }
 
-// ProcessRecord processes a record from an input provider, applying access controls
 func (dm *DomainManager) ProcessRecord(inputProviderName, domainName, hostname, target, recordType string, ttl int) error {
-	// Check if input provider is allowed for this domain
 	if !dm.ValidateInputProviderAccess(domainName, inputProviderName) {
 		dm.logger.Debug("Skipping record from input provider '%s' for domain '%s' (not allowed)", inputProviderName, domainName)
 		return nil
@@ -210,22 +183,17 @@ func (dm *DomainManager) ProcessRecord(inputProviderName, domainName, hostname, 
 	dm.logger.Verbose("%s Processing record from input provider '%s': %s.%s (%s) -> %s",
 		logPrefix, inputProviderName, hostname, domainName, recordType, target)
 
-	// Process DNS provider (if configured)
 	if domain.Provider != "" && domain.Provider != "none" {
 		dm.logger.Debug("Sending record to DNS provider '%s' for domain '%s'", domain.Provider, domainName)
-		// TODO: Integrate with DNS provider system
 	}
 
-	// Process output profiles
 	for _, outputProfile := range domain.GetOutputs() {
 		dm.logger.Debug("Sending record to output profile '%s' for domain '%s'", outputProfile, domainName)
-		// TODO: Integrate with output manager system
 	}
 
 	return nil
 }
 
-// getMapKeys extracts keys from a map for error messages
 func getMapKeys(m map[string]interface{}) []string {
 	keys := make([]string, 0, len(m))
 	for key := range m {
@@ -234,23 +202,16 @@ func getMapKeys(m map[string]interface{}) []string {
 	return keys
 }
 
-// Load loads the domain configuration
 func (c *DomainConfig) Load() error {
-	// c.logger.Info("%s Loading domain config", logPrefix)
 
-	// Simulate loading process
 	err := simulateLoadProcess()
 	if err != nil {
-		// c.logger.Error("%s Failed to load domain config: %v", logPrefix, err)
 		return err
 	}
 
-	// c.logger.Info("%s Domain config loaded successfully", logPrefix)
 	return nil
 }
 
-// simulateLoadProcess simulates the configuration loading process
 func simulateLoadProcess() error {
-	// Simulate some loading logic
 	return nil
 }

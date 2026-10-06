@@ -4,7 +4,6 @@
 
 package common
 
-// OutputFormat defines the interface for all output formats (file, remote, etc.)
 type OutputFormat interface {
 	GetName() string
 	WriteRecord(domain, hostname, target, recordType string, ttl int) error

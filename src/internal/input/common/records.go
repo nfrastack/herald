@@ -12,7 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DNSEntry represents a DNS entry from input providers - local definition to avoid import cycle
 type DNSEntry struct {
 	Name                   string `json:"name"`
 	Hostname               string `json:"hostname"`
@@ -67,7 +66,6 @@ type UnifiedFile struct {
 	Domains  map[string]DomainBlock `yaml:"domains" json:"domains"`
 }
 
-// ParseUnifiedFile parses the new YAML/JSON structure and returns a flat list of FileRecord
 func ParseUnifiedFile(data []byte, isYAML bool) ([]FileRecord, error) {
 	var uf UnifiedFile
 	var err error
@@ -80,11 +78,9 @@ func ParseUnifiedFile(data []byte, isYAML bool) ([]FileRecord, error) {
 		return nil, err
 	}
 	var out []FileRecord
-	// Top-level records
 	for _, r := range uf.Records {
 		out = append(out, r)
 	}
-	// Domain records
 	for domain, block := range uf.Domains {
 		for _, dr := range block.Records {
 			fqdn := dr.Hostname
@@ -106,7 +102,6 @@ func ParseUnifiedFile(data []byte, isYAML bool) ([]FileRecord, error) {
 }
 
 func ParseRecordsYAML(data []byte) ([]FileRecord, error) {
-	// First try the Herald YAML format with metadata/domains structure
 	var heraldMetadataFormat struct {
 		Metadata map[string]interface{} `yaml:"metadata"`
 		Domains  map[string]struct {
@@ -123,12 +118,10 @@ func ParseRecordsYAML(data []byte) ([]FileRecord, error) {
 	}
 
 	if err := yaml.Unmarshal(data, &heraldMetadataFormat); err == nil && len(heraldMetadataFormat.Domains) > 0 {
-		// Successfully parsed as Herald metadata/domains format
 		var records []FileRecord
 		for domain, domainData := range heraldMetadataFormat.Domains {
 			for _, hr := range domainData.Records {
 				host := hr.Hostname + "." + domain
-				// Handle root domain
 				if hr.Hostname == "@" || hr.Hostname == "" {
 					host = domain
 				}
@@ -145,7 +138,6 @@ func ParseRecordsYAML(data []byte) ([]FileRecord, error) {
 		return records, nil
 	}
 
-	// Try the Herald YAML format (simple records array)
 	var heraldSimpleFormat struct {
 		Records []struct {
 			Domain   string `yaml:"domain"`
@@ -158,11 +150,9 @@ func ParseRecordsYAML(data []byte) ([]FileRecord, error) {
 	}
 
 	if err := yaml.Unmarshal(data, &heraldSimpleFormat); err == nil && len(heraldSimpleFormat.Records) > 0 {
-		// Successfully parsed as Herald simple format
 		var records []FileRecord
 		for _, hr := range heraldSimpleFormat.Records {
 			host := hr.Hostname + "." + hr.Domain
-			// Handle root domain
 			if hr.Hostname == "@" || hr.Hostname == "" {
 				host = hr.Domain
 			}
@@ -178,12 +168,10 @@ func ParseRecordsYAML(data []byte) ([]FileRecord, error) {
 		return records, nil
 	}
 
-	// Fallback to existing unified file format
 	return ParseUnifiedFile(data, true)
 }
 
 func ParseRecordsJSON(data []byte) ([]FileRecord, error) {
-	// First try the Herald JSON format with metadata/domains structure
 	var heraldMetadataFormat struct {
 		Metadata map[string]interface{} `json:"metadata"`
 		Domains  map[string]struct {
@@ -200,12 +188,10 @@ func ParseRecordsJSON(data []byte) ([]FileRecord, error) {
 	}
 
 	if err := json.Unmarshal(data, &heraldMetadataFormat); err == nil && len(heraldMetadataFormat.Domains) > 0 {
-		// Successfully parsed as Herald metadata/domains format
 		var records []FileRecord
 		for domain, domainData := range heraldMetadataFormat.Domains {
 			for _, hr := range domainData.Records {
 				host := hr.Hostname + "." + domain
-				// Handle root domain
 				if hr.Hostname == "@" || hr.Hostname == "" {
 					host = domain
 				}
@@ -222,7 +208,6 @@ func ParseRecordsJSON(data []byte) ([]FileRecord, error) {
 		return records, nil
 	}
 
-	// Try the Herald JSON format (simple array of records)
 	var heraldRecords []struct {
 		Domain   string `json:"domain"`
 		Hostname string `json:"hostname"`
@@ -233,11 +218,9 @@ func ParseRecordsJSON(data []byte) ([]FileRecord, error) {
 	}
 
 	if err := json.Unmarshal(data, &heraldRecords); err == nil && len(heraldRecords) > 0 {
-		// Successfully parsed as Herald simple array format
 		var records []FileRecord
 		for _, hr := range heraldRecords {
 			host := hr.Hostname + "." + hr.Domain
-			// Handle root domain
 			if hr.Hostname == "@" || hr.Hostname == "" {
 				host = hr.Domain
 			}
@@ -253,7 +236,6 @@ func ParseRecordsJSON(data []byte) ([]FileRecord, error) {
 		return records, nil
 	}
 
-	// Fallback to existing unified file format
 	return ParseUnifiedFile(data, false)
 }
 
