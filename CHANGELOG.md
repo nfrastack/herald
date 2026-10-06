@@ -10,6 +10,7 @@
     - (output/dns/ovh) add provider
     - (output/dns/easydns) add provider
     - (output/dns/porkbun) add provider
+    - (output/dns/vultr) add provider
 
    ### Changed
     - (output/dns) rework provider format
