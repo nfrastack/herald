@@ -7,6 +7,7 @@
     - (output/dns/technitium) add provider
     - (output/dns/digitalocean) add provider
     - (output/dns/hetzner) add provider
+    - (output/dns/ovh) add provider
 
    ### Changed
     - (output/dns) rework provider format
