@@ -20,6 +20,8 @@ type Provider interface {
 
 	GetName() string
 
+	SupportsProxied() bool
+
 	Validate() error
 }
 

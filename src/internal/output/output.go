@@ -11,6 +11,7 @@ import (
 	fileoutput "github.com/nfrastack/herald/internal/output/types/file"
 
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,11 +45,8 @@ func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat
 			return false, fmt.Sprintf("profile '%s': dns provider not initialized", profileName)
 		}
 		applyProxied := false
-		if proxied {
-			pname := strings.ToLower(df.Provider.GetName())
-			if pname == "cloudflare" || strings.Contains(pname, "cloudflare") {
-				applyProxied = true
-			}
+		if proxied && df.Provider.SupportsProxied() {
+			applyProxied = true
 		}
 		if err := df.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, applyProxied, "", source, overwrite); err != nil {
 			return false, fmt.Sprintf("profile '%s': %v", profileName, err)
@@ -269,8 +267,21 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 		}
 		providerConfig := make(map[string]string)
 		for k, v := range config {
-			if str, ok := v.(string); ok {
-				providerConfig[k] = str
+			switch t := v.(type) {
+			case string:
+				providerConfig[k] = t
+			case bool:
+				providerConfig[k] = strconv.FormatBool(t)
+			case int:
+				providerConfig[k] = strconv.Itoa(t)
+			case float64:
+				providerConfig[k] = strconv.Itoa(int(t))
+			case map[string]interface{}:
+				for nk, nv := range t {
+					providerConfig[k+"."+nk] = fmt.Sprintf("%v", nv)
+				}
+			default:
+				providerConfig[k] = fmt.Sprintf("%v", v)
 			}
 		}
 		providerConfig["profile_name"] = profileName
