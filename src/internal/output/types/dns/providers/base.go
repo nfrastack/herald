@@ -110,11 +110,11 @@ func (b *BaseProvider) DoJSON(method, url string, headers map[string]string, bod
 		if err != nil {
 			return 0, nil, err
 		}
-		b.Logger.Trace("API Request Body: %s", string(raw))
+		b.Logger.With("action", "api.route").Trace("request body: %s", string(raw))
 		reader = bytes.NewReader(raw)
 	}
 
-	b.Logger.Debug("API Request: %s %s", method, url)
+	b.Logger.With("action", "api.route").Debug("request: %s %s", method, url)
 
 	req, err := http.NewRequest(method, url, reader)
 	if err != nil {
@@ -126,16 +126,16 @@ func (b *BaseProvider) DoJSON(method, url string, headers map[string]string, bod
 
 	resp, err := b.HTTPClient.Do(req)
 	if err != nil {
-		b.Logger.Debug("API Request failed: %v", err)
+		b.Logger.With("action", "api.reject").Debug("request: %v", err)
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		b.Logger.Debug("API Request successful: %s", resp.Status)
+		b.Logger.With("action", "api.route").Debug("request: %s", resp.Status)
 	} else {
-		b.Logger.Debug("API Request failed: %s - %s", resp.Status, string(respBody))
+		b.Logger.With("action", "api.reject").Debug("request: %s - %s", resp.Status, string(respBody))
 	}
 	return resp.StatusCode, respBody, nil
 }

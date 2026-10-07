@@ -39,7 +39,7 @@ func NewJSONFormat(profileName string, config map[string]interface{}) (OutputFor
 	}
 
 	if err := format.LoadExistingData(json.Unmarshal); err != nil {
-		format.logger.Warn("Failed to load existing JSON export for domain %s: %v", profileName, err)
+		format.logger.With("action", "state.load").Warn("existing JSON export load failed for domain %s: %v", profileName, err)
 	}
 
 	return format, nil
@@ -52,7 +52,7 @@ func (j *JSONFormat) GetName() string {
 func (j *JSONFormat) Sync() error {
 	err := j.CommonFormat.SyncWithSerializer(j.serializeJSON)
 	if err != nil {
-		j.logger.Error("Sync FAILED for domain=%s, profile=%s, file=%s: %v", j.GetDomain(), j.GetProfile(), j.GetFilePath(), err)
+		j.logger.With("action", "sync.fail").Error("sync failed for domain=%s, profile=%s, file=%s: %v", j.GetDomain(), j.GetProfile(), j.GetFilePath(), err)
 	}
 	return err
 }
@@ -82,9 +82,9 @@ func (j *JSONFormat) GetFilePath() string {
 }
 
 func (j *JSONFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	j.logger.Debug("WriteRecordWithSource called: domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
+	j.logger.With("action", "record.create").Debug("domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
 	defer func() {
-		j.logger.Debug("WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
+		j.logger.With("action", "record.create").Debug("domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
 	}()
 
 	filePath := j.GetFilePath()
@@ -96,11 +96,11 @@ func (j *JSONFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 
 	if !loaded {
 		if _, err := os.Stat(filePath); err == nil {
-			j.logger.Debug("Loading existing records from JSON file: %s", filePath)
+			j.logger.With("action", "state.load").Debug("loading existing records from JSON file: %s", filePath)
 			if err := j.LoadExistingData(json.Unmarshal); err != nil {
-				j.logger.Warn("Failed to load existing records from %s: %v", filePath, err)
+				j.logger.With("action", "state.load").Warn("existing records load failed from %s: %v", filePath, err)
 			} else {
-				j.logger.Debug("Successfully loaded existing records from %s", filePath)
+				j.logger.With("action", "state.load").Debug("existing records loaded from %s", filePath)
 			}
 		}
 

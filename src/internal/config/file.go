@@ -31,7 +31,7 @@ func (s *StringSliceFlag) Set(value string) error {
 }
 
 func LoadConfigFile(path string) (*ConfigFile, error) {
-	log.Debug("[config/file] Loading configuration from %s", path)
+	log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/file] configuration from %s", path)
 
 	var cfg ConfigFile
 
@@ -53,6 +53,9 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 
 	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
 		cfg.General.LogLevel = logLevel
+	}
+	if logFormat := os.Getenv("LOG_FORMAT"); logFormat != "" {
+		cfg.General.LogFormat = logFormat
 	}
 
 	if cfg.General.LogLevel == "" {
@@ -87,7 +90,7 @@ func deepMergeSectionMap(dst, src map[string]interface{}) map[string]interface{}
 }
 
 func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]byte, error) {
-	log.Trace("[config/file] Parsing config file: %s", basePath)
+	log.NewScopedLogger("", "").With("action", "config.load").Trace("[config/file] config file: %s", basePath)
 	absPath, _ := os.Getwd()
 	if !strings.HasPrefix(basePath, "/") && absPath != "" {
 		basePath = absPath + "/" + basePath
@@ -102,13 +105,13 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 	if err != nil {
 		return nil, err
 	}
-	log.Trace("[config/file] Raw YAML map in %s: %#v", basePath, util.MaskSensitiveMapRecursive(raw))
+	log.NewScopedLogger("", "").With("action", "config.load").Trace("[config/file] Raw YAML map in %s: %#v", basePath, util.MaskSensitiveMapRecursive(raw))
 
 	topKeys := make([]string, 0, len(raw))
 	for k := range raw {
 		topKeys = append(topKeys, k)
 	}
-	log.Trace("[config/file] Top-level keys in %s: %v", basePath, topKeys)
+	log.NewScopedLogger("", "").With("action", "config.load").Trace("[config/file] Top-level keys in %s: %v", basePath, topKeys)
 
 	if inc, ok := raw["include"]; ok {
 		var includeFiles []string
@@ -127,15 +130,15 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 			if !strings.HasPrefix(incFile, "/") && basePath != "" {
 				incPath = getIncludePath(basePath, incFile)
 			}
-			log.Debug("[config/file] Including file: %s", incPath)
+			log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/file] file: %s", incPath)
 			incData, err := os.ReadFile(incPath)
 			if err != nil {
-				log.Error("[config/file] Failed to read included file %s: %v", incPath, err)
+				log.NewScopedLogger("", "").With("action", "config.error").Error("[config/file] read included file %s: %v", incPath, err)
 				return nil, fmt.Errorf("failed to read included file %s: %w", incPath, err)
 			}
 			incProcessed, err := preprocessIncludes(incData, incPath, seen)
 			if err != nil {
-				log.Error("[config/file] Failed to process includes in %s: %v", incPath, err)
+				log.NewScopedLogger("", "").With("action", "config.error").Error("[config/file] process includes in %s: %v", incPath, err)
 				return nil, err
 			}
 			var incRaw map[string]interface{}
@@ -144,9 +147,9 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 			for k := range incRaw {
 				topKeys = append(topKeys, k)
 			}
-			log.Trace("[config/file] Imported keys from %s: %v", incPath, topKeys)
+			log.NewScopedLogger("", "").With("action", "config.load").Trace("[config/file] keys from %s: %v", incPath, topKeys)
 			for _, k := range topKeys {
-				log.Trace("[config/file] Key '%s' from %s: %v", k, incPath, util.MaskSensitiveMapRecursive(map[string]interface{}{k: incRaw[k]})[k])
+				log.NewScopedLogger("", "").With("action", "config.load").Trace("[config/file] Key '%s' from %s: %v", k, incPath, util.MaskSensitiveMapRecursive(map[string]interface{}{k: incRaw[k]})[k])
 			}
 			for _, section := range []string{"inputs", "domains", "defaults", "general", "outputs", "api"} {
 				if v, ok := incRaw[section]; ok {
@@ -234,7 +237,7 @@ func processConfigFileSecrets(content string) string {
 
 			fileData, err := os.ReadFile(filePath)
 			if err != nil {
-				log.Error("[config/file] Failed to read secret file %s: %v", filePath, err)
+				log.NewScopedLogger("", "").With("action", "config.error").Error("[config/file] read secret file %s: %v", filePath, err)
 				return match // Keep original if error
 			}
 
@@ -285,6 +288,9 @@ func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 	}
 	if src.General.LogType != "" {
 		dst.General.LogType = src.General.LogType
+	}
+	if src.General.LogFormat != "" {
+		dst.General.LogFormat = src.General.LogFormat
 	}
 	if src.General.LogTimestamps {
 		dst.General.LogTimestamps = src.General.LogTimestamps

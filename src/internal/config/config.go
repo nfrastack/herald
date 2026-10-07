@@ -28,12 +28,12 @@ type ConfigFile struct {
 }
 
 func ExtractDomainAndSubdomainForProvider(fqdn, providerName, logPrefix string) (string, string) {
-	log.Trace("%s Extracting domain config for FQDN '%s' with provider '%s'", logPrefix, fqdn, providerName)
+	log.NewScopedLogger("", "").With("action", "domain.match").Trace("%s domain config for FQDN '%s' with provider '%s'", logPrefix, fqdn, providerName)
 
 	fqdn = strings.TrimSuffix(fqdn, ".")
 
 	if GlobalConfig.Domains == nil {
-		log.Error("%s No global config available for domain extraction", logPrefix)
+		log.NewScopedLogger("", "").With("action", "config.error").Error("%s No global config available for domain extraction", logPrefix)
 		return "", ""
 	}
 
@@ -51,25 +51,25 @@ func ExtractDomainAndSubdomainForProvider(fqdn, providerName, logPrefix string) 
 		}
 
 		if !providerAllowed {
-			log.Trace("%s Provider '%s' not allowed for domain config '%s' (inputs: %v)",
+			log.NewScopedLogger("", "").With("action", "domain.skip").Trace("%s Provider '%s' not allowed for domain config '%s' (inputs: %v)",
 				logPrefix, providerName, configKey, domainConfig.Profiles.Inputs)
 			continue
 		}
 
 		domain := domainConfig.Name
 		if fqdn == domain {
-			log.Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
+			log.NewScopedLogger("", "").With("action", "domain.match").Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
 				logPrefix, providerName, domain, configKey)
 			return configKey, "@"
 		} else if strings.HasSuffix(fqdn, "."+domain) {
 			subdomain := strings.TrimSuffix(fqdn, "."+domain)
-			log.Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
+			log.NewScopedLogger("", "").With("action", "domain.match").Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
 				logPrefix, providerName, domain, configKey)
 			return configKey, subdomain
 		}
 	}
 
-	log.Debug("%s No matching domain config found for FQDN '%s' with provider '%s'",
+	log.NewScopedLogger("", "").With("action", "domain.skip").Debug("%s No matching domain config found for FQDN '%s' with provider '%s'",
 		logPrefix, fqdn, providerName)
 	return "", ""
 }
@@ -106,6 +106,7 @@ type GeneralConfig struct {
 	LogLevel             string   `yaml:"log_level"`
 	LogTimestamps        bool     `yaml:"log_timestamps"`
 	LogType              string   `yaml:"log_type"`
+	LogFormat            string   `yaml:"log_format"`
 	InputProfiles        []string `yaml:"input_profiles"` // New input profiles list
 	OutputProfiles       []string `yaml:"output_profiles"`
 	DryRun               bool     `yaml:"dry_run"`
@@ -149,11 +150,11 @@ func GetConfig(config map[string]string, key string) string {
 
 	if len(value) > 7 && value[:7] == "file://" {
 		filePath := value[7:]
-		log.Debug("[config] Loading %s from file: %s", key, filePath)
+		log.NewScopedLogger("", "").With("action", "config.load").Debug("[config] %s from file: %s", key, filePath)
 
 		content, err := os.ReadFile(filePath)
 		if err != nil {
-			log.Error("[config] Failed to read %s from file %s: %v", key, filePath, err)
+			log.NewScopedLogger("", "").With("action", "config.error").Error("[config] read %s from file %s: %v", key, filePath, err)
 			return ""
 		}
 
@@ -162,13 +163,13 @@ func GetConfig(config map[string]string, key string) string {
 
 	if len(value) > 6 && value[:6] == "env://" {
 		envVar := value[6:]
-		log.Debug("[config] Loading %s from environment variable: %s", key, envVar)
+		log.NewScopedLogger("", "").With("action", "config.load").Debug("[config] %s from environment variable: %s", key, envVar)
 
 		if envValue := os.Getenv(envVar); envValue != "" {
 			return envValue
 		}
 
-		log.Warn("[config] Environment variable %s not found for %s", envVar, key)
+		log.NewScopedLogger("", "").With("action", "config.error").Warn("[config] Environment variable %s not found for %s", envVar, key)
 		return ""
 	}
 
@@ -265,9 +266,9 @@ func (ipc *InputProviderConfig) GetOptions(profileName string) map[string]string
 		if k == "filter" {
 			if filterData, err := json.Marshal(v); err == nil {
 				options[k] = string(filterData)
-				log.Debug("[config] Converted filter to JSON for %s: %s", profileName, string(filterData))
+				log.NewScopedLogger("", "").With("action", "config.load").Debug("[config] filter to JSON for %s: %s", profileName, string(filterData))
 			} else {
-				log.Error("[config] Failed to convert filter to JSON for %s: %v", profileName, err)
+				log.NewScopedLogger("", "").With("action", "config.error").Error("[config] convert filter to JSON for %s: %v", profileName, err)
 				options[k] = fmt.Sprintf("%v", v)
 			}
 		} else {
@@ -295,14 +296,14 @@ func InitializeOutputManager() error {
 func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, enabledProfiles []string) error {
 	outputManager := output.NewOutputManager()
 
-	log.Trace("[config/output] Starting output manager initialization")
+	log.NewScopedLogger("", "").With("action", "provider.init").Trace("[config/output] output manager initialization")
 
 	if outputConfigs != nil {
 		profileNames := make([]string, 0, len(outputConfigs))
 		for k := range outputConfigs {
 			profileNames = append(profileNames, k)
 		}
-		log.Debug("[config/output] Output profiles found in config: %v", profileNames)
+		log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/output] Output profiles found in config: %v", profileNames)
 
 		enabledSet := make(map[string]bool)
 		for _, profile := range enabledProfiles {
@@ -311,15 +312,15 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 
 		for profileName, profileConfig := range outputConfigs {
 			if len(enabledProfiles) > 0 && !enabledSet[profileName] {
-				log.Debug("[config/output] Skipping disabled profile: %s", profileName)
+				log.NewScopedLogger("", "").With("action", "sync.skip").Debug("[config/output] disabled profile: %s", profileName)
 				continue
 			}
 
-			log.Debug("[config/output] Processing profile: %s", profileName)
-			log.Debug("[config/output] Raw config for %s: %+v", profileName, profileConfig)
+			log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/output] profile: %s", profileName)
+			log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/output] Raw config for %s: %+v", profileName, profileConfig)
 
 			if configMap, ok := profileConfig.(map[string]interface{}); ok {
-				log.Debug("[config/output] Available keys for %s: %v", profileName, func() []string {
+				log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/output] Available keys for %s: %v", profileName, func() []string {
 					keys := make([]string, 0, len(configMap))
 					for k := range configMap {
 						keys = append(keys, k)
@@ -334,36 +335,36 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 				case "file":
 					format = "file"
 					if fileFormat, exists := configMap["format"].(string); exists {
-						log.Debug("[config/output] File type with format: %s", fileFormat)
+						log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/output] File type with format: %s", fileFormat)
 					} else {
-						log.Error("[config/output] File type requires 'format' field (zone, hosts, yaml, json)")
+						log.NewScopedLogger("", "").With("action", "config.error").Error("[config/output] File type requires 'format' field (zone, hosts, yaml, json)")
 						continue
 					}
 				case "remote":
 					format = "remote"
-					log.Debug("[config/output] Remote type detected")
+					log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/output] remote type")
 				case "dns":
 					format = "dns"
 					if provider, exists := configMap["provider"].(string); exists {
-						log.Debug("[config/output] DNS type with provider: %s", provider)
+						log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/output] DNS type with provider: %s", provider)
 					} else {
-						log.Error("[config/output] DNS type requires 'provider' field")
+						log.NewScopedLogger("", "").With("action", "config.error").Error("[config/output] DNS type requires 'provider' field")
 						continue
 					}
 				default:
 					format, _ = configMap["format"].(string)
 					if format == "" {
-						log.Error("[config/output] No 'type' field specified for profile '%s'. Must be 'file', 'remote', or 'dns'", profileName)
+						log.NewScopedLogger("", "").With("action", "config.error").Error("[config/output] No 'type' field specified for profile '%s'. Must be 'file', 'remote', or 'dns'", profileName)
 						continue
 					}
 				}
 
-				log.Debug("[config/output] Determined format for %s: '%s' (type: %s)", profileName, format, outputType)
+				log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/output] format for %s: '%s' (type: %s)", profileName, format, outputType)
 
 				path, _ := configMap["path"].(string)
 				domainsRaw := configMap["domains"]
 
-				log.Trace("[config/output] Output Profile %s: format=%s, path=%s, domains=%v", profileName, format, path, domainsRaw)
+				log.NewScopedLogger("", "").With("action", "config.load").Trace("[config/output] Output Profile %s: format=%s, path=%s, domains=%v", profileName, format, path, domainsRaw)
 
 				var domains []string
 				switch v := domainsRaw.(type) {
@@ -390,20 +391,20 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 
 				err := outputManager.AddProfile(profileName, path, domains, profileConfigCopy)
 				if err != nil {
-					log.Error("[output] Failed to add output profile '%s': %v", profileName, err)
+					log.NewScopedLogger("", "").With("action", "output.write").Error("[output] add output profile '%s': %v", profileName, err)
 					return err
 				} else {
-					log.Verbose("[output] Registered output profile '%s' (%s)", profileName, format)
+					log.NewScopedLogger("", "").With("action", "output.write").Verbose("[output] output profile '%s' (%s)", profileName, format)
 				}
 			} else {
-				log.Warn("[config/output] Profile '%s' has invalid configuration type", profileName)
+				log.NewScopedLogger("", "").With("action", "config.validate").Warn("[config/output] profile '%s' invalid configuration type", profileName)
 			}
 		}
 	} else {
-		log.Debug("[config/output] No outputs configuration found")
+		log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/output] no outputs configuration")
 	}
 
-	log.Debug("[config/output] Registered output profiles: %v", outputManager.ListProfileNames())
+	log.NewScopedLogger("", "").With("action", "config.load").Debug("[config/output] output profiles: %v", outputManager.ListProfileNames())
 
 	output.SetGlobalOutputManager(outputManager)
 	return nil
@@ -415,7 +416,7 @@ func LoadFileConfig(value, fieldName string) (string, error) {
 	}
 
 	filePath := value[7:] // Remove "file://" prefix
-	log.Debug("[config] Loading %s from file: %s", fieldName, filePath)
+	log.NewScopedLogger("", "").With("action", "config.load").Debug("[config] %s from file: %s", fieldName, filePath)
 
 	content, err := os.ReadFile(filePath)
 	if err != nil {
@@ -427,7 +428,7 @@ func LoadFileConfig(value, fieldName string) (string, error) {
 		return "", fmt.Errorf("%s file %s is empty", fieldName, filePath)
 	}
 
-	log.Verbose("[config] Successfully loaded %s from file", fieldName)
+	log.NewScopedLogger("", "").With("action", "config.load").Verbose("[config] %s from file", fieldName)
 	return result, nil
 }
 
@@ -455,7 +456,7 @@ func ValidateConfiguration(cfg *ConfigFile) error {
 	var errors []string
 
 	if cfg.General.SkipDomainValidation {
-		log.Debug("[config] Skipping domain validation as requested by skip_domain_validation=true")
+		log.NewScopedLogger("", "").With("action", "config.validate").Debug("[config] domain validation skipped as requested by skip_domain_validation=true")
 		return nil
 	}
 

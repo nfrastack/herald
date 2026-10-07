@@ -334,7 +334,7 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 
 	filterConfig, err := common.NewFilterFromStructuredOptions(options, filterLogger)
 	if err != nil {
-		filterLogger.Info("Error creating filter configuration: %v, using default", err)
+		filterLogger.With("action", "config.error").Info("filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
@@ -367,14 +367,14 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 	}
 
 	if tlsConfig.HasCustomCerts() {
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("Custom TLS certificates configured (verify=%t)", tlsConfig.Verify)
+		log.NewScopedLogger("", "").With("action", "tls.load", "provider", profileName).Debug("custom TLS certificates configured (verify=%t)", tlsConfig.Verify)
 	} else if !tlsConfig.Verify {
-		log.NewScopedLogger("", "").With("provider", profileName).Warn("TLS verification disabled - ensure your Docker daemon is secure")
+		log.NewScopedLogger("", "").With("action", "tls.skip", "provider", profileName).Warn("verification disabled - ensure your Docker daemon is secure")
 	}
 
 	scopedLogger := common.CreateScopedLogger("docker", profileName, stringOptions)
 
-	scopedLogger.Trace("Resolved profile name: %s", profileName)
+	scopedLogger.With("action", "provider.init").Trace("profile name: %s", profileName)
 
 	clientOpts := []client.Opt{client.FromEnv}
 
@@ -383,7 +383,7 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 		apiURL = "unix:///var/run/docker.sock"
 	}
 	if apiURL != "" {
-		scopedLogger.Verbose("Using Docker API URL: %s", apiURL)
+		scopedLogger.With("action", "provider.init").Verbose("docker API URL: %s", apiURL)
 		clientOpts = append(clientOpts, client.WithHost(apiURL))
 	}
 
@@ -399,22 +399,22 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 	if caPath != "" || certFile != "" || keyFile != "" || tlsVerifySet {
 		if caPath != "" {
 			clientOpts = append(clientOpts, client.WithTLSClientConfig(caPath, certFile, keyFile))
-			scopedLogger.Debug("%s Using Docker TLS config: ca=%s cert=%s key=%s", logPrefix, caPath, certFile, keyFile)
+			scopedLogger.With("action", "tls.load").Debug("docker TLS config: ca=%s cert=%s key=%s", caPath, certFile, keyFile)
 		}
 		if tlsVerifySet && !tlsVerify {
 			clientOpts = append(clientOpts, client.WithTLSClientConfig("", "", ""))
-			scopedLogger.Warn("%s Docker TLS verification is disabled! Not recommended for production.", logPrefix)
+			scopedLogger.With("action", "tls.skip").Warn("docker TLS verification disabled! Not recommended for production.")
 		}
 	}
 
 	apiAuthUser := common.ReadFileValue(stringOptions["api_auth_user"])
 	apiAuthPass := common.ReadFileValue(stringOptions["api_auth_pass"])
 	if apiAuthUser != "" {
-		scopedLogger.Debug("%s Using Docker API basic auth user: %s", logPrefix, apiAuthUser)
+		scopedLogger.With("action", "config.load").Debug("docker API basic auth user: %s", apiAuthUser)
 		if apiAuthPass != "" {
-			scopedLogger.Debug("%s Docker API basic auth password is set (masked)", logPrefix)
+			scopedLogger.With("action", "config.load").Debug("docker API basic auth password is set (masked)")
 		} else {
-			scopedLogger.Warn("%s Docker API basic auth user provided without password", logPrefix)
+			scopedLogger.With("action", "config.error").Warn("docker API basic auth user provided without password")
 		}
 	}
 
@@ -448,41 +448,41 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 	config.ProcessExisting = parsed.ProcessExisting
 	config.SwarmMode = false
 
-	scopedLogger.Trace("Provider options received: %v", options)
+	scopedLogger.With("action", "config.load").Trace("options received: %v", options)
 
 	if val, exists := options["expose_containers"]; exists {
 		if strVal, ok := val.(string); ok {
 			lowerVal := strings.ToLower(strVal)
 			config.ExposeContainers = lowerVal == "true" || lowerVal == "1" || lowerVal == "yes"
-			scopedLogger.Trace("Option 'expose_containers' found with value: '%s', parsed as: %v", strVal, config.ExposeContainers)
+			scopedLogger.With("action", "config.load").Trace("option 'expose_containers': '%s', parsed as: %v", strVal, config.ExposeContainers)
 		}
 	} else {
-		scopedLogger.Trace("No 'expose_containers' option found, using default: %v", config.ExposeContainers)
+		scopedLogger.With("action", "config.load").Trace("option 'expose_containers' not set, using default: %v", config.ExposeContainers)
 	}
 
 	if val, exists := options["swarm_mode"]; exists {
 		if strVal, ok := val.(string); ok {
 			lowerVal := strings.ToLower(strVal)
 			config.SwarmMode = lowerVal == "true" || lowerVal == "1" || lowerVal == "yes"
-			scopedLogger.Trace("Option 'swarm_mode' found with value: '%s', parsed as: %v",
+			scopedLogger.With("action", "config.load").Trace("option 'swarm_mode': '%s', parsed as: %v",
 				strVal, config.SwarmMode)
 		}
 	} else {
-		scopedLogger.Trace("No 'swarm_mode' option found, using default: %v",
+		scopedLogger.With("action", "config.load").Trace("option 'swarm_mode' not set, using default: %v",
 			config.SwarmMode)
 	}
 
 	if val, exists := options["process_existing"]; exists {
 		if strVal, ok := val.(string); ok {
 			config.ProcessExisting = strings.ToLower(strVal) == "true" || strVal == "1"
-			scopedLogger.Trace("Option 'process_existing' found with value: '%s', parsed as: %v",
+			scopedLogger.With("action", "config.load").Trace("option 'process_existing': '%s', parsed as: %v",
 				strVal, config.ProcessExisting)
 		}
 	} else {
 		envKey := fmt.Sprintf("POLL_%s_PROCESS_EXISTING", strings.ToUpper(profileName))
 		if envVal := os.Getenv(envKey); envVal != "" {
 			config.ProcessExisting = strings.ToLower(envVal) == "true" || envVal == "1"
-			scopedLogger.Trace("Using process_existing from environment variable %s: %v", envKey, config.ProcessExisting)
+			scopedLogger.With("action", "config.load").Trace("process_existing from environment variable %s: %v", envKey, config.ProcessExisting)
 		}
 	}
 
@@ -500,12 +500,12 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 	provider.exposeContainers = config.ExposeContainers
 	provider.recordRemoveOnStop = parsed.RecordRemoveOnStop
 
-	scopedLogger.Debug("Created filter config with %d filters", len(filterConfig.Filters))
+	scopedLogger.With("action", "input.filter").Debug("filter config with %d filters", len(filterConfig.Filters))
 	for i, filter := range filterConfig.Filters {
-		scopedLogger.Debug("Filter %d: Type='%s', Value='%s', Operation='%s', Negate=%v, Conditions=%d",
+		scopedLogger.With("action", "input.filter").Debug("filter %d: Type='%s', Value='%s', Operation='%s', Negate=%v, Conditions=%d",
 			i, filter.Type, filter.Value, filter.Operation, filter.Negate, len(filter.Conditions))
 		for j, condition := range filter.Conditions {
-			scopedLogger.Debug("  Condition %d: Key='%s', Value='%s', Logic='%s'",
+			scopedLogger.With("action", "input.filter").Debug("  condition %d: Key='%s', Value='%s', Logic='%s'",
 				j, condition.Key, condition.Value, condition.Logic)
 		}
 	}
@@ -578,13 +578,13 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 		}
 
 		if filterDescription.Len() > 0 {
-			scopedLogger.Verbose("Active filter: %s", filterDescription.String())
+			scopedLogger.With("action", "input.filter").Verbose("filter: %s", filterDescription.String())
 		}
 	} else {
-		scopedLogger.Verbose("Active filter: none (all containers will be processed)")
+		scopedLogger.With("action", "input.filter").Verbose("filter: none (all containers will be processed)")
 	}
 
-	scopedLogger.Debug("Filter Configuration: %+v", filterConfig.Filters)
+	scopedLogger.With("action", "input.filter").Debug("configuration: %+v", filterConfig.Filters)
 	filterSummary := "none"
 	realFilterCount := 0
 	for _, f := range filterConfig.Filters {
@@ -595,7 +595,7 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 	if realFilterCount > 0 {
 		filterSummary = fmt.Sprintf("%d", realFilterCount)
 	}
-	scopedLogger.Info("Provider '%s' created: filters=%s, expose_containers=%v, swarm_mode=%v, process_existing=%v, record_remove_on_stop=%v",
+	scopedLogger.With("action", "provider.init").Info("'%s': filters=%s, expose_containers=%v, swarm_mode=%v, process_existing=%v, record_remove_on_stop=%v",
 		"docker", filterSummary, config.ExposeContainers, config.SwarmMode, config.ProcessExisting, provider.recordRemoveOnStop)
 
 	return provider, nil
@@ -613,12 +613,12 @@ func (p *DockerProvider) handleContainerEventFiltered(ctx context.Context, event
 
 	container, err := p.client.ContainerInspect(ctx, event.Actor.ID)
 	if err != nil {
-		p.logger.With("container", containerName).Debug("Failed to inspect container '%s' for filtering: %v", containerName, err)
+		p.logger.With("action", "input.filter", "container", containerName).Debug("failed to inspect container '%s' for filtering: %v", containerName, err)
 		return
 	}
 
 	if !p.shouldProcessContainer(container) {
-		p.logger.With("container", containerName).Debug("Container '%s' filtered out by provider '%s'", containerName, p.profileName)
+		p.logger.With("action", "input.filter", "container", containerName).Debug("filtered out: '%s' by provider '%s'", containerName, p.profileName)
 		return
 	}
 
@@ -662,14 +662,14 @@ func (p *DockerProvider) StartPolling() error {
 	}
 
 	if p.config.ProcessExisting {
-		p.logger.Verbose("Processing existing containers and services")
+		p.logger.With("action", "sync.start").Verbose("existing containers and services")
 		go p.processRunningContainers(context.Background())
 
 		if p.swarmMode {
 			go p.processRunningServices(context.Background())
 		}
 	} else {
-		p.logger.Info("Waiting for new containers/services")
+		p.logger.With("action", "sync.start").Info("new containers/services")
 	}
 
 	return nil
@@ -688,7 +688,7 @@ func (p *DockerProvider) reconcilePresence() {
 	ctx := context.Background()
 	containers, err := p.client.ContainerList(ctx, dcontainer.ListOptions{})
 	if err != nil {
-		p.logger.Debug("Reconcile: failed to list containers: %v", err)
+		p.logger.With("action", "sync.fail").Debug("failed to list containers: %v", err)
 		return
 	}
 	for _, c := range containers {
@@ -734,12 +734,12 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 
 	switch event.Action {
 	case "start", "unpause":
-		p.logger.With("container", containerName).With("id", event.Actor.ID[:12]).Info("Container started: %s (%s), processing DNS records for this container only", containerName, event.Actor.ID[:12])
+		p.logger.With("action", "record.create", "container", containerName).With("id", event.Actor.ID[:12]).Info("started: %s (%s), processing DNS records for this container only", containerName, event.Actor.ID[:12])
 		p.processSpecificContainer(event.Actor.ID)
 	case "stop", "pause", "die", "kill", "destroy":
 		p.removalCacheMutex.Lock()
 		if lastRemoval, found := p.removalCache[containerID]; found && time.Since(lastRemoval) < 5*time.Second {
-			p.logger.With("container", containerName).With("id", event.Actor.ID[:12]).Trace("Ignoring duplicate removal event for container %s (%s)", containerName, event.Actor.ID[:12])
+			p.logger.With("action", "sync.skip", "container", containerName).With("id", event.Actor.ID[:12]).Trace("duplicate removal event for container %s (%s)", containerName, event.Actor.ID[:12])
 			p.removalCacheMutex.Unlock()
 			return
 		}
@@ -748,21 +748,21 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 
 		if !p.recordRemoveOnStop {
 			if event.Action == "destroy" {
-				p.logger.With("container", containerName).With("id", event.Actor.ID[:12]).Debug("Container destroyed: %s (%s) but record_remove_on_stop=false, skipping DNS removal", containerName, event.Actor.ID[:12])
+				p.logger.With("action", "record.skip", "container", containerName).With("id", event.Actor.ID[:12]).Debug("destroyed: %s (%s) but record_remove_on_stop=false, skipping DNS removal", containerName, event.Actor.ID[:12])
 			} else {
-				p.logger.With("container", containerName).With("id", event.Actor.ID[:12]).Info("Container stopped: %s (%s) but record_remove_on_stop=false, skipping DNS removal", containerName, event.Actor.ID[:12])
+				p.logger.With("action", "record.skip", "container", containerName).With("id", event.Actor.ID[:12]).Info("stopped: %s (%s) but record_remove_on_stop=false, skipping DNS removal", containerName, event.Actor.ID[:12])
 			}
 			return
 		}
 
 		if event.Action == "destroy" {
-			p.logger.With("container", containerName).With("id", event.Actor.ID[:12]).Debug("Container destroyed: %s (%s), removing DNS records", containerName, event.Actor.ID[:12])
+			p.logger.With("action", "record.delete", "container", containerName).With("id", event.Actor.ID[:12]).Debug("destroyed: %s (%s), removing DNS records", containerName, event.Actor.ID[:12])
 		} else {
-			p.logger.With("container", containerName).With("id", event.Actor.ID[:12]).Info("Container stopped: %s (%s), removing DNS records for this container only", containerName, event.Actor.ID[:12])
+			p.logger.With("action", "record.delete", "container", containerName).With("id", event.Actor.ID[:12]).Info("stopped: %s (%s), removing DNS records for this container only", containerName, event.Actor.ID[:12])
 		}
 		p.removeContainerRecords(event.Actor.ID)
 	default:
-		p.logger.With("container", containerName).With("id", event.Actor.ID[:12]).Trace("Ignoring event %s for container %s (%s)", event.Action, containerName, event.Actor.ID[:12])
+		p.logger.With("action", "sync.skip", "container", containerName).With("id", event.Actor.ID[:12]).Trace("event %s for container %s (%s)", event.Action, containerName, event.Actor.ID[:12])
 	}
 }
 
@@ -783,23 +783,23 @@ func (p *DockerProvider) handleServiceEvent(ctx context.Context, event events.Me
 	case "remove":
 		service, _, err := p.client.ServiceInspectWithRaw(ctx, serviceID, swarm.ServiceInspectOptions{})
 		if err != nil {
-			p.logger.With("service", serviceName).Warn("Failed to inspect service '%s' for DNS removal: '%v'", serviceName, err)
+			p.logger.With("action", "record.delete", "service", serviceName).Warn("failed to inspect service '%s' for DNS removal: '%v'", serviceName, err)
 			return
 		}
 		entries, err := p.extractDNSEntriesFromService(service)
 		if err != nil {
-			p.logger.With("service", serviceName).Warn("Failed to extract DNS entries from service '%s' for removal: %v", serviceName, err)
+			p.logger.With("action", "record.delete", "service", serviceName).Warn("failed to extract DNS entries from service '%s' for removal: %v", serviceName, err)
 			return
 		}
 		if len(entries) > 0 {
 			if !p.recordRemoveOnStop {
-				p.logger.With("service", serviceName).Info("Service '%s' removed but record_remove_on_stop=false, skipping DNS removal (%d entries)", serviceName, len(entries))
+				p.logger.With("action", "record.skip", "service", serviceName).Info("removed: '%s' but record_remove_on_stop=false, skipping DNS removal (%d entries)", serviceName, len(entries))
 			} else {
-				p.logger.With("service", serviceName).Info("Removing %d DNS entries for service %s", len(entries), serviceName)
+				p.logger.With("action", "record.delete", "service", serviceName).Info("%d DNS entries for service %s", len(entries), serviceName)
 				p.processDNSEntries(entries, true)
 			}
 		} else {
-			p.logger.With("service", serviceName).Debug("No DNS entries found for service '%s' to remove", serviceName)
+			p.logger.With("action", "record.skip", "service", serviceName).Debug("no DNS entries for service '%s' to remove", serviceName)
 		}
 	}
 }
@@ -809,21 +809,21 @@ func (p *DockerProvider) processSpecificContainer(containerID string) {
 
 	container, err := p.client.ContainerInspect(ctx, containerID)
 	if err != nil {
-		p.logger.With("id", containerID[:12]).Error("Failed to inspect container %s: %v", containerID[:12], err)
+		p.logger.With("action", "sync.fail", "id", containerID[:12]).Error("failed to inspect container %s: %v", containerID[:12], err)
 		return
 	}
 
 	containerName := getContainerName(container)
-	p.logger.With("container", containerName).With("id", containerID[:12]).Debug("Processing specific container: %s (%s)", containerName, containerID[:12])
+	p.logger.With("action", "input.pass", "container", containerName).With("id", containerID[:12]).Debug("specific container: %s (%s)", containerName, containerID[:12])
 
 	if container.State.Running && p.shouldProcessContainer(container) {
 		enableDNS, hasLabel := container.Config.Labels["nfrastack.herald.enable"]
 		if hasLabel && (strings.ToLower(enableDNS) == "true" || enableDNS == "1") && !p.config.ExposeContainers {
-			p.logger.With("container", containerName).Verbose("Processing container '%s' because it has 'nfrastack.herald.enable=true' label (overriding expose_containers=false)", containerName)
+			p.logger.With("action", "input.pass", "container", containerName).Verbose("container '%s' has 'nfrastack.herald.enable=true' label (overriding expose_containers=false)", containerName)
 		}
 		p.processContainer(ctx, containerID)
 	} else {
-		p.logger.With("id", containerID[:12]).Debug("Container %s filtered out or not running, skipping", containerID[:12])
+		p.logger.With("action", "input.filter", "id", containerID[:12]).Debug("filtered out or not running, skipping: %s", containerID[:12])
 	}
 }
 
@@ -832,31 +832,31 @@ func (p *DockerProvider) removeContainerRecords(containerID string) {
 
 	container, err := p.client.ContainerInspect(ctx, containerID)
 	if err != nil {
-		p.logger.With("id", containerID[:12]).Debug("Could not inspect container %s for cleanup: %v", containerID[:12], err)
+		p.logger.With("action", "record.delete", "id", containerID[:12]).Debug("could not inspect container %s for cleanup: %v", containerID[:12], err)
 		return
 	}
 
 	containerName := getContainerName(container)
-	p.logger.With("container", containerName).With("id", containerID[:12]).Debug("Removing DNS records for container: %s (%s)", containerName, containerID[:12])
+	p.logger.With("action", "record.delete", "container", containerName).With("id", containerID[:12]).Debug("DNS records for container: %s (%s)", containerName, containerID[:12])
 
 	entries := p.extractDNSEntriesFromContainer(container)
 
 	if len(entries) > 0 {
-		p.logger.With("container", containerName).Info("Removing %d DNS entries for container %s", len(entries), containerName)
+		p.logger.With("action", "record.delete", "container", containerName).Info("%d DNS entries for container %s", len(entries), containerName)
 		p.processDNSEntries(entries, true)
 	} else {
-		p.logger.With("container", containerName).Debug("No DNS entries found for container %s cleanup", containerName)
+		p.logger.With("action", "record.skip", "container", containerName).Debug("no DNS entries for container %s cleanup", containerName)
 	}
 }
 
 func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 	containers, err := p.client.ContainerList(ctx, dcontainer.ListOptions{})
 	if err != nil {
-		p.logger.Error("Failed to list containers: %v", err)
+		p.logger.With("action", "sync.fail").Error("failed to list containers: %v", err)
 		return
 	}
 
-	p.logger.Verbose("Found %d containers", len(containers))
+	p.logger.With("action", "provider.poll").Verbose("%d containers", len(containers))
 
 	processedCount := 0
 
@@ -865,7 +865,7 @@ func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 	for _, container := range containers {
 		containerDetails, err := p.client.ContainerInspect(ctx, container.ID)
 		if err != nil {
-			p.logger.With("id", container.ID[:12]).Warn("Failed to inspect container '%s': %v", container.ID[:12], err)
+			p.logger.With("action", "sync.fail", "id", container.ID[:12]).Warn("failed to inspect container '%s': %v", container.ID[:12], err)
 			continue
 		}
 
@@ -873,7 +873,7 @@ func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 			if _, already := processedIDs[container.ID]; !already {
 				enableDNS, hasLabel := containerDetails.Config.Labels["nfrastack.herald.enable"]
 				if hasLabel && (strings.ToLower(enableDNS) == "true" || enableDNS == "1") && !p.config.ExposeContainers {
-					p.logger.With("container", getContainerName(containerDetails)).Verbose("Processing container '%s' because it has 'nfrastack.herald.enable=true' label (overriding expose_containers=false)", getContainerName(containerDetails))
+					p.logger.With("action", "input.pass", "container", getContainerName(containerDetails)).Verbose("container '%s' has 'nfrastack.herald.enable=true' label (overriding expose_containers=false)", getContainerName(containerDetails))
 				}
 				processedCount++
 				processedIDs[container.ID] = struct{}{}
@@ -883,26 +883,26 @@ func (p *DockerProvider) processRunningContainers(ctx context.Context) {
 	}
 
 	if processedCount != len(containers) {
-		p.logger.Verbose("Processed %d of %d containers (filtered %d)",
+		p.logger.With("action", "sync.done").Verbose("%d of %d containers (filtered %d)",
 			processedCount, len(containers), len(containers)-processedCount)
 	}
 }
 
 func (p *DockerProvider) processRunningServices(ctx context.Context) {
 	if !p.swarmMode {
-		p.logger.Debug("Not in swarm mode, skipping service processing")
+		p.logger.With("action", "sync.skip").Debug("not in swarm mode, skipping service processing")
 		return
 	}
 
-	p.logger.Info("Processing running services (swarm mode)")
+	p.logger.With("action", "sync.start").Info("running services (swarm mode)")
 
 	services, err := p.client.ServiceList(ctx, swarm.ServiceListOptions{})
 	if err != nil {
-		p.logger.Error("Failed to list services: %v", err)
+		p.logger.With("action", "sync.fail").Error("failed to list services: %v", err)
 		return
 	}
 
-	p.logger.Verbose("Found %d services", len(services))
+	p.logger.With("action", "provider.poll").Verbose("%d services", len(services))
 
 	for _, service := range services {
 		p.processService(ctx, service.ID)
@@ -916,14 +916,14 @@ func (p *DockerProvider) shouldProcessContainer(container dcontainer.InspectResp
 	}
 
 	if !p.filterConfig.Evaluate(container, evaluateDockerFilter) {
-		p.logger.With("container", containerName).Debug("Skipping container '%s' because it does not match filter criteria", containerName)
+		p.logger.With("action", "input.filter", "container", containerName).Debug("container '%s' does not match filter criteria", containerName)
 		return false
 	}
 
 	enableDNS, hasLabel := container.Config.Labels["nfrastack.herald.enable"]
 
 	if hasLabel && (strings.ToLower(enableDNS) == "false" || enableDNS == "0") {
-		p.logger.With("container", containerName).Verbose("Skipping container '%s' because it has an explicit 'nfrastack.herald.enable=false' label", containerName)
+		p.logger.With("action", "input.filter", "container", containerName).Verbose("container '%s' has explicit 'nfrastack.herald.enable=false' label", containerName)
 		return false
 	}
 
@@ -931,18 +931,18 @@ func (p *DockerProvider) shouldProcessContainer(container dcontainer.InspectResp
 	if disableVal, hasDisable := container.Config.Labels[disableLabelKey]; hasDisable {
 		val := strings.ToLower(disableVal)
 		if val == "true" || val == "1" {
-			p.logger.With("container", containerName).Verbose("Skipping container '%s' because it has '%s=%s' label (disabling this provider)", containerName, disableLabelKey, disableVal)
+			p.logger.With("action", "input.filter", "container", containerName).Verbose("container '%s' has '%s=%s' label (disabling this provider)", containerName, disableLabelKey, disableVal)
 			return false
 		}
 	}
 
 	if p.config.ExposeContainers {
-		p.logger.With("container", containerName).Debug("Processing container '%s' because 'expose_containers=true' in config", containerName)
+		p.logger.With("action", "input.pass", "container", containerName).Debug("container '%s': 'expose_containers=true' in config", containerName)
 		return true
 	}
 
 	if !hasLabel {
-		p.logger.With("container", containerName).Debug("Skipping container '%s' because 'expose_containers=false' in config and no 'nfrastack.herald.enable' label exists", containerName)
+		p.logger.With("action", "input.filter", "container", containerName).Debug("container '%s': 'expose_containers=false' in config and no 'nfrastack.herald.enable' label", containerName)
 		return false
 	}
 
@@ -950,14 +950,14 @@ func (p *DockerProvider) shouldProcessContainer(container dcontainer.InspectResp
 		return true
 	}
 
-	p.logger.With("container", containerName).Warn("Skipping container '%s' because it has 'nfrastack.herald.enable=%s' (not 'true') and 'expose_containers=false'", containerName, enableDNS)
+	p.logger.With("action", "input.filter", "container", containerName).Warn("container '%s' has 'nfrastack.herald.enable=%s' (not 'true') and 'expose_containers=false'", containerName, enableDNS)
 	return false
 }
 
 func (p *DockerProvider) processContainer(ctx context.Context, containerID string) {
 	container, err := p.client.ContainerInspect(ctx, containerID)
 	if err != nil {
-		p.logger.With("id", containerID[:12]).Warn("Failed to inspect container '%s': %v", containerID[:12], err)
+		p.logger.With("action", "sync.fail", "id", containerID[:12]).Warn("failed to inspect container '%s': %v", containerID[:12], err)
 		return
 	}
 
@@ -967,7 +967,7 @@ func (p *DockerProvider) processContainer(ctx context.Context, containerID strin
 	}
 
 	if !p.shouldProcessContainer(container) {
-		p.logger.With("container", containerName).Debug("%s Container '%s' filtered out", p.logPrefix, containerName)
+		p.logger.With("action", "input.filter", "container", containerName).Debug("container '%s' filtered out", containerName)
 		return
 	}
 
@@ -985,7 +985,7 @@ func (p *DockerProvider) processService(ctx context.Context, serviceID string) {
 
 	service, _, err := p.client.ServiceInspectWithRaw(ctx, serviceID, swarm.ServiceInspectOptions{})
 	if err != nil {
-		p.logger.With("id", serviceID[:12]).Warn("Failed to inspect service %s: %v", serviceID[:12], err)
+		p.logger.With("action", "sync.fail", "id", serviceID[:12]).Warn("failed to inspect service %s: %v", serviceID[:12], err)
 		return
 	}
 
@@ -993,14 +993,14 @@ func (p *DockerProvider) processService(ctx context.Context, serviceID string) {
 
 	entries, err := p.extractDNSEntriesFromService(service)
 	if err != nil {
-		p.logger.With("service", serviceName).Warn("Failed to extract DNS entries from service %s: %v", serviceName, err)
+		p.logger.With("action", "sync.fail", "service", serviceName).Warn("failed to extract DNS entries from service %s: %v", serviceName, err)
 	}
 
 	if len(entries) > 0 {
-		p.logger.With("service", serviceName).Verbose("Found %d DNS entries for service %s", len(entries), serviceName)
+		p.logger.With("action", "record.sync", "service", serviceName).Verbose("%d DNS entries for service %s", len(entries), serviceName)
 		p.processDNSEntries(entries, false)
 	} else {
-		p.logger.With("service", serviceName).Debug("No DNS entries found for service %s", serviceName)
+		p.logger.With("action", "record.skip", "service", serviceName).Debug("no DNS entries for service %s", serviceName)
 	}
 }
 
@@ -1017,18 +1017,18 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		domainKey, subdomain := config.ExtractDomainAndSubdomainForProvider(fqdnNoDot, p.profileName, p.logPrefix)
-		p.logger.Trace("%s Extracted domainKey='%s', subdomain='%s' from fqdn='%s'", p.logPrefix, domainKey, subdomain, fqdnNoDot)
+		p.logger.With("action", "domain.match").Trace("domainKey='%s', subdomain='%s' from fqdn='%s'", domainKey, subdomain, fqdnNoDot)
 		if domainKey == "" {
-			p.logger.Error("%s No domain config found for '%s' (tried to match domain from FQDN)", p.logPrefix, fqdnNoDot)
+			p.logger.With("action", "domain.skip").Error("no domain config for '%s' (tried to match domain from FQDN)", fqdnNoDot)
 			continue
 		}
 		domainCfg, ok := config.GlobalConfig.Domains[domainKey]
 		if !ok {
-			p.logger.Error("%s Domain '%s' not found in config for fqdn='%s'", p.logPrefix, domainKey, fqdnNoDot)
+			p.logger.With("action", "domain.skip").Error("domain '%s' not found in config for fqdn='%s'", domainKey, fqdnNoDot)
 			continue
 		}
 		realDomain := domainCfg.Name
-		p.logger.Trace("%s Using real domain name '%s' for DNS provider (configKey='%s')", p.logPrefix, realDomain, domainKey)
+		p.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider (configKey='%s')", realDomain, domainKey)
 
 		state := domain.RouterState{
 			SourceType: p.profileName, // Use the unique profile name for change tracking
@@ -1051,13 +1051,13 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 			trackedHost = "@"
 		}
 		if remove {
-			p.logger.Trace("%s Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v, outputWriter)", p.logPrefix, realDomain, fqdnForBatch, state)
+			p.logger.With("action", "record.delete").Trace("ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v, outputWriter)", realDomain, fqdnForBatch, state)
 			err = batchProcessor.ProcessRecordRemoval(realDomain, fqdnForBatch, state)
 			if err == nil {
 				heraldstate.Remove(realDomain, trackedHost, entry.RecordType)
 			}
 		} else {
-			p.logger.Trace("%s Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v, outputWriter)", p.logPrefix, realDomain, fqdnForBatch, state)
+			p.logger.With("action", "record.sync").Trace("ProcessRecord(domain='%s', fqdn='%s', state=%+v, outputWriter)", realDomain, fqdnForBatch, state)
 			err = batchProcessor.ProcessRecord(realDomain, fqdnForBatch, state)
 			if err == nil {
 				heraldstate.Touch(realDomain, trackedHost, entry.RecordType, entry.Target, p.profileName, "")
@@ -1069,7 +1069,7 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 			if remove {
 				action = "remove"
 			}
-			p.logger.Error("%s Failed to %s DNS for '%s': %v", p.logPrefix, action, fqdnNoDot, err)
+			p.logger.With("action", "sync.fail").Error("failed to %s DNS for '%s': %v", action, fqdnNoDot, err)
 		}
 	}
 
@@ -1094,7 +1094,7 @@ func (p *DockerProvider) GetDNSEntries() ([]DNSEntry, error) {
 
 		container, err := p.client.ContainerInspect(ctx, c.ID)
 		if err != nil {
-			p.logger.Warn("Failed to inspect container '%s': %v", c.ID[:12], err)
+			p.logger.With("action", "sync.fail").Warn("failed to inspect container '%s': %v", c.ID[:12], err)
 			continue
 		}
 
@@ -1102,7 +1102,7 @@ func (p *DockerProvider) GetDNSEntries() ([]DNSEntry, error) {
 		result = append(result, entries...)
 	}
 
-	p.logger.Info("Found %d DNS entries from all containers", len(result))
+	p.logger.With("action", "sync.done").Info("%d DNS entries from all containers", len(result))
 
 	return result, nil
 }
@@ -1124,7 +1124,7 @@ func (p *DockerProvider) GetContainersForDomain(domain string) ([]ContainerInfo,
 
 		container, err := p.client.ContainerInspect(ctx, c.ID)
 		if err != nil {
-			p.logger.Warn("Failed to inspect container '%s': %v", c.ID[:12], err)
+			p.logger.With("action", "sync.fail").Warn("failed to inspect container '%s': %v", c.ID[:12], err)
 			continue
 		}
 
@@ -1153,7 +1153,7 @@ func (p *DockerProvider) GetContainersForDomain(domain string) ([]ContainerInfo,
 		}
 	}
 
-	p.logger.Info("Found %d containers with DNS entries for domain %s",
+	p.logger.With("action", "sync.done").Info("%d containers with DNS entries for domain %s",
 		len(result), domain)
 
 	return result, nil
@@ -1227,7 +1227,7 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container dcontain
 	}
 
 	if target == "" {
-		p.logger.With("id", container.ID[:12]).Warn("Container has no target for domain %s (no label set)", domain)
+		p.logger.With("action", "record.skip", "id", container.ID[:12]).Warn("no target for domain %s (no label set)", domain)
 		return entries
 	}
 
@@ -1299,7 +1299,7 @@ func matchesPattern(subdomain string, patterns []string) bool {
 }
 
 func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.InspectResponse) []DNSEntry {
-	p.logger.Trace("domainConfigs map at entry: %v", p.domainConfigs)
+	p.logger.With("action", "config.load").Trace("domainConfigs map at entry: %v", p.domainConfigs)
 
 	var entries []DNSEntry
 	containerName := getContainerName(container)
@@ -1312,16 +1312,16 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 	if hasDNSLabel {
 		val := strings.ToLower(dnsLabel)
 		if val == "false" || val == "0" {
-			p.logger.With("container", containerName).Verbose("Skipping container '%s' due to 'nfrastack.herald.enable' label set to false", containerName)
+			p.logger.With("action", "input.filter", "container", containerName).Verbose("container '%s': 'nfrastack.herald.enable' label set to false", containerName)
 			return entries
 		}
 		if val == "true" || val == "1" {
 		} else {
-			p.logger.With("container", containerName).Warn("Skipping container '%s' due to 'nfrastack.herald.enable' label set to unknown value '%s'", containerName, dnsLabel)
+			p.logger.With("action", "input.filter", "container", containerName).Warn("container '%s': 'nfrastack.herald.enable' label has unknown value '%s'", containerName, dnsLabel)
 			return entries
 		}
 	} else if !p.config.ExposeContainers {
-		p.logger.With("container", containerName).Debug("Skipping container '%s' because 'expose_containers=false' and no 'nfrastack.herald.enable' label is set", containerName)
+		p.logger.With("action", "input.filter", "container", containerName).Debug("container '%s': 'expose_containers=false' and no 'nfrastack.herald.enable' label", containerName)
 		return entries
 	}
 
@@ -1342,20 +1342,20 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 		}
 	}
 	if len(hostValues) == 0 {
-		p.logger.With("container", containerName).Debug("No hostname/domain found for container '%s', skipping", containerName)
+		p.logger.With("action", "record.skip", "container", containerName).Debug("no hostname/domain for container '%s', skipping", containerName)
 		return entries
 	}
 	for _, hostValue := range hostValues {
-		p.logger.With("container", containerName).Verbose("Using label '%s=%s' for hostname/domain extraction on container '%s'", hostSource, hostValue, containerName)
+		p.logger.With("action", "domain.match", "container", containerName).Verbose("label '%s=%s' for hostname/domain extraction on container '%s'", hostSource, hostValue, containerName)
 
 		if !strings.Contains(hostValue, ".") {
-			p.logger.With("container", containerName).Debug("Host value '%s' has no domain part (no dots found), skipping container '%s'", hostValue, containerName)
+			p.logger.With("action", "domain.skip", "container", containerName).Debug("host value '%s' has no domain part (no dots found), skipping container '%s'", hostValue, containerName)
 			continue
 		}
 
 		parts := strings.Split(hostValue, ".")
 		if len(parts) < 2 {
-			p.logger.With("container", containerName).Debug("Host value '%s' does not have enough parts for domain extraction, skipping container '%s'", hostValue, containerName)
+			p.logger.With("action", "domain.skip", "container", containerName).Debug("host value '%s' does not have enough parts for domain extraction, skipping container '%s'", hostValue, containerName)
 			continue
 		}
 		domain := strings.Join(parts[len(parts)-2:], ".")
@@ -1364,24 +1364,24 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 			hostname = "@"
 		}
 
-		p.logger.Debug("Extracted from FQDN '%s': hostname='%s', domain='%s'", hostValue, hostname, domain)
+		p.logger.With("action", "domain.match").Debug("from FQDN '%s': hostname='%s', domain='%s'", hostValue, hostname, domain)
 
 		if domain == "" {
-			p.logger.With("container", containerName).Error("No domain extracted from FQDN '%s', skipping container '%s'", hostValue, containerName)
+			p.logger.With("action", "domain.skip", "container", containerName).Error("no domain extracted from FQDN '%s', skipping container '%s'", hostValue, containerName)
 			continue
 		}
 
 		domainConfigKey, subdomain := config.ExtractDomainAndSubdomainForProvider(hostValue, p.profileName, p.logPrefix)
 		if domainConfigKey == "" {
-			p.logger.With("container", containerName).Error("No domain config found for FQDN '%s', skipping container '%s'", hostValue, containerName)
+			p.logger.With("action", "domain.skip", "container", containerName).Error("no domain config for FQDN '%s', skipping container '%s'", hostValue, containerName)
 			continue
 		}
 
-		p.logger.Debug("Found matching domain config '%s' for domain '%s'", domainConfigKey, domain)
+		p.logger.With("action", "domain.match").Debug("matching domain config '%s' for domain '%s'", domainConfigKey, domain)
 
 		domainCfg, exists := config.GlobalConfig.Domains[domainConfigKey]
 		if !exists {
-			p.logger.Error("Domain config '%s' not found in global config", domainConfigKey)
+			p.logger.With("action", "domain.skip").Error("domain config '%s' not found in global config", domainConfigKey)
 			continue
 		}
 
@@ -1395,12 +1395,12 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 		}
 		if len(domainCfg.IncludeSubdomains) > 0 {
 			if !matchesPattern(subdomain, domainCfg.IncludeSubdomains) {
-				p.logger.Verbose("Skipping subdomain '%s' for domain '%s' (not in include_subdomains)", subdomain, domain)
+				p.logger.With("action", "domain.skip").Verbose("subdomain '%s' for domain '%s' (not in include_subdomains)", subdomain, domain)
 				continue
 			}
 		} else if len(domainCfg.ExcludeSubdomains) > 0 {
 			if matchesPattern(subdomain, domainCfg.ExcludeSubdomains) {
-				p.logger.Verbose("Skipping subdomain '%s' for domain '%s' (in exclude_subdomains)", subdomain, domain)
+				p.logger.With("action", "domain.skip").Verbose("subdomain '%s' for domain '%s' (in exclude_subdomains)", subdomain, domain)
 				continue
 			}
 		}
@@ -1408,24 +1408,24 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 		recordType := ""
 		if rt, exists := labels["nfrastack.herald.record.type"]; exists && rt != "" {
 			recordType = rt
-			p.logger.With("container", containerName).Verbose("Found label 'nfrastack.herald.record.type=%s' on container '%s'", rt, containerName)
+			p.logger.With("action", "config.load", "container", containerName).Verbose("label 'nfrastack.herald.record.type=%s' on container '%s'", rt, containerName)
 		}
 		target := ""
 		if t, exists := labels["nfrastack.herald.target"]; exists && t != "" {
 			target = t
-			p.logger.With("container", containerName).Verbose("Found label 'nfrastack.herald.target=%s' on container '%s'", t, containerName)
+			p.logger.With("action", "config.load", "container", containerName).Verbose("label 'nfrastack.herald.target=%s' on container '%s'", t, containerName)
 		}
 		ttl := 0
 		if ttlStr, exists := labels["nfrastack.herald.record.ttl"]; exists && ttlStr != "" {
 			if parsed, err := strconv.Atoi(ttlStr); err == nil {
-				p.logger.With("container", containerName).Verbose("Found label nfrastack.herald.record.ttl=%s on container '%s'", ttlStr, containerName)
+				p.logger.With("action", "config.load", "container", containerName).Verbose("label nfrastack.herald.record.ttl=%s on container '%s'", ttlStr, containerName)
 				ttl = parsed
 			}
 		}
 		overwrite := false
 		if overwriteStr, exists := labels["nfrastack.herald.record.overwrite"]; exists {
 			if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
-				p.logger.With("container", containerName).Verbose("Found label 'nfrastack.herald.record.overwrite=%s' on container '%s'", overwriteStr, containerName)
+				p.logger.With("action", "config.load", "container", containerName).Verbose("label 'nfrastack.herald.record.overwrite=%s' on container '%s'", overwriteStr, containerName)
 				overwrite = true
 			}
 		}
@@ -1433,35 +1433,35 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 		recordTypeAMultiple := false
 		if val, exists := labels["nfrastack.herald.record.type.a.multiple"]; exists && val != "" {
 			recordTypeAMultiple = strings.ToLower(val) == "true" || val == "1"
-			p.logger.With("container", containerName).Verbose("Found label 'nfrastack.herald.record.type.a.multiple=%s' on container '%s'", val, containerName)
+			p.logger.With("action", "config.load", "container", containerName).Verbose("label 'nfrastack.herald.record.type.a.multiple=%s' on container '%s'", val, containerName)
 		}
 		recordTypeAAAAMultiple := false
 		if val, exists := labels["nfrastack.herald.record.type.aaaa.multiple"]; exists && val != "" {
 			recordTypeAAAAMultiple = strings.ToLower(val) == "true" || val == "1"
-			p.logger.With("container", containerName).Verbose("Found label 'nfrastack.herald.record.type.aaaa.multiple=%s' on container '%s'", val, containerName)
+			p.logger.With("action", "config.load", "container", containerName).Verbose("label 'nfrastack.herald.record.type.aaaa.multiple=%s' on container '%s'", val, containerName)
 		}
 
 		if target == "" && domainCfg.Record.Target != "" {
-			p.logger.Trace("Using domain config for '%s': value: 'target=%s'", domain, domainCfg.Record.Target)
+			p.logger.With("action", "config.load").Trace("domain config for '%s': value: 'target=%s'", domain, domainCfg.Record.Target)
 			target = domainCfg.Record.Target
 		}
 		if recordType == "" && domainCfg.Record.Type != "" {
-			p.logger.Trace("Using domain config for '%s': value: 'record_type=%s'", domain, domainCfg.Record.Type)
+			p.logger.With("action", "config.load").Trace("domain config for '%s': value: 'record_type=%s'", domain, domainCfg.Record.Type)
 			recordType = domainCfg.Record.Type
 		}
 		if ttl == 0 && domainCfg.Record.TTL > 0 {
-			p.logger.Trace("Using domain config for '%s': value: 'ttl=%d'", domain, domainCfg.Record.TTL)
+			p.logger.With("action", "config.load").Trace("domain config for '%s': value: 'ttl=%d'", domain, domainCfg.Record.TTL)
 			ttl = domainCfg.Record.TTL
 		}
 		if !overwrite && domainCfg.Record.UpdateExisting {
-			p.logger.Trace("Using domain config for '%s': value: 'record_update_existing=true'", domain)
+			p.logger.With("action", "config.load").Trace("domain config for '%s': value: 'record_update_existing=true'", domain)
 			overwrite = true
 		}
 
 		if target == "" && p.options != nil {
 			if globalTarget, ok := p.options["dns_record_target"]; ok {
 				if strTarget, ok := globalTarget.(string); ok && strTarget != "" {
-					p.logger.Debug("Using global config for '%s': value: 'target=%s'", domain, strTarget)
+					p.logger.With("action", "config.load").Debug("global config for '%s': value: 'target=%s'", domain, strTarget)
 					target = strTarget
 				}
 			}
@@ -1469,7 +1469,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 		if recordType == "" && p.options != nil {
 			if globalType, ok := p.options["dns_record_type"]; ok {
 				if strType, ok := globalType.(string); ok && strType != "" {
-					p.logger.Debug("Using global config for '%s': value: 'dns_record_type %s'", domain, strType)
+					p.logger.With("action", "config.load").Debug("global config for '%s': value: 'dns_record_type %s'", domain, strType)
 					recordType = strType
 				}
 			}
@@ -1478,7 +1478,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 			if globalTTL, ok := p.options["dns_record_ttl"]; ok {
 				if strTTL, ok := globalTTL.(string); ok && strTTL != "" {
 					if parsed, err := strconv.Atoi(strTTL); err == nil {
-						p.logger.Debug("Using global config for '%s': value: 'dns_record_ttl=%d'", domain, parsed)
+						p.logger.With("action", "config.load").Debug("global config for '%s': value: 'dns_record_ttl=%d'", domain, parsed)
 						ttl = parsed
 					}
 				}
@@ -1487,7 +1487,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 		if !overwrite && p.options != nil {
 			if globalOverwrite, ok := p.options["record_updating_existing"]; ok {
 				if strOverwrite, ok := globalOverwrite.(string); ok && (strOverwrite == "true" || strOverwrite == "1") {
-					p.logger.Debug("Using global config for '%s': value: 'record_update_existing=true'", domain)
+					p.logger.With("action", "config.load").Debug("global config for '%s': value: 'record_update_existing=true'", domain)
 					overwrite = true
 				}
 			}
@@ -1509,19 +1509,19 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 
 		if recordType == "A" && target != "" {
 			if ip := net.ParseIP(target); ip == nil || ip.To4() == nil {
-				p.logger.Error("Invalid target for A record: '%s' is not an IPv4 address. Skipping DNS entry '%s.%s'", target, hostname, domain)
+				p.logger.With("action", "record.reject").Error("target for A record: '%s' is not an IPv4 address. Skipping DNS entry '%s.%s'", target, hostname, domain)
 				continue
 			}
 		}
 		if recordType == "AAAA" && target != "" {
 			if ip := net.ParseIP(target); ip == nil || ip.To16() == nil || ip.To4() != nil {
-				p.logger.Error("Invalid target for AAAA record: '%s' is not an IPv6 address. Skipping DNS entry '%s.%s'", target, hostname, domain)
+				p.logger.With("action", "record.reject").Error("target for AAAA record: '%s' is not an IPv6 address. Skipping DNS entry '%s.%s'", target, hostname, domain)
 				continue
 			}
 		}
 
 		if target == "" {
-			p.logger.With("container", containerName).Warn("container '%s' has no target for domain '%s' (no label, domain, or global config set)", containerName, domain)
+			p.logger.With("action", "record.skip", "container", containerName).Warn("no target: '%s', domain '%s' (no label, domain, or global config set)", containerName, domain)
 			continue
 		}
 
@@ -1545,7 +1545,7 @@ func (p *DockerProvider) extractDNSEntriesFromContainer(container dcontainer.Ins
 			SourceName:             containerName,
 		})
 
-		p.logger.Trace("Created DNS entry for container '%s': hostname='%s', domain='%s', fqdn='%s.%s', target='%s'",
+		p.logger.With("action", "record.create").Trace("DNS entry for container '%s': hostname='%s', domain='%s', fqdn='%s.%s', target='%s'",
 			containerName, hostname, domain, hostname, domain, target)
 	}
 	return entries
@@ -1566,7 +1566,7 @@ func (p *DockerProvider) extractDNSEntriesFromService(service swarm.Service) ([]
 			dnsEnabled = true
 		} else if explicitValue == "false" || explicitValue == "0" {
 			dnsEnabled = false
-			p.logger.With("service", serviceName).Debug("Service '%s' has 'nfrastack.herald.enable=false' label, skipping", serviceName)
+			p.logger.With("action", "input.filter", "service", serviceName).Debug("service '%s' has 'nfrastack.herald.enable=false' label, skipping", serviceName)
 			return entries, nil // Return empty entries list
 		}
 	}

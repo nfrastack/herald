@@ -55,7 +55,7 @@ func setFileOwnership(filePath string, config map[string]interface{}, logger *lo
 				}
 			}
 		} else {
-			logger.Warn("Failed to lookup user '%s': %v", userConfig, err)
+			logger.With("action", "config.load").Warn("user '%s': %v", userConfig, err)
 		}
 
 		if groupConfig, ok := config["group"].(string); ok && groupConfig != "" {
@@ -64,12 +64,12 @@ func setFileOwnership(filePath string, config map[string]interface{}, logger *lo
 					gid = parsed
 				}
 			} else {
-				logger.Warn("Failed to lookup group '%s': %v", groupConfig, err)
+				logger.With("action", "config.load").Warn("group '%s': %v", groupConfig, err)
 			}
 		}
 
 		if err := syscall.Chown(filePath, uid, gid); err != nil {
-			logger.Warn("Failed to change ownership of %s: %v", filePath, err)
+			logger.With("action", "output.write").Warn("ownership of %s: %v", filePath, err)
 		}
 	}
 
@@ -88,7 +88,7 @@ func setFileOwnership(filePath string, config map[string]interface{}, logger *lo
 
 		if mode != 0 {
 			if err := os.Chmod(filePath, mode); err != nil {
-				logger.Warn("Failed to change mode of %s: %v", filePath, err)
+				logger.With("action", "output.write").Warn("mode of %s: %v", filePath, err)
 			}
 		}
 	}
@@ -107,7 +107,7 @@ func AddScopedLogging(provider interface{}, formatType, name string, options map
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
 	if logLevel != "" {
-		scopedLogger.Info("Output format log_level set to: '%s'", logLevel)
+		scopedLogger.With("action", "config.load").Info("log_level: '%s'", logLevel)
 	}
 
 	return scopedLogger
@@ -259,7 +259,7 @@ func NewCommonFormat(domain, formatName string, config map[string]interface{}) (
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
 	if logLevel != "" {
-		scopedLogger.Info("Output format log_level set to: '%s'", logLevel)
+		scopedLogger.With("action", "config.load").Info("log_level: '%s'", logLevel)
 	}
 
 	realDomain := domain
@@ -283,7 +283,7 @@ func NewCommonFormat(domain, formatName string, config map[string]interface{}) (
 		realDomain:  realDomain,
 	}
 
-	format.logger.Debug("Initialized %s format: %s", formatName, format.path)
+	format.logger.With("action", "provider.init").Debug("%s format: %s", formatName, format.path)
 
 	return format, nil
 }
@@ -331,13 +331,13 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 			existingRecord.Target = target
 			existingRecord.TTL = uint32(ttl)
 			existingRecord.Source = source
-			c.logger.Info("DNS record target updated: %s.%s (%s) %s -> %s (TTL: %d, source: %s)", hostname, domain, recordType, oldTarget, target, ttl, source)
+			c.logger.With("action", "record.update").Info("target: %s.%s (%s) %s -> %s (TTL: %d, source: %s)", hostname, domain, recordType, oldTarget, target, ttl, source)
 		} else {
 			if existingRecord.TTL != uint32(ttl) {
 				oldTTL := existingRecord.TTL
 				existingRecord.TTL = uint32(ttl)
 				existingRecord.Source = source
-				c.logger.Verbose("DNS record TTL updated: %s.%s (%s) %d -> %d (target: %s, source: %s)", hostname, domain, recordType, oldTTL, ttl, target, source)
+				c.logger.With("action", "record.update").Verbose("TTL: %s.%s (%s) %d -> %d (target: %s, source: %s)", hostname, domain, recordType, oldTTL, ttl, target, source)
 			} else {
 				existingRecord.TTL = uint32(ttl)
 				existingRecord.Source = source
@@ -355,7 +355,7 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 
 		c.records[key] = record
 		c.domains[domain].Records = append(c.domains[domain].Records, record)
-		c.logger.Verbose("Added record: %s.%s (%s) -> %s", hostname, domain, recordType, target)
+		c.logger.With("action", "record.create").Verbose("record: %s.%s (%s) -> %s", hostname, domain, recordType, target)
 	}
 
 	c.metadata.LastUpdated = time.Now().UTC()
@@ -385,7 +385,7 @@ func (c *CommonFormat) RemoveRecord(domain, hostname, recordType string) error {
 			}
 		}
 
-		c.logger.Verbose("Removed record: %s.%s (%s)", hostname, domain, recordType)
+		c.logger.With("action", "record.delete").Verbose("record: %s.%s (%s)", hostname, domain, recordType)
 		c.metadata.LastUpdated = time.Now().UTC()
 	}
 
@@ -410,7 +410,7 @@ func (c *CommonFormat) LoadExistingData(unmarshalFunc func([]byte, interface{}) 
 		return nil // File doesn't exist, that's okay
 	}
 
-	log.Trace("%s fsnotify event: Name='%s', Op=READ", c.GetLogPrefix(), c.GetFilePath())
+	c.logger.With("action", "state.load").Trace("%s fsnotify: Name='%s', Op=READ", c.GetLogPrefix(), c.GetFilePath())
 	data, err := os.ReadFile(c.GetFilePath())
 	if err != nil {
 		return err
@@ -423,7 +423,7 @@ func (c *CommonFormat) LoadExistingData(unmarshalFunc func([]byte, interface{}) 
 
 	if export.Metadata != nil {
 		c.metadata = export.Metadata
-		c.logger.Trace("Preserved existing metadata from file")
+		c.logger.With("action", "state.load").Trace("existing metadata from file")
 	}
 
 	if export.Domains != nil {
@@ -443,19 +443,19 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, expo
 	c.Lock()
 	defer func() {
 		c.Unlock()
-		log.Debug("%s Released lock", c.GetLogPrefix())
+		c.logger.With("action", "sync.done").Debug("%s lock", c.GetLogPrefix())
 	}()
 
-	log.Debug("%s Starting file sync", c.GetLogPrefix())
+	c.logger.With("action", "sync.start").Debug("%s file sync", c.GetLogPrefix())
 
 	if err := c.EnsureDirectory(); err != nil {
-		log.Error("%s Failed to create directory: %v", c.GetLogPrefix(), err)
+		c.logger.With("action", "output.write").Error("%s directory: %v", c.GetLogPrefix(), err)
 		return err
 	}
 
 	export := c.GetExportData()
 	if export.Domains == nil || len(export.Domains) == 0 {
-		log.Warn("%s  No domains to export, calling serializer with empty export", c.GetLogPrefix())
+		c.logger.With("action", "output.write").Warn("%s domains to export: none, calling serializer with empty export", c.GetLogPrefix())
 		var domain string
 		if len(fallbackDomain) > 0 && fallbackDomain[0] != "" {
 			domain = fallbackDomain[0]
@@ -464,7 +464,7 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, expo
 		}
 		data, err := serializeFunc(domain, export)
 		if err != nil {
-			log.Error("%s Failed to serialize empty export: %v", c.GetLogPrefix(), err)
+			c.logger.With("action", "output.write").Error("%s serialize empty export: %v", c.GetLogPrefix(), err)
 			return fmt.Errorf("failed to serialize empty export: %v", err)
 		}
 		path := c.path
@@ -478,14 +478,14 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, expo
 			filename = expandTagsWithUnderscore(path, domain, c.GetProfile())
 		}
 		if err := os.WriteFile(filename, data, 0644); err != nil {
-			log.Error("%s Failed to write file for empty export: %v", c.GetLogPrefix(), err)
+			c.logger.With("action", "output.write").Error("%s file for empty export: %v", c.GetLogPrefix(), err)
 			return fmt.Errorf("failed to write file for empty export: %v", err)
 		}
-		c.logger.Debug("fsnotify event: Name='%s', Op=WRITE", filename)
+		c.logger.With("action", "output.write").Debug("fsnotify: Name='%s', Op=WRITE", filename)
 		if err := setFileOwnership(filename, c.config, c.logger); err != nil {
-			log.Warn("%s Failed to set file ownership for %s: %v", c.GetLogPrefix(), filename, err)
+			c.logger.With("action", "output.write").Warn("%s file ownership for %s: %v", c.GetLogPrefix(), filename, err)
 		}
-		log.Debug("%s Empty export file written successfully", c.GetLogPrefix())
+		c.logger.With("action", "output.write").Debug("%s empty export file written", c.GetLogPrefix())
 		return nil
 	}
 
@@ -505,20 +505,20 @@ func (c *CommonFormat) SyncWithSerializer(serializeFunc func(domain string, expo
 		}
 		data, err := serializeFunc(domain, perDomainExport)
 		if err != nil {
-			log.Error("%s Failed to serialize data for domain %s: %v", c.GetLogPrefix(), domain, err)
+			c.logger.With("action", "output.write").Error("%s serialize data for domain %s: %v", c.GetLogPrefix(), domain, err)
 			return fmt.Errorf("failed to serialize data for domain %s: %v", domain, err)
 		}
 
 		if err := os.WriteFile(filename, data, 0644); err != nil {
-			log.Error("%s Failed to write file for domain %s: %v", c.GetLogPrefix(), domain, err)
+			c.logger.With("action", "output.write").Error("%s file for domain %s: %v", c.GetLogPrefix(), domain, err)
 			return fmt.Errorf("failed to write file for domain %s: %v", domain, err)
 		}
-		c.logger.Debug("fsnotify event: Name='%s', Op=WRITE", filename)
+		c.logger.With("action", "output.write").Debug("fsnotify: Name='%s', Op=WRITE", filename)
 
 		if err := setFileOwnership(filename, c.config, c.logger); err != nil {
-			log.Warn("%s Failed to set file ownership for %s: %v", c.GetLogPrefix(), filename, err)
+			c.logger.With("action", "output.write").Warn("%s file ownership for %s: %v", c.GetLogPrefix(), filename, err)
 		}
 	}
-	log.Debug("%s All files written successfully", c.GetLogPrefix())
+	c.logger.With("action", "sync.done").Debug("%s files written", c.GetLogPrefix())
 	return nil
 }

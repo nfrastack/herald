@@ -47,11 +47,11 @@ type FileOutput struct {
 func NewFileOutput(profileName string, config map[string]interface{}) (OutputFormat, error) {
 	format, ok := config["format"].(string)
 	if !ok || format == "" {
-		log.Error("[output/file] Missing or invalid 'format' field in config: %+v", config)
+		log.NewScopedLogger("", "").With("action", "config.error").Error("[output/file] Missing or invalid 'format' field in config: %+v", config)
 		return nil, fmt.Errorf("file output requires 'format' field")
 	}
 
-	log.Debug("[output/file] Creating file output '%s' (format: %s) with config: %+v", profileName, format, config)
+	log.NewScopedLogger("", "").With("action", "provider.init").Debug("[output/file] file output '%s' (format: %s) with config: %+v", profileName, format, config)
 
 	switch format {
 	case "json":
@@ -76,10 +76,10 @@ func NewFileOutput(profileName string, config map[string]interface{}) (OutputFor
 }
 
 func NewProvider(name string, config map[string]interface{}) (OutputFormat, error) {
-	log.Debug("[output/file] NewProvider called with name='%s', config: %+v", name, config)
+	log.NewScopedLogger("", "").With("action", "provider.init").Debug("[output/file] name='%s', config: %+v", name, config)
 	return NewFileOutput(name, config)
 }
 
 func init() {
-	log.Debug("[output/file] File output types loaded")
+	log.NewScopedLogger("", "").With("action", "provider.init").Debug("[output/file] output types loaded")
 }

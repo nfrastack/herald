@@ -135,7 +135,7 @@ func (p *GoogleDNSProvider) signJWT() (string, error) {
 }
 
 func (p *GoogleDNSProvider) postForm(target string, form url.Values) (int, []byte, error) {
-	p.Logger.Debug("API Request: POST %s", target)
+	p.Logger.With("action", "api.route").Debug("request: POST %s", target)
 	req, err := http.NewRequest("POST", target, strings.NewReader(form.Encode()))
 	if err != nil {
 		return 0, nil, err

@@ -94,7 +94,7 @@ func (p *PowerDNSProvider) CreateOrUpdateRecord(domain, recordType, hostname, ta
 }
 
 func (p *PowerDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostname, target string, ttl int, proxied bool, comment, source string, overwrite bool) error {
-	p.Logger.Debug("Creating/updating record: domain=%s, type=%s, hostname=%s, target=%s, ttl=%d", domain, recordType, hostname, target, ttl)
+	p.Logger.With("action", "record.sync").Debug("record: domain=%s, type=%s, hostname=%s, target=%s, ttl=%d", domain, recordType, hostname, target, ttl)
 
 	apiURL := p.apiURL("/servers/%s/zones/%s.", p.serverID(), domain)
 
@@ -105,7 +105,7 @@ func (p *PowerDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, ho
 		recordContent = target + "."
 	}
 
-	p.Logger.Trace("Using record name: %s, content: %s", recordName, recordContent)
+	p.Logger.With("action", "record.sync").Trace("record name: %s, content: %s", recordName, recordContent)
 
 	rrset := map[string]interface{}{
 		"name":       recordName + ".",
@@ -128,13 +128,13 @@ func (p *PowerDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, ho
 }
 
 func (p *PowerDNSProvider) DeleteRecord(domain, recordType, hostname string) error {
-	p.Logger.Debug("Deleting record: domain=%s, type=%s, hostname=%s", domain, recordType, hostname)
+	p.Logger.With("action", "record.delete").Debug("record: domain=%s, type=%s, hostname=%s", domain, recordType, hostname)
 
 	apiURL := p.apiURL("/servers/%s/zones/%s.", p.serverID(), domain)
 
 	recordName := BuildFQDN(hostname, domain)
 
-	p.Logger.Trace("Using record name for deletion: %s", recordName)
+	p.Logger.With("action", "record.delete").Trace("record name for deletion: %s", recordName)
 
 	rrset := map[string]interface{}{
 		"name":       recordName + ".",
@@ -178,24 +178,24 @@ func (p *PowerDNSProvider) GetName() string {
 }
 
 func (p *PowerDNSProvider) Validate() error {
-	p.Logger.Debug("Validating PowerDNS API connection")
+	p.Logger.With("action", "provider.validate").Debug("PowerDNS API connection")
 
 	apiURL := p.apiURL("/servers/%s/zones", p.serverID())
 
-	p.Logger.Trace("Validation request to: %s", apiURL)
+	p.Logger.With("action", "provider.validate").Trace("request to: %s", apiURL)
 
 	status, respBody, err := p.patch("GET", apiURL, nil)
 	if err != nil {
-		p.Logger.Debug("Validation request failed: %v", err)
+		p.Logger.With("action", "provider.validate").Debug("request: %v", err)
 		return err
 	}
 
 	if status != 200 {
-		p.Logger.Debug("Validation failed with status: %d", status)
+		p.Logger.With("action", "provider.validate").Debug("with status: %d", status)
 		return fmt.Errorf("PowerDNS API validation failed: %d - %s", status, string(respBody))
 	}
 
-	p.Logger.Debug("PowerDNS API validation successful")
+	p.Logger.With("action", "provider.validate").Debug("API validation successful")
 	return nil
 }
 

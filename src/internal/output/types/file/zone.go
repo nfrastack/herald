@@ -128,14 +128,14 @@ func (z *ZoneFormat) Sync() error {
 
 func (z *ZoneFormat) SyncDomain(domain string) error {
 	filePath := z.GetFilePath()
-	z.GetLogger().Trace("SyncDomain: Starting for domain=%s, file=%s", domain, filePath)
+	z.GetLogger().With("action", "zone.write").Trace("sync starting for domain=%s, file=%s", domain, filePath)
 
 	var existingContent string
 	if fileExists(filePath) {
 		if raw, readErr := os.ReadFile(filePath); readErr == nil {
 			existingContent = string(raw)
 		} else if !os.IsNotExist(readErr) {
-			z.GetLogger().Error("SyncDomain: Failed to read existing file %s: %v", filePath, readErr)
+			z.GetLogger().With("action", "state.load").Error("existing file %s: %v", filePath, readErr)
 		}
 	}
 	staticLines := z.staticLinesForFile(filePath, existingContent, domain)
@@ -146,7 +146,7 @@ func (z *ZoneFormat) SyncDomain(domain string) error {
 		existingManaged := extractManagedLines(existingContent)
 		existingStatic := extractStaticLines(existingContent)
 		if managedLinesEqual(existingManaged, newManaged) && managedLinesEqual(existingStatic, newStatic) {
-			z.GetLogger().Trace("SyncDomain: No record changes detected for %s, skipping write", filePath)
+			z.GetLogger().With("action", "zone.write").Trace("no record changes for %s, skipping write", filePath)
 			return nil
 		}
 	}
@@ -154,17 +154,17 @@ func (z *ZoneFormat) SyncDomain(domain string) error {
 	newSerial := z.incrementSerial(z.getCurrentSerial())
 	content, err := z.generateZoneFileContent(domain, staticLines, z.generateManagedRecords(domain), newSerial)
 	if err != nil {
-		z.GetLogger().Error("SyncDomain: Failed to generate content for domain=%s: %v", domain, err)
+		z.GetLogger().With("action", "zone.write").Error("content generation failed for domain=%s: %v", domain, err)
 		return err
 	}
 
-	z.GetLogger().Trace("SyncDomain: Generated content (%d bytes) for domain=%s", len(content), domain)
+	z.GetLogger().With("action", "zone.write").Trace("content (%d bytes) for domain=%s", len(content), domain)
 
 	err = os.WriteFile(filePath, []byte(content), 0644)
 	if err != nil {
-		z.GetLogger().Error("SyncDomain: Failed to write file %s: %v", filePath, err)
+		z.GetLogger().With("action", "zone.write").Error("file %s write failed: %v", filePath, err)
 	} else {
-		z.GetLogger().Trace("SyncDomain: Successfully wrote file %s for domain=%s", filePath, domain)
+		z.GetLogger().With("action", "zone.write").Trace("file %s written for domain=%s", filePath, domain)
 	}
 
 	return err
@@ -185,7 +185,7 @@ func (z *ZoneFormat) staticLinesForFile(filePath, existingContent, domain string
 			}
 			if isManualSource(source) {
 				static = append(static, line)
-				z.GetLogger().Info("Migrating legacy manual record to static section in %s: %s", filePath, strings.Join(strings.Fields(line), " "))
+				z.GetLogger().With("action", "zone.write").Info("legacy manual record migrated to static section in %s: %s", filePath, strings.Join(strings.Fields(line), " "))
 			}
 		}
 		z.dropFileRecordsBySource(domain)
@@ -309,13 +309,13 @@ func filterStaticCollisions(z *ZoneFormat, domain string, staticLines, managedLi
 			continue
 		}
 		if managedHosts[host] != nil {
-			z.GetLogger().Warn("Static record %s.%s (%s) shadowed by managed records - emitting as comment", host, domain, rtype)
+			z.GetLogger().With("action", "zone.collision").Warn("record %s.%s (%s) shadowed by managed records - emitting as comment", host, domain, rtype)
 			out = append(out, fmt.Sprintf("; CONFLICT (shadowed by managed %s): %s", rtype, strings.TrimSpace(line)))
 			continue
 		}
 		key := host + ":" + rtype
 		if seenStatic[key] {
-			z.GetLogger().Warn("Duplicate static record %s.%s (%s) - emitting as-is", host, domain, rtype)
+			z.GetLogger().With("action", "zone.collision").Warn("duplicate record %s.%s (%s) - emitting as-is", host, domain, rtype)
 		}
 		seenStatic[key] = true
 		out = append(out, line)
@@ -335,7 +335,7 @@ func filterStaticCollisions(z *ZoneFormat, domain string, staticLines, managedLi
 	}
 	for host, types := range staticTypes {
 		if types["CNAME"] && (types["A"] || types["AAAA"]) {
-			z.GetLogger().Error("Invalid static records for %s.%s: CNAME cannot coexist with address records - fix by hand", host, domain)
+			z.GetLogger().With("action", "zone.collision").Error("invalid records for %s.%s: CNAME cannot coexist with address records - fix by hand", host, domain)
 		}
 	}
 	return out
@@ -462,7 +462,7 @@ func (z *ZoneFormat) loadManagedRecordsFromFile(domain, filePath string) error {
 		if rec.Hostname != "" && rec.Type != "" && rec.Target != "" {
 			err := z.CommonFormat.WriteRecordWithSource(domain, rec.Hostname, rec.Target, rec.Type, int(rec.TTL), rec.Source)
 			if err != nil {
-				z.GetLogger().Warn("Failed to merge loaded record %s.%s (%s): %v", rec.Hostname, domain, rec.Type, err)
+				z.GetLogger().With("action", "state.load").Warn("loaded record %s.%s (%s) merge failed: %v", rec.Hostname, domain, rec.Type, err)
 			}
 		}
 	}
@@ -521,7 +521,7 @@ func (z *ZoneFormat) generateSOARecord(domain string, serial string) ([]string, 
 	if newSerial == "" {
 		newSerial = z.incrementSerial(z.getCurrentSerial())
 	}
-	z.GetLogger().Trace("SOA: New=%s", newSerial)
+	z.GetLogger().With("action", "zone.serial").Trace("serial new=%s", newSerial)
 
 	soa := z.expandSOAConfig(domain)
 
@@ -578,11 +578,11 @@ func (z *ZoneFormat) expandSOAConfig(domain string) SOARecord {
 
 func (z *ZoneFormat) getCurrentSerial() string {
 	filePath := z.GetFilePath()
-	z.GetLogger().Trace("getCurrentSerial: Reading from file=%s", filePath)
+	z.GetLogger().With("action", "zone.serial").Trace("reading from file=%s", filePath)
 
 	f, err := os.Open(filePath)
 	if err != nil {
-		z.GetLogger().Trace("getCurrentSerial: Cannot open file %s: %v", filePath, err)
+		z.GetLogger().With("action", "zone.serial").Trace("cannot open file %s: %v", filePath, err)
 		return ""
 	}
 	defer f.Close()
@@ -592,22 +592,22 @@ func (z *ZoneFormat) getCurrentSerial() string {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if matches := serialRe.FindStringSubmatch(line); len(matches) > 1 {
-			z.GetLogger().Trace("getCurrentSerial: Found serial=%s in file=%s", matches[1], filePath)
+			z.GetLogger().With("action", "zone.serial").Trace("serial=%s in file=%s", matches[1], filePath)
 			return matches[1]
 		}
 	}
 
-	z.GetLogger().Trace("getCurrentSerial: No serial found in file=%s", filePath)
+	z.GetLogger().With("action", "zone.serial").Trace("no serial in file=%s", filePath)
 	return ""
 }
 
 func (z *ZoneFormat) incrementSerial(currentSerial string) string {
 	today := time.Now().Format("20060102")
-	z.GetLogger().Trace("incrementSerial: today=%s, currentSerial=%s", today, currentSerial)
+	z.GetLogger().With("action", "zone.serial").Trace("today=%s, currentSerial=%s", today, currentSerial)
 
 	if currentSerial == "" {
 		newSerial := fmt.Sprintf("%s01", today)
-		z.GetLogger().Trace("incrementSerial: No current serial, returning new=%s", newSerial)
+		z.GetLogger().With("action", "zone.serial").Trace("no current serial, new=%s", newSerial)
 		return newSerial
 	}
 
@@ -620,17 +620,17 @@ func (z *ZoneFormat) incrementSerial(currentSerial string) string {
 			} else {
 				newSerial = fmt.Sprintf("%s%02d", today, newInc)
 			}
-			z.GetLogger().Trace("incrementSerial: Incremented from=%s to=%s (inc %d->%d)", currentSerial, newSerial, inc, newInc)
+			z.GetLogger().With("action", "zone.serial").Trace("incremented from=%s to=%s (inc %d->%d)", currentSerial, newSerial, inc, newInc)
 			return newSerial
 		} else {
-			z.GetLogger().Trace("incrementSerial: Failed to parse increment from=%s: %v", currentSerial, err)
+			z.GetLogger().With("action", "zone.serial").Trace("increment parse failed from=%s: %v", currentSerial, err)
 		}
 	} else {
-		z.GetLogger().Trace("incrementSerial: Serial %s not from today or wrong format, resetting", currentSerial)
+		z.GetLogger().With("action", "zone.serial").Trace("serial %s not from today or wrong format, resetting", currentSerial)
 	}
 
 	newSerial := fmt.Sprintf("%s01", today)
-	z.GetLogger().Trace("incrementSerial: Reset to new=%s", newSerial)
+	z.GetLogger().With("action", "zone.serial").Trace("reset to new=%s", newSerial)
 	return newSerial
 }
 
@@ -691,14 +691,14 @@ func (z *ZoneFormat) collectManagedRecords(domain string) []*common.BaseRecord {
 			key := record.Hostname + ":" + record.Type
 			recordMap[key] = record
 		}
-		z.GetLogger().Debug("generateManagedRecords: Loaded %d existing records from file for domain %s", len(existingRecords), domain)
+		z.GetLogger().With("action", "state.load").Debug("loaded %d existing records from file for domain %s", len(existingRecords), domain)
 	}
 
 	for _, record := range domainData.Records {
 		key := record.Hostname + ":" + record.Type
 		recordMap[key] = record // This will overwrite existing records with same hostname+type
 	}
-	z.GetLogger().Debug("generateManagedRecords: Final record count for domain %s: %d", domain, len(recordMap))
+	z.GetLogger().With("action", "zone.write").Debug("final record count for domain %s: %d", domain, len(recordMap))
 
 	records := make([]*common.BaseRecord, 0, len(recordMap))
 	for _, record := range recordMap {
@@ -763,7 +763,7 @@ func enforceCNAMEExclusivity(z *ZoneFormat, domain string, records []*common.Bas
 	kept := records[:0]
 	for _, r := range records {
 		if r.Type == "CNAME" && hasAddress[r.Hostname] {
-			z.GetLogger().Warn("Dropping conflicting CNAME record %s.%s -> %s (hostname also has address records)", r.Hostname, domain, r.Target)
+			z.GetLogger().With("action", "zone.collision").Warn("conflicting CNAME record %s.%s -> %s dropped (hostname also has address records)", r.Hostname, domain, r.Target)
 			continue
 		}
 		kept = append(kept, r)
@@ -772,9 +772,9 @@ func enforceCNAMEExclusivity(z *ZoneFormat, domain string, records []*common.Bas
 }
 
 func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	z.GetLogger().Debug("WriteRecordWithSource called: domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
+	z.GetLogger().With("action", "record.create").Debug("domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
 	defer func() {
-		z.GetLogger().Debug("WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
+		z.GetLogger().With("action", "record.create").Debug("domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
 	}()
 
 	loadKey := domain + "|" + z.GetFilePath()
@@ -789,14 +789,14 @@ func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 			currentCount = len(domainData.Records)
 		}
 	}
-	z.GetLogger().Debug("WriteRecordWithSource: domain=%s, loaded=%v, currentRecords=%d", domain, loaded, currentCount)
+	z.GetLogger().With("action", "record.create").Debug("domain=%s, loaded=%v, currentRecords=%d", domain, loaded, currentCount)
 
 	if !loaded {
 		filePath := z.GetFilePath()
 		if fileExists(filePath) {
-			z.GetLogger().Info("Loading existing records from zone file: %s (currentRecords=%d)", filePath, currentCount)
+			z.GetLogger().With("action", "state.load").Info("loading existing records from zone file: %s (currentRecords=%d)", filePath, currentCount)
 			if err := z.loadManagedRecordsFromFile(domain, filePath); err != nil {
-				z.GetLogger().Warn("Failed to load existing records from %s: %v", filePath, err)
+				z.GetLogger().With("action", "state.load").Warn("existing records load failed from %s: %v", filePath, err)
 			} else {
 				afterCount := 0
 				if export != nil && export.Domains != nil {
@@ -804,7 +804,7 @@ func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 						afterCount = len(domainData.Records)
 					}
 				}
-				z.GetLogger().Info("Successfully loaded existing records from %s (before=%d, after=%d)", filePath, currentCount, afterCount)
+				z.GetLogger().With("action", "state.load").Info("existing records loaded from %s (before=%d, after=%d)", filePath, currentCount, afterCount)
 			}
 		}
 
@@ -842,7 +842,7 @@ func (z *ZoneFormat) loadRecordsFromManagedSection(domain, filePath string) []*c
 
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		z.GetLogger().Warn("Failed to read zone file %s: %v", filePath, err)
+		z.GetLogger().With("action", "state.load").Warn("zone file %s read failed: %v", filePath, err)
 		return records
 	}
 

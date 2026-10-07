@@ -15,7 +15,7 @@ func CreateScopedLogger(providerType, profileName string, options map[string]str
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
 	if logLevel != "" {
-		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
+		scopedLogger.With("action", "provider.init").Info("log_level set to: '%s'", logLevel)
 	}
 
 	return scopedLogger

@@ -17,10 +17,10 @@ var mgrLog = log.NewScopedLogger("[output/manager]", "")
 func (m *OutputManager) RouteRecords(domainConfigKey, domain string, records []common.Record) error {
 	logPrefix := common.GetDomainLogPrefix(domainConfigKey, domain)
 	fmt.Printf("%s Routing %d records\n", logPrefix, len(records))
-	mgrLog.With("domain", domain, "config", domainConfigKey).Debug("Successfully routed records")
+	mgrLog.With("action", "domain.route", "domain", domain, "config", domainConfigKey).Debug("records")
 
 	if err := m.SyncAll(); err != nil {
-		mgrLog.With("domain", domain, "config", domainConfigKey).Error("OutputManager SyncAll failed after routing records: %v", err)
+		mgrLog.With("action", "sync.fail", "domain", domain, "config", domainConfigKey).Error("SyncAll after routing records: %v", err)
 		return err
 	}
 
@@ -32,11 +32,11 @@ func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, h
 	defer om.mutex.RUnlock()
 
 	if len(allowedOutputs) == 0 {
-		mgrLog.With("domain", domain).Warn("No outputs allowed for record %s - skipping write", hostname)
+		mgrLog.With("action", "record.skip", "domain", domain).Warn("outputs allowed: none, skipping write: %s", hostname)
 		return nil
 	}
 
-	mgrLog.With("domain", domain, "source", source).Debug("Routing record write: hostname='%s', target='%s', recordType='%s', ttl=%d, proxied=%t, allowedOutputs=%v", hostname, target, recordType, ttl, proxied, allowedOutputs)
+	mgrLog.With("action", "domain.route", "domain", domain, "source", source).Debug("record write: hostname='%s', target='%s', recordType='%s', ttl=%d, proxied=%t, allowedOutputs=%v", hostname, target, recordType, ttl, proxied, allowedOutputs)
 
 	writtenCount := 0
 	var errors []string
@@ -50,7 +50,7 @@ func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, h
 				writtenCount++
 			}
 		} else {
-			mgrLog.With("profile", outputProfile).Warn("Output profile not found")
+			mgrLog.With("action", "output.write", "profile", outputProfile).Warn("profile not found")
 		}
 	}
 
@@ -59,7 +59,7 @@ func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, h
 	}
 
 	if writtenCount > 0 {
-		mgrLog.Debug("Successfully wrote to %d output profiles", writtenCount)
+		mgrLog.With("action", "output.write").Debug("to %d output profiles", writtenCount)
 	}
 
 	return nil
@@ -70,11 +70,11 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 	defer om.mutex.RUnlock()
 
 	if len(allowedOutputs) == 0 {
-		mgrLog.Debug("No output profiles specified for removal, skipping")
+		mgrLog.With("action", "output.remove").Debug("output profiles specified for removal: none, skipping")
 		return nil
 	}
 
-	mgrLog.With("domain", domain, "source", source).Debug("Routing record removal: hostname='%s', recordType='%s', allowedOutputs=%v",
+	mgrLog.With("action", "domain.route", "domain", domain, "source", source).Debug("record removal: hostname='%s', recordType='%s', allowedOutputs=%v",
 		hostname, recordType, allowedOutputs)
 
 	var errors []string
@@ -84,7 +84,7 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 		provider, exists := om.profiles[profileName]
 		if !exists {
 			errStr := fmt.Sprintf("output profile '%s' not found for domain '%s'", profileName, domain)
-			log.Error("%s", errStr)
+			mgrLog.With("action", "output.remove").Error("%s", errStr)
 			errors = append(errors, errStr)
 			continue
 		}
@@ -92,10 +92,10 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 		err := provider.RemoveRecord(domain, hostname, recordType)
 		if err != nil {
 			errStr := fmt.Sprintf("failed to remove record from profile '%s': %v", profileName, err)
-			log.Error("%s", errStr)
+			mgrLog.With("action", "output.remove").Error("%s", errStr)
 			errors = append(errors, errStr)
 		} else {
-			mgrLog.With("profile", profileName).Debug("Successfully removed record from profile")
+			mgrLog.With("action", "output.remove", "profile", profileName).Debug("record from profile")
 			removedCount++
 
 			om.changesMutex.Lock()

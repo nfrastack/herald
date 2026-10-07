@@ -119,13 +119,13 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
 		tempLogPrefix := fmt.Sprintf("[poll/zerotier/%s]", profileName)
-		log.Debug("%s Error creating filter configuration: %v, using default", tempLogPrefix, err)
+		log.NewScopedLogger(tempLogPrefix, "").With("action", "config.error").Debug("creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
 	if len(filterConfig.Filters) == 0 || (len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone) {
 		tempLogPrefix := fmt.Sprintf("[poll/zerotier/%s]", profileName)
-		log.Debug("%s Adding default online=true filter", tempLogPrefix)
+		log.NewScopedLogger(tempLogPrefix, "").With("action", "input.filter").Debug("default online=true filter")
 		filterConfig.Filters = []common.Filter{
 			{
 				Type:      common.FilterTypeOnline,
@@ -143,15 +143,15 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 
 	if apiURL == "" {
 		apiURL = "https://my.zerotier.com"
-		log.Warn("No api_url specified, defaulting to ZeroTier Central: %s", apiURL)
+		log.NewScopedLogger(logPrefix, "").With("action", "config.load").Warn("no api_url specified, defaulting to ZeroTier Central: %s", apiURL)
 	}
 
 	if apiType == "" {
 		if strings.Contains(apiURL, "my.zerotier.com") || strings.Contains(apiURL, "zerotier.com") {
 			apiType = "zerotier"
-			log.Debug("Auto-detected API type as 'zerotier' based on URL: %s", apiURL)
+			log.NewScopedLogger(logPrefix, "").With("action", "provider.init").Debug("api type 'zerotier' based on URL: %s", apiURL)
 		} else {
-			log.Debug("Custom API URL detected: %s, will auto-detect API type", apiURL)
+			log.NewScopedLogger(logPrefix, "").With("action", "provider.init").Debug("custom API URL: %s, will auto-detect API type", apiURL)
 		}
 	}
 
@@ -172,13 +172,13 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
 	if logLevel != "" {
-		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
+		scopedLogger.With("action", "config.load").Info("provider log_level set to: '%s'", logLevel)
 	}
 
 	if useAddressAsFallback {
-		scopedLogger.Verbose("Address fallback enabled - will use member address as hostname when name is empty")
+		scopedLogger.With("action", "config.load").Verbose("address fallback enabled - will use member address as hostname when name is empty")
 	} else {
-		scopedLogger.Debug("Address fallback disabled - members without names will be skipped (enable with use_address_fallback: true)")
+		scopedLogger.With("action", "config.load").Debug("address fallback disabled - members without names will be skipped (enable with use_address_fallback: true)")
 	}
 	if onlineTimeoutSeconds != 60 {
 		apiTypeName := "ZeroTier Central"
@@ -189,11 +189,11 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		} else {
 			apiTypeName = "ZeroTier API"
 		}
-		scopedLogger.Verbose("%s Online timeout set to %d seconds", apiTypeName, onlineTimeoutSeconds)
+		scopedLogger.With("action", "config.load").Verbose("%s online timeout set to %d seconds", apiTypeName, onlineTimeoutSeconds)
 	}
 
 	if onlineTimeoutSeconds < 60 {
-		scopedLogger.Warn("Warning: online_timeout_seconds is set to %d seconds, which may cause erratic behavior due to ZeroTier Central's heartbeat timing. Consider using 60+ seconds.", onlineTimeoutSeconds)
+		scopedLogger.With("action", "config.validate").Warn("online_timeout_seconds is set to %d seconds, which may cause erratic behavior due to ZeroTier Central's heartbeat timing. Consider using 60+ seconds.", onlineTimeoutSeconds)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -227,10 +227,10 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 
 func (p *ZerotierProvider) StartPolling() error {
 	if p.running {
-		p.logger.Warn("StartPolling called but already running")
+		p.logger.With("action", "provider.poll").Warn("already running")
 		return nil
 	}
-	p.logger.Debug("Starting Zerotier polling loop")
+	p.logger.With("action", "provider.poll").Debug("zerotier polling loop")
 	p.running = true
 	go p.pollLoop()
 	return nil
@@ -247,21 +247,21 @@ func (p *ZerotierProvider) IsRunning() bool {
 }
 
 func (p *ZerotierProvider) GetDNSEntries() ([]DNSEntry, error) {
-	p.logger.Trace("GetDNSEntries called")
+	p.logger.With("action", "provider.poll").Trace("getDNSEntries")
 	return p.fetchMembers()
 }
 
 func (p *ZerotierProvider) pollLoop() {
-	p.logger.Debug("pollLoop started: performing initial poll immediately on startup")
+	p.logger.With("action", "provider.poll").Debug("performing initial poll immediately on startup")
 	if p.processExisting {
-		p.logger.Trace("Processing existing Zerotier members on startup (process_existing=true)")
+		p.logger.With("action", "sync.start").Trace("existing Zerotier members on startup (process_existing=true)")
 		entries, err := p.fetchMembers()
 		if err == nil {
 			_ = p.updateDNSEntries(entries, nil)
 			p.lastEntries = entries
 		}
 	} else {
-		p.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
+		p.logger.With("action", "sync.start").Trace("poll on startup (process_existing=false), inventory only")
 		entries, err := p.fetchMembers()
 		if err == nil {
 			p.lastKnownRecords = make(map[string]string)
@@ -286,11 +286,11 @@ func (p *ZerotierProvider) pollLoop() {
 }
 
 func (p *ZerotierProvider) logMemberAdded(name string) {
-	p.logger.With("member", name).Info("Member added: %s", name)
+	p.logger.With("action", "provider.event", "member", name).Info("added: %s", name)
 }
 
 func (p *ZerotierProvider) logMemberRemoved(name string) {
-	p.logger.With("member", name).Info("Member removed: %s", name)
+	p.logger.With("action", "provider.event", "member", name).Info("removed: %s", name)
 }
 
 func (p *ZerotierProvider) targetDomains() []string {
@@ -308,16 +308,16 @@ func (p *ZerotierProvider) targetDomains() []string {
 func (p *ZerotierProvider) resolveRealDomain(domainKey string) string {
 	realDomain := domainKey
 	domainConfig := config.GetDomainConfig(domainKey)
-	p.logger.Debug("domainConfig for key '%s': %+v", domainKey, domainConfig)
+	p.logger.With("action", "domain.match").Debug("domainConfig for key '%s': %+v", domainKey, domainConfig)
 	if domainConfig != nil {
 		if d, ok := domainConfig["domain"]; ok {
 			realDomain = d
-			p.logger.Trace("Resolved domain config key '%s' to real domain name '%s'", domainKey, realDomain)
+			p.logger.With("action", "domain.match").Trace("domain config key '%s' to real domain name '%s'", domainKey, realDomain)
 		} else {
-			p.logger.Debug("Domain config for key '%s' does not contain a 'domain' field, using as-is", domainKey)
+			p.logger.With("action", "domain.skip").Debug("domain config for key '%s' does not contain a 'domain' field, using as-is", domainKey)
 		}
 	} else {
-		p.logger.Debug("Could not resolve domain config key '%s' to a real domain name, using as-is", domainKey)
+		p.logger.With("action", "domain.skip").Debug("unresolved domain config key '%s', using as-is", domainKey)
 	}
 	return realDomain
 }
@@ -358,16 +358,16 @@ func (p *ZerotierProvider) publishEntry(batchProcessor *domain.BatchProcessor, e
 			fqdnNoDot = realDomain
 		}
 		if remove {
-			p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecordRemoval: %+v", state)
+			p.logger.With("action", "record.delete", "domain", realDomain, "fqdn", fqdnNoDot).Trace("processRecordRemoval: %+v", state)
 			if err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state); err != nil {
-				p.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
+				p.logger.With("action", "record.reject").Error("remove DNS for '%s': %v", fqdnNoDot, err)
 			} else {
 				heraldstate.Remove(realDomain, hostname, entry.RecordType)
 			}
 		} else {
-			p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecord: %+v", state)
+			p.logger.With("action", "record.create", "domain", realDomain, "fqdn", fqdnNoDot).Trace("processRecord: %+v", state)
 			if err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state); err != nil {
-				p.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
+				p.logger.With("action", "record.reject").Error("ensure DNS for '%s': %v", fqdnNoDot, err)
 			}
 			heraldstate.Touch(realDomain, hostname, entry.RecordType, entry.Target, p.profileName, "")
 		}
@@ -396,7 +396,7 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 			p.publishEntry(batchProcessor, entry, false)
 		} else {
 			if entry.Target != lastEntry.Target || entry.TTL != lastEntry.TTL || entry.RecordType != lastEntry.RecordType {
-				p.logger.With("member", entry.GetFQDN()).Info("Member changed: %s (target: %s -> %s, ttl: %d -> %d, type: %s -> %s)", entry.GetFQDN(), lastEntry.Target, entry.Target, lastEntry.TTL, entry.TTL, lastEntry.RecordType, entry.RecordType)
+				p.logger.With("action", "provider.event", "member", entry.GetFQDN()).Info("changed: %s (target: %s -> %s, ttl: %d -> %d, type: %s -> %s)", entry.GetFQDN(), lastEntry.Target, entry.Target, lastEntry.TTL, entry.TTL, lastEntry.RecordType, entry.RecordType)
 				p.publishEntry(batchProcessor, entry, false)
 			} else {
 				hostname := shortHostname(entry, p.domain)
@@ -442,29 +442,29 @@ func diffKeys(old, new map[string]struct{}) (added, removed []string) {
 }
 
 func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
-	p.logger.Trace("fetchMembers called (apiType=%s, detected=%v)", p.apiType, p.apiTypeDetected)
+	p.logger.With("action", "provider.poll").Trace("fetchMembers (apiType=%s, detected=%v)", p.apiType, p.apiTypeDetected)
 	if !p.apiTypeDetected {
-		p.logger.Debug("Attempting ZTNet API detection")
+		p.logger.With("action", "provider.init").Debug("ZTNet API detection")
 		entries, err := p.fetchZTNetMembers()
 		if err == nil && len(entries) > 0 {
 			p.apiType = "ztnet"
 			p.apiTypeDetected = true
-			p.logger.Verbose("Detected ZTNet API")
+			p.logger.With("action", "provider.init").Verbose("ZTNet API")
 			return entries, nil
 		} else if err != nil {
-			p.logger.Debug("ZTNet API error: %v", err)
+			p.logger.With("action", "provider.init").Debug("ZTNet API error: %v", err)
 		}
-		p.logger.Debug("ZTNet API not detected, falling back to Zerotier Central")
+		p.logger.With("action", "provider.init").Debug("ZTNet API not detected, falling back to Zerotier Central")
 		entries, err = p.fetchZerotierMembers()
 		if err == nil && len(entries) > 0 {
 			p.apiType = "zerotier"
 			p.apiTypeDetected = true
-			p.logger.Verbose("Detected Zerotier Central API")
+			p.logger.With("action", "provider.init").Verbose("Zerotier Central API")
 			return entries, nil
 		} else if err != nil {
-			p.logger.Debug("Zerotier Central API error: %v", err)
+			p.logger.With("action", "provider.init").Debug("Zerotier Central API error: %v", err)
 		}
-		p.logger.Error("Could not detect working Zerotier API (tried ZTNet and Zerotier Central)")
+		p.logger.With("action", "sync.fail").Error("no working Zerotier API (tried ZTNet and Zerotier Central)")
 		return nil, fmt.Errorf("could not detect working Zerotier API (tried ZTNet and Zerotier Central)")
 	}
 	if p.apiType == "ztnet" {
@@ -474,7 +474,7 @@ func (p *ZerotierProvider) fetchMembers() ([]DNSEntry, error) {
 }
 
 func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
-	p.logger.Debug("Fetching Zerotier members from %s", p.apiURL)
+	p.logger.With("action", "provider.poll").Debug("Zerotier members from %s", p.apiURL)
 
 	networkid := p.networkID
 	parts := strings.Split(networkid, ":")
@@ -482,7 +482,7 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 		networkid = parts[len(parts)-1] // The actual network ID is always the last part
 	}
 	url := strings.TrimRight(p.apiURL, "/") + "/api/network/" + networkid + "/member"
-	p.logger.Trace("Member API URL: %s", url)
+	p.logger.With("action", "provider.poll").Trace("member API URL: %s", url)
 
 	headers := map[string]string{
 		"Authorization": "bearer " + p.token,
@@ -491,7 +491,7 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Trace("Zerotier members API response: %s", string(body))
+	p.logger.With("action", "provider.poll").Trace("zerotier members API response: %s", string(body))
 
 	var members []struct {
 		ID       string `json:"id"`
@@ -509,11 +509,11 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 
 	domain := p.domain
 	if domain == "" {
-		p.logger.Warn("No domain configured for Zerotier, skipping DNS entry creation")
+		p.logger.With("action", "config.error").Warn("no domain configured for Zerotier, skipping DNS entry creation")
 		return nil, nil
 	}
 
-	p.logger.Debug("Filtering members using filter system")
+	p.logger.With("action", "input.filter").Debug("members using filter system")
 	var entries []DNSEntry
 	for _, m := range members {
 		currentTime := time.Now().Unix() * 1000 // Convert to milliseconds
@@ -521,10 +521,10 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 		timeSinceLastSeen := currentTime - m.LastSeen
 		isOnline := timeSinceLastSeen < timeoutMs
 
-		p.logger.With("member", m.Name).Debug("Member online check: lastSeen=%dms ago, timeout=%dms (%ds), isOnline=%v",
+		p.logger.With("action", "input.filter", "member", m.Name).Debug("online check: lastSeen=%dms ago, timeout=%dms (%ds), isOnline=%v",
 			timeSinceLastSeen, timeoutMs, p.onlineTimeoutSeconds, isOnline)
 
-		p.logger.Trace("Evaluating member: id=%s, name=%s, online=%v (lastSeen %dms ago, timeout %dms), authorized=%v, ips=%v, address=%s", m.ID, m.Name, isOnline, timeSinceLastSeen, timeoutMs, m.Config.Authorized, m.Config.IPAssignments, m.Config.Address)
+		p.logger.With("action", "input.filter").Trace("member: id=%s, name=%s, online=%v (lastSeen %dms ago, timeout %dms), authorized=%v, ips=%v, address=%s", m.ID, m.Name, isOnline, timeSinceLastSeen, timeoutMs, m.Config.Authorized, m.Config.IPAssignments, m.Config.Address)
 
 		memberData := ZerotierCentralMember{
 			ID:            m.ID,
@@ -537,7 +537,7 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 		}
 
 		if !EvaluateZerotierFilters(p.filterConfig, memberData) {
-			p.logger.With("member", m.Name).Trace("Member did not match filters, skipping")
+			p.logger.With("action", "input.filter", "member", m.Name).Trace("did not match filters, skipping")
 			continue
 		}
 
@@ -547,19 +547,19 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 				hostname = m.Config.Address
 				p.addressFallbackMembers[hostname] = true
 				if !p.loggedFallbackMembers[hostname] {
-					p.logger.With("member", hostname).Verbose("Member has no name, using address as hostname")
+					p.logger.With("action", "input.pass", "member", hostname).Verbose("has no name, using address as hostname")
 					p.loggedFallbackMembers[hostname] = true
 				} else {
-					p.logger.With("member", hostname).Debug("Member has no name, using address as hostname")
+					p.logger.With("action", "input.pass", "member", hostname).Debug("has no name, using address as hostname")
 				}
 			} else {
-				p.logger.Warn("Skipping member %s - no name provided and use_address_fallback not enabled", m.ID)
+				p.logger.With("action", "input.filter").Warn("member %s - no name provided and use_address_fallback not enabled", m.ID)
 				continue
 			}
 		}
 
 		if len(m.Config.IPAssignments) == 0 {
-			p.logger.Debug("Skipping member %s (no IP assignments)", hostname)
+			p.logger.With("action", "input.filter").Debug("member %s (no IP assignments)", hostname)
 			continue
 		}
 
@@ -579,12 +579,12 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 			entries = append(entries, entry)
 		}
 	}
-	p.logger.Debug("Returning %d DNS entries", len(entries))
+	p.logger.With("action", "sync.done").Debug("%d DNS entries", len(entries))
 	return entries, nil
 }
 
 func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
-	p.logger.Debug("Fetching ZT-Net members from %s", p.apiURL)
+	p.logger.With("action", "provider.poll").Debug("ZT-Net members from %s", p.apiURL)
 	org := ""
 	networkid := p.networkID
 	parts := strings.Split(networkid, ":")
@@ -601,7 +601,7 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	} else {
 		url = strings.TrimRight(p.apiURL, "/") + "/api/v1/network/" + networkid + "/member/"
 	}
-	p.logger.Trace("ZT-Net members API URL: %s", url)
+	p.logger.With("action", "provider.poll").Trace("ZT-Net members API URL: %s", url)
 
 	headers := map[string]string{
 		"x-ztnet-auth": p.token,
@@ -610,7 +610,7 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Trace("ZT-Net members API response: %s", string(body))
+	p.logger.With("action", "provider.poll").Trace("ZT-Net members API response: %s", string(body))
 	var members []struct {
 		Name            string      `json:"name"`
 		LastSeen        string      `json:"lastSeen"` // ISO timestamp for ZT-Net
@@ -629,11 +629,11 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 
 	domain := p.domain
 	if domain == "" {
-		p.logger.Warn("No domain configured for ZT-Net, skipping DNS entry creation")
+		p.logger.With("action", "config.error").Warn("no domain configured for ZT-Net, skipping DNS entry creation")
 		return nil, nil
 	}
 
-	p.logger.Debug("Filtering members using filter system")
+	p.logger.With("action", "input.filter").Debug("members using filter system")
 	var entries []DNSEntry
 	for _, m := range members {
 		isOnline := true // Default to online if we can't parse lastSeen
@@ -643,17 +643,17 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 				timeoutDuration := time.Duration(p.onlineTimeoutSeconds) * time.Second
 				isOnline = timeSinceLastSeen < timeoutDuration
 
-				p.logger.With("member", m.Name).Debug("Member online check: lastSeen=%v ago, timeout=%v (%ds), isOnline=%v",
+				p.logger.With("action", "input.filter", "member", m.Name).Debug("online check: lastSeen=%v ago, timeout=%v (%ds), isOnline=%v",
 					timeSinceLastSeen.Truncate(time.Second), timeoutDuration, p.onlineTimeoutSeconds, isOnline)
 			} else {
-				p.logger.With("member", m.Name).Warn("Failed to parse lastSeen timestamp: %s", m.LastSeen)
+				p.logger.With("action", "input.filter", "member", m.Name).Warn("parse lastSeen timestamp: %s", m.LastSeen)
 				isOnline = m.Online
 			}
 		} else {
 			isOnline = m.Online
 		}
 
-		p.logger.Trace("Evaluating member: id=%s, name=%s, online=%v, authorized=%v, tags=%v, address=%s, nodeid=%d, physicalAddress=%s", m.ID, m.Name, isOnline, m.Authorized, m.Tags, m.Address, m.NodeID, m.PhysicalAddress)
+		p.logger.With("action", "input.filter").Trace("member: id=%s, name=%s, online=%v, authorized=%v, tags=%v, address=%s, nodeid=%d, physicalAddress=%s", m.ID, m.Name, isOnline, m.Authorized, m.Tags, m.Address, m.NodeID, m.PhysicalAddress)
 
 		memberData := ZTNetMember{
 			ID:              m.ID,
@@ -669,7 +669,7 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 		}
 
 		if !EvaluateZerotierFilters(p.filterConfig, memberData) {
-			p.logger.With("member", m.Name).Trace("Member did not match filters, skipping")
+			p.logger.With("action", "input.filter", "member", m.Name).Trace("did not match filters, skipping")
 			continue
 		}
 
@@ -679,19 +679,19 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 				hostname = m.Address
 				p.addressFallbackMembers[hostname] = true
 				if !p.loggedFallbackMembers[hostname] {
-					p.logger.With("member", hostname).Verbose("Member has no name, using address as hostname")
+					p.logger.With("action", "input.pass", "member", hostname).Verbose("has no name, using address as hostname")
 					p.loggedFallbackMembers[hostname] = true
 				} else {
-					p.logger.With("member", hostname).Debug("Member has no name, using address as hostname")
+					p.logger.With("action", "input.pass", "member", hostname).Debug("has no name, using address as hostname")
 				}
 			} else {
-				p.logger.Warn("Skipping member %s - no name provided and use_address_fallback not enabled", m.ID)
+				p.logger.With("action", "input.filter").Warn("member %s - no name provided and use_address_fallback not enabled", m.ID)
 				continue
 			}
 		}
 
 		if len(m.IPs) == 0 {
-			p.logger.Debug("Skipping member %s (no IP assignments)", hostname)
+			p.logger.With("action", "input.filter").Debug("member %s (no IP assignments)", hostname)
 			continue
 		}
 
@@ -701,7 +701,7 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 				recordType = "AAAA"
 			}
 			fqdn := hostname + "." + domain
-			p.logger.Debug("Constructed FQDN: hostname='%s', domain='%s', fqdn='%s'", hostname, domain, fqdn)
+			p.logger.With("action", "record.create").Debug("FQDN: hostname='%s', domain='%s', fqdn='%s'", hostname, domain, fqdn)
 			entry := DNSEntry{
 				Name:       fqdn,
 				Hostname:   hostname,
@@ -713,7 +713,7 @@ func (p *ZerotierProvider) fetchZTNetMembers() ([]DNSEntry, error) {
 			entries = append(entries, entry)
 		}
 	}
-	p.logger.Debug("Returning %d DNS entries", len(entries))
+	p.logger.With("action", "sync.done").Debug("%d DNS entries", len(entries))
 	return entries, nil
 }
 
