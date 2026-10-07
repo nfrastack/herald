@@ -61,7 +61,7 @@ func (d DNSEntry) GetRecordType() string {
 }
 
 func NewInputProvider(inputProviderType string, providerOptions map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
-	log.NewScopedLogger("", "").With("type", inputProviderType).Debug("Creating input provider")
+	log.NewScopedLogger("", "").With("action", "provider.init", "type", inputProviderType).Debug("input provider")
 
 	profileName := providerOptions["name"]
 	if profileName == "" {
@@ -103,17 +103,17 @@ func GetAvailableTypes() []string {
 
 func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig, domains map[string]config.DomainConfig, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 
-	log.NewScopedLogger("", "").With("provider", name, "type", inputConfig.Type).Verbose("Initializing input provider")
+	log.NewScopedLogger("", "").With("action", "provider.init", "provider", name, "type", inputConfig.Type).Verbose("input provider")
 
 	providerOptions := inputConfig.GetOptions(name)
 
 	if inputConfig.ExposeContainers {
 		providerOptions["expose_containers"] = "true"
-		log.NewScopedLogger("", "").With("provider", name).Debug("Adding expose_containers=true to provider options")
+		log.NewScopedLogger("", "").With("action", "config.load", "provider", name).Debug("expose_containers=true to provider options")
 	}
 
 	if filterConfig, exists := inputConfig.Options["filter"]; exists {
-		log.NewScopedLogger("", "").With("provider", name).Debug("Found filter configuration: %+v", filterConfig)
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", name).Debug("filter configuration: %+v", filterConfig)
 	}
 
 	for k, v := range inputConfig.Options {
@@ -121,27 +121,27 @@ func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig,
 			providerOptions[k] = strVal
 		} else {
 			if k == "filter" {
-				log.NewScopedLogger("", "").With("provider", name).Debug("Converting filter to string: %+v", v)
+				log.NewScopedLogger("", "").With("action", "input.filter", "provider", name).Debug("filter to string: %+v", v)
 			}
 			providerOptions[k] = fmt.Sprintf("%v", v)
 		}
 	}
 
 	if filterOpt, exists := providerOptions["filter"]; exists {
-		log.NewScopedLogger("", "").With("provider", name).Debug("Filter found in final options: %s (type: %T)", filterOpt, filterOpt)
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", name).Debug("in final options: %s (type: %T)", filterOpt, filterOpt)
 
 		if filterRaw, exists := inputConfig.Options["filter"]; exists {
 			if filterJSON, err := json.Marshal(filterRaw); err == nil {
 				providerOptions["filter"] = string(filterJSON)
-				log.NewScopedLogger("", "").With("provider", name).Debug("Successfully converted filter to JSON: %s", string(filterJSON))
+				log.NewScopedLogger("", "").With("action", "input.filter", "provider", name).Debug("filter to JSON: %s", string(filterJSON))
 			} else {
-				log.NewScopedLogger("", "").With("provider", name).Error("Failed to convert filter to JSON: %v", err)
+				log.NewScopedLogger("", "").With("action", "input.filter", "provider", name).Error("filter to JSON: %v", err)
 			}
 		}
 	}
 
-	log.NewScopedLogger("", "").With("provider", name).Debug("Provider raw config: %+v", inputConfig)
-	log.NewScopedLogger("", "").With("provider", name).Trace("Provider options: %v", maskSensitiveOptions(providerOptions))
+	log.NewScopedLogger("", "").With("action", "config.load", "provider", name).Debug("raw config: %+v", inputConfig)
+	log.NewScopedLogger("", "").With("action", "config.load", "provider", name).Trace("options: %v", maskSensitiveOptions(providerOptions))
 
 	inputProvider, err := NewInputProvider(inputConfig.Type, providerOptions, outputWriter, outputSyncer)
 	if err != nil {
@@ -151,10 +151,10 @@ func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig,
 	if providerWithDomains, ok := inputProvider.(interface {
 		SetDomainConfigs(map[string]config.DomainConfig)
 	}); ok {
-		log.NewScopedLogger("", "").With("provider", name).Debug("Setting domain configs on provider")
+		log.NewScopedLogger("", "").With("action", "domain.match", "provider", name).Debug("domain configs on provider")
 		providerWithDomains.SetDomainConfigs(domains)
 	} else {
-		log.NewScopedLogger("", "").With("provider", name).Debug("Provider does not support domain configs")
+		log.NewScopedLogger("", "").With("action", "domain.skip", "provider", name).Debug("domain configs not supported")
 	}
 
 	if err := inputProvider.StartPolling(); err != nil {

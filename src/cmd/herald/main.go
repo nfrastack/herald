@@ -61,6 +61,7 @@ var (
 	configFilePathC = flag.String("c", "", "") // Hidden shorthand for config
 	showVersion     = flag.Bool("version", false, "Show version and exit")
 	logLevelFlag    = flag.String("log-level", "", "Set log level (overrides config/env)")
+	logFormatFlag   = flag.String("log-format", "", "Set log format text, structured or json (overrides config/env)")
 	dryRunFlag      = flag.Bool("dry-run", false, "Simulate DNS record changes without applying them")
 	containerFlag   = flag.Bool("container", false, "")
 )
@@ -77,7 +78,7 @@ func main() {
 		defaultLogTimestamps = false
 	}
 
-	log.Initialize("info", true)
+	log.Initialize("info", defaultLogTimestamps, "")
 
 	if *showVersion {
 		fmt.Println(versionString(true))
@@ -100,7 +101,7 @@ func main() {
 	fmt.Printf("© 2025 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
 	fmt.Println()
 
-	log.Trace("Built: %s", BuildTime)
+	log.NewScopedLogger("", "").With("action", "server.start").Trace("build: %s", BuildTime)
 
 	configFile := "herald.yml"
 	if *configFilePath != "" {
@@ -141,16 +142,27 @@ func main() {
 	}
 
 	if cfg.General.LogLevel == "verbose" && cfg.General.LogTimestamps == false {
-		log.Debug("[config] Verbose mode detected but timestamps disabled in config - consider enabling log_timestamps: true")
+		log.NewScopedLogger("", "").With("action", "config.validate").Debug("[config] Verbose mode with timestamps disabled in config - consider enabling log_timestamps: true")
 	}
 
 	cfg.General.LogTimestamps = logTimestamps
 
-	log.GetLogger().SetLevel(cfg.General.LogLevel)
-	log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
+	logFormat := *logFormatFlag
+	if logFormat == "" {
+		logFormat = os.Getenv("LOG_FORMAT")
+	}
+	if logFormat == "" {
+		logFormat = cfg.General.LogFormat
+	}
+	if !log.ValidFormat(logFormat) {
+		fmt.Printf("[config] Invalid log format '%s': must be text, structured or json\n", logFormat)
+		os.Exit(1)
+	}
 
-	log.Info("[config] Using config file: %s", configFilePath)
-	log.Debug("[config] Logger configured with level: %s, timestamps: %t", cfg.General.LogLevel, cfg.General.LogTimestamps)
+	log.Reinitialize(cfg.General.LogLevel, cfg.General.LogTimestamps, logFormat)
+
+	log.NewScopedLogger("", "").With("action", "config.load").Info("[config] config file: %s", configFilePath)
+	log.NewScopedLogger("", "").With("action", "config.load").Debug("[config] logger level: %s, timestamps: %t, format: %s", cfg.General.LogLevel, cfg.General.LogTimestamps, log.ResolveFormat(logFormat))
 
 	config.GlobalConfig = *cfg
 
@@ -164,12 +176,12 @@ func main() {
 		if d, err := time.ParseDuration(cfg.StaleAfter); err == nil {
 			staleAfter = d
 		} else {
-			log.Warn("[state] Invalid stale_after '%s', stale reporting disabled", cfg.StaleAfter)
+			log.NewScopedLogger("", "").With("action", "state.stale").Warn("[state] invalid stale_after '%s', reporting disabled", cfg.StaleAfter)
 		}
 	}
 	state.Init(stateDir, staleAfter)
 	if state.Default != nil {
-		log.Info("[state] Tracking record presence in %s", stateDir)
+		log.NewScopedLogger("", "").With("action", "state.load").Info("[state] record presence in %s", stateDir)
 	}
 
 	domainsInterface := make(map[string]interface{})
@@ -206,7 +218,7 @@ func main() {
 		}
 
 		domainsInterface[k] = domainMap
-		log.Debug("[main] Created domain interface for '%s': input_profiles=%v, outputs=%v",
+		log.NewScopedLogger("", "").With("action", "domain.route").Debug("[main] domain interface for '%s': input_profiles=%v, outputs=%v",
 			k, inputProfiles, outputs)
 	}
 	inputsInterface := make(map[string]interface{})
@@ -219,14 +231,16 @@ func main() {
 	}
 
 	if err := domain.InitializeDomainSystem(domainsInterface, inputsInterface, outputsInterface, map[string]interface{}{}); err != nil {
-		log.Fatal("[domain] Failed to initialize domain system: %v", err)
+		log.NewScopedLogger("", "").With("action", "domain.route").Error("[domain] initialize domain system: %v", err)
+		os.Exit(1)
 	}
 
 	if cfg.API != nil && cfg.API.Enabled {
 		apiLogger := log.NewScopedLogger("[api]", cfg.API.LogLevel)
-		apiLogger.Info("Starting API server")
+		apiLogger.With("action", "api.listen").Info("server")
 		if err := api.StartAPIServer(cfg.API); err != nil {
-			log.Fatal("[api] Failed to start API server: %v", err)
+			log.NewScopedLogger("", "").With("action", "api.listen").Error("[api] start API server: %v", err)
+			os.Exit(1)
 		}
 	}
 
@@ -247,11 +261,12 @@ func main() {
 			activeOutputProfiles = append(activeOutputProfiles, profileName)
 		}
 	} else {
-		log.Debug("[output] Using output profiles from domain configurations: %v", activeOutputProfiles)
+		log.NewScopedLogger("", "").With("action", "output.write").Debug("[output] profiles from domain configurations: %v", activeOutputProfiles)
 	}
 
 	if err := output.InitializeOutputManagerWithProfiles(cfg.Outputs, activeOutputProfiles); err != nil {
-		log.Fatal("[output] Failed to initialize output manager: %v", err)
+		log.NewScopedLogger("", "").With("action", "provider.init").Error("[output] initialize output manager: %v", err)
+		os.Exit(1)
 	}
 
 	log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
@@ -272,21 +287,24 @@ func main() {
 		}
 
 		if len(activeInputProfiles) == 0 {
-			log.Fatal("[input] No input providers specified in domain configurations")
+			log.NewScopedLogger("", "").With("action", "provider.init").Error("[input] No input providers specified in domain configurations")
+			os.Exit(1)
 		}
 
 		for _, inputProviderName := range activeInputProfiles {
 			if _, exists := cfg.Inputs[inputProviderName]; !exists {
-				log.Fatal("[input] Input provider '%s' referenced in domains but not found in configuration", inputProviderName)
+				log.NewScopedLogger("", "").With("action", "provider.init").Error("[input] Input provider '%s' referenced in domains but not found in configuration", inputProviderName)
+				os.Exit(1)
 			}
 		}
 
-		log.Debug("[input] Using input providers from domain configurations: %v", activeInputProfiles)
+		log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] providers from domain configurations: %v", activeInputProfiles)
 		inputProviderInstances := []input.Provider{}
 		for _, inputProviderName := range activeInputProfiles {
 			inputProviderConfig, ok := cfg.Inputs[inputProviderName]
 			if !ok {
-				log.Fatal("[input] Input provider not found in configuration: %s", inputProviderName)
+				log.NewScopedLogger("", "").With("action", "provider.init").Error("[input] Input provider not found in configuration: %s", inputProviderName)
+				os.Exit(1)
 			}
 
 			inputProviderType := inputProviderConfig.Type
@@ -294,17 +312,17 @@ func main() {
 				inputProviderType = inputProviderName
 			}
 
-			log.Verbose("[input] Initializing input provider: '%s'", inputProviderName)
+			log.NewScopedLogger("", "").With("action", "provider.init").Verbose("[input] provider: '%s'", inputProviderName)
 
 			providerOptions := inputProviderConfig.GetOptions(inputProviderName)
 
 			if inputProviderConfig.ExposeContainers {
 				providerOptions["expose_containers"] = "true"
-				log.Debug("[input] Adding expose_containers=true to provider options")
+				log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] expose_containers=true to provider options")
 			}
 
 			if filterConfig, exists := inputProviderConfig.Options["filter"]; exists {
-				log.Debug("[input] Found filter configuration for %s: %+v", inputProviderName, filterConfig)
+				log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] filter configuration for %s: %+v", inputProviderName, filterConfig)
 			}
 
 			for k, v := range inputProviderConfig.Options {
@@ -312,71 +330,73 @@ func main() {
 					providerOptions[k] = strVal
 				} else {
 					if k == "filter" {
-						log.Debug("[input] Converting filter to string for provider %s: %+v", inputProviderName, v)
+						log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] filter to string for provider %s: %+v", inputProviderName, v)
 					}
 					providerOptions[k] = fmt.Sprintf("%v", v)
 				}
 			}
 
-			log.Debug("[input] Provider %s raw config: %+v", inputProviderName, inputProviderConfig)
-			log.Debug("[input] Provider %s raw config Options field: %+v", inputProviderName, inputProviderConfig.Options)
-			log.Debug("[input] Provider %s final options: %v", inputProviderName, providerOptions)
+			log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] Provider %s raw config: %+v", inputProviderName, inputProviderConfig)
+			log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] Provider %s raw config Options field: %+v", inputProviderName, inputProviderConfig.Options)
+			log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] Provider %s final options: %v", inputProviderName, providerOptions)
 
 			if filterOpt, exists := providerOptions["filter"]; exists {
-				log.Debug("[input] Filter found in final options: %s (type: %T)", filterOpt, filterOpt)
+				log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] Filter found in final options: %s (type: %T)", filterOpt, filterOpt)
 
-				log.Debug("[input] Forcing JSON conversion for filter")
+				log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] JSON conversion for filter")
 				if filterRaw, exists := inputProviderConfig.Options["filter"]; exists {
 					if filterJSON, err := json.Marshal(filterRaw); err == nil {
 						providerOptions["filter"] = string(filterJSON)
-						log.Debug("[input] Successfully converted filter to JSON: %s", string(filterJSON))
+						log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] filter to JSON: %s", string(filterJSON))
 					} else {
-						log.Error("[input] Failed to convert filter to JSON: %v", err)
+						log.NewScopedLogger("", "").With("action", "provider.init").Error("[input] convert filter to JSON: %v", err)
 					}
 				}
 			}
 
 			if filterStr, exists := providerOptions["filter"]; exists {
-				log.Debug("[input] Provider %s filter option (as string): %s", inputProviderName, filterStr)
+				log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] Provider %s filter option (as string): %s", inputProviderName, filterStr)
 			}
 			if filterRaw, exists := inputProviderConfig.Options["filter"]; exists {
-				log.Debug("[input] Provider %s filter raw (before conversion): %+v", inputProviderName, filterRaw)
-				log.Debug("[input] Provider %s filter raw type: %T", inputProviderName, filterRaw)
+				log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] Provider %s filter raw (before conversion): %+v", inputProviderName, filterRaw)
+				log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] Provider %s filter raw type: %T", inputProviderName, filterRaw)
 			}
 
-			log.Trace("[input] Provider %s options: %v", inputProviderName, util.MaskSensitiveOptions(providerOptions))
+			log.NewScopedLogger("", "").With("action", "provider.init").Trace("[input] Provider %s options: %v", inputProviderName, util.MaskSensitiveOptions(providerOptions))
 
 			if _, hasFilter := inputProviderConfig.Options["filter"]; hasFilter {
-				log.Debug("[input] Provider %s has filter configuration, attempting to apply filters", inputProviderName)
+				log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] provider %s applying filter configuration", inputProviderName)
 			}
 
 			inputProvider, err := input.NewInputProvider(inputProviderType, providerOptions, output.GetOutputManager(), output.GetOutputManager())
 
 			if err != nil {
-				log.Fatal("[input] Failed to initialize input provider '%s': %v", inputProviderName, err)
+				log.NewScopedLogger("", "").With("action", "provider.init").Error("[input] initialize provider '%s': %v", inputProviderName, err)
+				os.Exit(1)
 			}
 
 			if providerWithDomains, ok := inputProvider.(interface {
 				SetDomainConfigs(map[string]config.DomainConfig)
 			}); ok {
-				log.Debug("[input] Setting domain configs on provider '%s': %+v", inputProviderName, cfg.Domains)
+				log.NewScopedLogger("", "").With("action", "domain.route").Debug("[input] domain configs on provider '%s': %+v", inputProviderName, cfg.Domains)
 				providerWithDomains.SetDomainConfigs(cfg.Domains)
 			} else {
-				log.Debug("[input] Provider '%s' does not support domain configs", inputProviderName)
+				log.NewScopedLogger("", "").With("action", "domain.skip").Debug("[input] Provider '%s' does not support domain configs", inputProviderName)
 			}
 
 			if filterConfig, hasFilter := inputProviderConfig.Options["filter"]; hasFilter {
-				log.Debug("[input] Attempting to configure filters for %s after creation: %+v", inputProviderName, filterConfig)
+				log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] filters for %s after creation: %+v", inputProviderName, filterConfig)
 			}
 
 			if inputProviderType == "docker" {
 				if filterConfig, exists := inputProviderConfig.Options["filter"]; exists {
-					log.Debug("[input] Attempting to apply filter configuration for Docker provider %s: %+v", inputProviderName, filterConfig)
+					log.NewScopedLogger("", "").With("action", "provider.init").Debug("[input] filter configuration for Docker provider %s: %+v", inputProviderName, filterConfig)
 				}
 			}
 
 			if err := inputProvider.StartPolling(); err != nil {
-				log.Fatal("[input] Failed to start polling with provider '%s': %v", inputProviderName, err)
+				log.NewScopedLogger("", "").With("action", "provider.poll").Error("[input] start polling with provider '%s': %v", inputProviderName, err)
+				os.Exit(1)
 			}
 
 			inputProviderInstances = append(inputProviderInstances, inputProvider)

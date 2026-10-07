@@ -64,20 +64,20 @@ func NewProvider(profileName string, config map[string]interface{}, outputWriter
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("Error creating filter configuration: %v, using default", err)
+		log.NewScopedLogger("", "").With("action", "config.error", "provider", parsed.Name).Debug("filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
 	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone)
 
 	if hasActiveFilters {
-		log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("Filter configuration: %d active filters", len(filterConfig.Filters))
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", parsed.Name).Debug("configuration: %d active filters", len(filterConfig.Filters))
 		for i, f := range filterConfig.Filters {
-			log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("  Filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v",
+			log.NewScopedLogger("", "").With("action", "input.filter", "provider", parsed.Name).Debug("filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v",
 				i, f.Type, f.Value, f.Operation, f.Negate)
 		}
 	} else {
-		log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("No active filters configured, processing all routes")
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", parsed.Name).Debug("no filters configured, processing all routes")
 	}
 
 	scopedLogger := common.CreateScopedLogger("caddy", parsed.Name, options)
@@ -118,10 +118,10 @@ func (p *CaddyProvider) IsRunning() bool {
 
 func (p *CaddyProvider) pollLoop() {
 	if p.opts.ProcessExisting {
-		p.logger.Trace("Processing existing Caddy config on startup (process_existing=true)")
+		p.logger.With("action", "sync.start").Trace("existing Caddy config on startup (process_existing=true)")
 		p.processCaddy()
 	} else {
-		p.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
+		p.logger.With("action", "provider.poll").Trace("poll on startup (process_existing=false), inventory only, no processing")
 		hosts, err := p.readCaddy()
 		if err == nil {
 			current := make(map[string]domain.RouterState)
@@ -167,10 +167,10 @@ func (p *CaddyProvider) processCaddy() {
 	isInitialLoad := len(p.lastHosts) == 0
 	hosts, err := p.readCaddy()
 	if err != nil {
-		p.logger.Error("Failed to read Caddy config: %v", err)
+		p.logger.With("action", "sync.fail").Error("read Caddy config: %v", err)
 		return
 	}
-	p.logger.Debug("Processing %d hosts from Caddy", len(hosts))
+	p.logger.With("action", "provider.poll").Debug("%d hosts from Caddy", len(hosts))
 
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
 	current := make(map[string]domain.RouterState)
@@ -187,22 +187,22 @@ func (p *CaddyProvider) processCaddy() {
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		if _, ok := p.lastHosts[key]; !ok {
 			if isInitialLoad {
-				p.logger.With("fqdn", fqdnNoDot).Info("Initial record detected (A)")
+				p.logger.With("action", "record.create", "fqdn", fqdnNoDot).Info("detected (A)")
 			} else {
-				p.logger.With("fqdn", fqdnNoDot).Info("New record detected (A)")
+				p.logger.With("action", "record.create", "fqdn", fqdnNoDot).Info("detected (A)")
 			}
 			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-			p.logger.With("domain", realDomain).Trace("Using real domain name for DNS provider")
+			p.logger.With("action", "domain.match", "domain", realDomain).Trace("real domain name for DNS provider")
 			state := domain.RouterState{
 				SourceType: "caddy",
 				Name:       p.opts.Name, // Use the actual provider name
 				Service:    h.Service,
 				RecordType: "A",
 			}
-			p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecord: %+v", state)
+			p.logger.With("action", "record.create", "domain", realDomain, "fqdn", fqdnNoDot).Trace("ProcessRecord: %+v", state)
 			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
-				p.logger.With("fqdn", fqdnNoDot).Error("Failed to ensure DNS: %v", err)
+				p.logger.With("action", "record.create", "fqdn", fqdnNoDot).Error("ensure DNS: %v", err)
 			}
 		}
 	}
@@ -211,19 +211,19 @@ func (p *CaddyProvider) processCaddy() {
 			if _, ok := current[key]; !ok {
 				fqdn := old.Name
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
-				p.logger.With("fqdn", fqdnNoDot).Info("Record removed (A)")
+				p.logger.With("action", "record.delete", "fqdn", fqdnNoDot).Info("removed (A)")
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-				p.logger.With("domain", realDomain).Trace("Using real domain name for DNS provider")
+				p.logger.With("action", "domain.match", "domain", realDomain).Trace("real domain name for DNS provider")
 				state := domain.RouterState{
 					SourceType: "caddy",
 					Name:       p.opts.Name, // Use the actual provider name
 					Service:    old.Service,
 					RecordType: "A",
 				}
-				p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecordRemoval: %+v", state)
+				p.logger.With("action", "record.delete", "domain", realDomain, "fqdn", fqdnNoDot).Trace("ProcessRecordRemoval: %+v", state)
 				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
-					p.logger.With("fqdn", fqdnNoDot).Error("Failed to remove DNS: %v", err)
+					p.logger.With("action", "record.delete", "fqdn", fqdnNoDot).Error("remove DNS: %v", err)
 				}
 			}
 		}
@@ -276,41 +276,41 @@ type caddyHost struct {
 }
 
 func (p *CaddyProvider) readCaddy() ([]caddyHost, error) {
-	p.logger.Debug("Fetching Caddy config: %s", p.apiURL)
+	p.logger.With("action", "provider.poll").Debug("Caddy config: %s", p.apiURL)
 	httpUser := common.ReadFileValue(p.options["api_auth_user"])
 	httpPass := common.ReadFileValue(p.options["api_auth_pass"])
 
 	tlsConfig := common.ParseTLSConfigFromOptions(p.options)
 
 	if !tlsConfig.Verify {
-		p.logger.Debug("TLS certificate verification disabled")
+		p.logger.With("action", "tls.skip").Debug("certificate verification disabled")
 	}
 	if tlsConfig.CA != "" {
-		p.logger.Debug("Using custom CA certificate: %s", tlsConfig.CA)
+		p.logger.With("action", "tls.load").Debug("custom CA certificate: %s", tlsConfig.CA)
 	}
 	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
-		p.logger.Debug("Using client certificate authentication")
+		p.logger.With("action", "tls.load").Debug("client certificate authentication")
 	}
 
 	body, err := common.FetchRemoteResourceWithTLSConfig(p.apiURL, httpUser, httpPass, nil, &tlsConfig, p.logPrefix)
 	if err != nil {
-		p.logger.Error("Failed to fetch data from Caddy API: %v", err)
+		p.logger.With("action", "provider.poll").Error("fetch data from Caddy API: %v", err)
 		return nil, fmt.Errorf("%s failed to fetch data: %w", p.logPrefix, err)
 	}
 
-	p.logger.Trace("Caddy API response: %s", string(body))
+	p.logger.With("action", "provider.poll").Trace("API response: %s", string(body))
 
 	var cfg caddyConfig
 	if err := json.Unmarshal(body, &cfg); err != nil {
-		p.logger.Error("Failed to parse JSON response: %v", err)
+		p.logger.With("action", "provider.validate").Error("parse JSON response: %v", err)
 		return nil, fmt.Errorf("%s failed to parse JSON: %w", p.logPrefix, err)
 	}
 
 	var allHosts []caddyHost
 	for serverName, server := range cfg.Apps.HTTP.Servers {
-		p.logger.Trace("Processing server '%s' with %d routes", serverName, len(server.Routes))
+		p.logger.With("action", "provider.event").Trace("server '%s' with %d routes", serverName, len(server.Routes))
 		for routeIdx, route := range server.Routes {
-			p.logger.Trace("Processing route %d (terminal=%v, matches=%d, handlers=%d)",
+			p.logger.With("action", "provider.event").Trace("route %d (terminal=%v, matches=%d, handlers=%d)",
 				routeIdx, route.Terminal, len(route.Match), len(route.Handle))
 
 			for _, match := range route.Match {
@@ -323,17 +323,17 @@ func (p *CaddyProvider) readCaddy() ([]caddyHost, error) {
 					}
 
 					if p.matchesFilter(caddyHost) {
-						p.logger.Trace("Host '%s' matches filter criteria", host)
+						p.logger.With("action", "input.filter").Trace("'%s' matches filter criteria", host)
 						allHosts = append(allHosts, caddyHost)
 					} else {
-						p.logger.Trace("Host '%s' filtered out", host)
+						p.logger.With("action", "input.filter").Trace("'%s' filtered out", host)
 					}
 				}
 			}
 		}
 	}
 
-	p.logger.Debug("Found %d filtered hosts in Caddy config", len(allHosts))
+	p.logger.With("action", "provider.poll").Debug("%d filtered hosts in Caddy config", len(allHosts))
 	return allHosts, nil
 }
 

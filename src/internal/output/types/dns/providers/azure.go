@@ -73,7 +73,7 @@ func (p *AzureDNSProvider) SupportsProxied() bool {
 func (p *AzureDNSProvider) accessToken() (string, error) {
 	return p.cache.Get(func() (string, time.Time, error) {
 		target := "https://login.microsoftonline.com/" + p.tenantID + "/oauth2/v2/token"
-		p.Logger.Debug("API Request: POST %s", target)
+		p.Logger.With("action", "api.route").Debug("request: POST %s", target)
 		req, err := http.NewRequest("POST", target, strings.NewReader(url.Values{
 			"grant_type":    {"client_credentials"},
 			"client_id":     {p.clientID},

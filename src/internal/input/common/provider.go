@@ -61,7 +61,7 @@ func NewBaseProvider(providerType string, options ProviderOptions) *BaseProvider
 	logger := log.NewScopedLogger(logPrefix, options.LogLevel)
 
 	if options.LogLevel != "" {
-		logger.Info("Provider log_level set to: '%s'", options.LogLevel)
+		logger.With("action", "provider.init").Info("log_level set to: '%s'", options.LogLevel)
 	}
 
 	return &BaseProvider{

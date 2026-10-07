@@ -56,7 +56,7 @@ func (t *Tracker) Load() {
 	data, err := os.ReadFile(t.path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			t.logger.Warn("Failed to read state file %s: %v (starting empty)", t.path, err)
+			t.logger.With("action", "state.load").Warn("read state file %s: %v (starting empty)", t.path, err)
 		}
 		return
 	}
@@ -64,7 +64,7 @@ func (t *Tracker) Load() {
 		Entries map[string]*Entry `json:"entries"`
 	}
 	if err := json.Unmarshal(data, &stored); err != nil {
-		t.logger.Warn("Failed to parse state file %s: %v (starting empty)", t.path, err)
+		t.logger.With("action", "state.load").Warn("parse state file %s: %v (starting empty)", t.path, err)
 		return
 	}
 	t.mu.Lock()
@@ -74,7 +74,7 @@ func (t *Tracker) Load() {
 			t.entries[k] = e
 		}
 	}
-	t.logger.Debug("Loaded %d tracked records from %s", len(t.entries), t.path)
+	t.logger.With("action", "state.load").Debug("tracked records %d from %s", len(t.entries), t.path)
 }
 
 func (t *Tracker) Touch(domain, hostname, recordType, target, source, client string) {
@@ -165,20 +165,20 @@ func (t *Tracker) Save() {
 
 	data, err := json.MarshalIndent(stored, "", "  ")
 	if err != nil {
-		t.logger.Warn("Failed to marshal state: %v", err)
+		t.logger.With("action", "state.save").Warn("marshal state: %v", err)
 		return
 	}
 	if err := os.MkdirAll(t.dir, 0700); err != nil {
-		t.logger.Warn("Failed to create state dir %s: %v", t.dir, err)
+		t.logger.With("action", "state.save").Warn("create state dir %s: %v", t.dir, err)
 		return
 	}
 	tmp := t.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		t.logger.Warn("Failed to write state file %s: %v", tmp, err)
+		t.logger.With("action", "state.save").Warn("write state file %s: %v", tmp, err)
 		return
 	}
 	if err := os.Rename(tmp, t.path); err != nil {
-		t.logger.Warn("Failed to persist state file %s: %v", t.path, err)
+		t.logger.With("action", "state.save").Warn("persist state file %s: %v", t.path, err)
 		return
 	}
 	t.mu.Lock()
@@ -229,7 +229,7 @@ func (t *Tracker) reportStale() {
 		if e.Client != "" {
 			via = e.Client + "/" + via
 		}
-		t.logger.Warn("Stale record %s (%s -> %s, via %s): last seen %s, first seen %s - review manually",
+		t.logger.With("action", "state.stale").Warn("record %s (%s -> %s, via %s): last seen %s, first seen %s - review manually",
 			fqdn, e.Type, e.Target, via,
 			e.LastSeen.Format("2006-01-02"), e.FirstSeen.Format("2006-01-02"))
 	}

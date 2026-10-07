@@ -181,7 +181,7 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(options, filterLogger)
 	if err != nil {
-		log.Info("Error creating filter configuration: %v, using default", err)
+		log.NewScopedLogger("", "").With("action", "config.error").Info("filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
@@ -207,28 +207,28 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 	}
 	logPrefix := common.BuildLogPrefix("traefik", profileName)
 
-	log.NewScopedLogger("", "").With("provider", profileName).Trace("Provider options received: %+v", options)
+	log.NewScopedLogger("", "").With("action", "provider.init", "provider", profileName).Trace("options received: %+v", options)
 
-	log.NewScopedLogger("", "").With("provider", profileName).Trace("Resolved profile name: %s", profileName)
+	log.NewScopedLogger("", "").With("action", "provider.init", "provider", profileName).Trace("profile name: %s", profileName)
 
 	apiURL := common.ReadFileValue(stringOptions["api_url"])
 	if apiURL == "" {
 		apiURL = "http://localhost:8080/api/http/routers"
 	}
-	log.NewScopedLogger("", "").With("provider", profileName).Debug("Using configured URL: %s", apiURL)
+	log.NewScopedLogger("", "").With("action", "provider.init", "provider", profileName).Debug("configured URL: %s", apiURL)
 
 	authUser := common.ReadFileValue(stringOptions["api_auth_user"])
 	authPass := common.ReadFileValue(stringOptions["api_auth_pass"])
 
 	if authUser != "" {
-		log.NewScopedLogger("", "").With("provider", profileName).Trace("Basic auth user configured: %s", authUser)
+		log.NewScopedLogger("", "").With("action", "auth.accept", "provider", profileName).Trace("user configured: %s", authUser)
 		if authPass != "" {
-			log.NewScopedLogger("", "").With("provider", profileName).Trace("Basic auth password configured: %s", util.MaskSensitiveValue(authPass))
+			log.NewScopedLogger("", "").With("action", "auth.accept", "provider", profileName).Trace("password configured: %s", util.MaskSensitiveValue(authPass))
 		} else {
-			log.NewScopedLogger("", "").With("provider", profileName).Warn("Basic auth user provided without password")
+			log.NewScopedLogger("", "").With("action", "auth.reject", "provider", profileName).Warn("user provided without password")
 		}
 	} else {
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("No basic auth user found in options or environment")
+		log.NewScopedLogger("", "").With("action", "auth.reject", "provider", profileName).Debug("no user found in options or environment")
 	}
 
 	tlsConfig := common.ParseTLSConfigFromOptions(stringOptions)
@@ -237,13 +237,13 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 	}
 
 	if !tlsConfig.Verify {
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("TLS certificate verification disabled")
+		log.NewScopedLogger("", "").With("action", "tls.skip", "provider", profileName).Debug("certificate verification disabled")
 	}
 	if tlsConfig.CA != "" {
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("Using custom CA certificate: %s", tlsConfig.CA)
+		log.NewScopedLogger("", "").With("action", "tls.load", "provider", profileName).Debug("custom CA certificate: %s", tlsConfig.CA)
 	}
 	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("Using client certificate authentication")
+		log.NewScopedLogger("", "").With("action", "tls.load", "provider", profileName).Debug("client certificate authentication")
 	}
 
 	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone)
@@ -312,21 +312,21 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		}
 
 		if filterDescription.Len() > 0 {
-			log.NewScopedLogger("", "").With("provider", profileName).Verbose("Active filter: %s", filterDescription.String())
+			log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Verbose("filter: %s", filterDescription.String())
 		}
 
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("Filter configuration: %d active filters", len(filterConfig.Filters))
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Debug("configuration: %d active filters", len(filterConfig.Filters))
 		for i, f := range filterConfig.Filters {
-			log.NewScopedLogger("", "").With("provider", profileName).Debug("  Filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v, Conditions=%d",
+			log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Debug("filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v, Conditions=%d",
 				i, f.Type, f.Value, f.Operation, f.Negate, len(f.Conditions))
 			for j, condition := range f.Conditions {
-				log.NewScopedLogger("", "").With("provider", profileName).Debug("    Condition %d: Key='%s', Value='%s', Logic='%s'",
+				log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Debug("condition %d: Key='%s', Value='%s', Logic='%s'",
 					j, condition.Key, condition.Value, condition.Logic)
 			}
 		}
 	} else {
-		log.NewScopedLogger("", "").With("provider", profileName).Verbose("Active filter: none (all routers will be processed)")
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("No active filters configured, processing all routers")
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Verbose("filter: none (all routers will be processed)")
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Debug("no filters configured, processing all routers")
 	}
 
 	logLevel := stringOptions["log_level"] // Get provider-specific log level
@@ -334,7 +334,7 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 	scopedLogger := common.CreateScopedLogger("traefik", profileName, stringOptions)
 
 	if logLevel != "" {
-		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
+		scopedLogger.With("action", "config.load").Info("log_level set to: '%s'", logLevel)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -360,7 +360,7 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		outputSyncer:    nil, // Will be set by SetDomainConfigs
 	}
 
-	scopedLogger.Debug("Filter Configuration: %+v", filterConfig.Filters)
+	scopedLogger.With("action", "input.filter").Debug("configuration: %+v", filterConfig.Filters)
 	filterSummary := "none"
 	realFilterCount := 0
 	for _, f := range filterConfig.Filters {
@@ -372,8 +372,8 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 		filterSummary = fmt.Sprintf("%d", realFilterCount)
 	}
 
-	scopedLogger.Info("Successfully created new Traefik provider with filters=%s", filterSummary)
-	scopedLogger.Debug("Provider details: URL=%s, interval=%s",
+	scopedLogger.With("action", "provider.init").Info("created new Traefik provider with filters=%s", filterSummary)
+	scopedLogger.With("action", "provider.init").Debug("details: URL=%s, interval=%s",
 		provider.apiURL, provider.pollInterval)
 
 	return provider, nil
@@ -402,7 +402,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		log.Debug("Error creating filter configuration: %v, using default", err)
+		log.NewScopedLogger("", "").With("action", "config.error").Debug("filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
@@ -425,13 +425,13 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	if apiURL == "" {
 		apiURL = "http://localhost:8080/api/http/routers"
 	}
-	log.NewScopedLogger("", "").With("provider", profileName).Debug("Using configured URL: %s", apiURL)
+	log.NewScopedLogger("", "").With("action", "provider.init", "provider", profileName).Debug("configured URL: %s", apiURL)
 
 	authUser := common.ReadFileValue(options["api_auth_user"])
 	authPass := common.ReadFileValue(options["api_auth_pass"])
 
 	if authUser != "" {
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("Using basic auth user: %s", authUser)
+		log.NewScopedLogger("", "").With("action", "auth.accept", "provider", profileName).Debug("basic auth user: %s", authUser)
 	}
 
 	tlsConfig := common.ParseTLSConfigFromOptions(options)
@@ -440,13 +440,13 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	}
 
 	if !tlsConfig.Verify {
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("TLS certificate verification disabled")
+		log.NewScopedLogger("", "").With("action", "tls.skip", "provider", profileName).Debug("certificate verification disabled")
 	}
 	if tlsConfig.CA != "" {
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("Using custom CA certificate: %s", tlsConfig.CA)
+		log.NewScopedLogger("", "").With("action", "tls.load", "provider", profileName).Debug("custom CA certificate: %s", tlsConfig.CA)
 	}
 	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("Using client certificate authentication")
+		log.NewScopedLogger("", "").With("action", "tls.load", "provider", profileName).Debug("client certificate authentication")
 	}
 
 	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone)
@@ -515,21 +515,21 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		}
 
 		if filterDescription.Len() > 0 {
-			log.NewScopedLogger("", "").With("provider", profileName).Verbose("Active filter: %s", filterDescription.String())
+			log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Verbose("filter: %s", filterDescription.String())
 		}
 
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("Filter configuration: %d active filters", len(filterConfig.Filters))
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Debug("configuration: %d active filters", len(filterConfig.Filters))
 		for i, f := range filterConfig.Filters {
-			log.NewScopedLogger("", "").With("provider", profileName).Debug("  Filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v, Conditions=%d",
+			log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Debug("filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v, Conditions=%d",
 				i, f.Type, f.Value, f.Operation, f.Negate, len(f.Conditions))
 			for j, condition := range f.Conditions {
-				log.NewScopedLogger("", "").With("provider", profileName).Debug("    Condition %d: Key='%s', Value='%s', Logic='%s'",
+				log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Debug("condition %d: Key='%s', Value='%s', Logic='%s'",
 					j, condition.Key, condition.Value, condition.Logic)
 			}
 		}
 	} else {
-		log.NewScopedLogger("", "").With("provider", profileName).Verbose("Active filter: none (all routers will be processed)")
-		log.NewScopedLogger("", "").With("provider", profileName).Debug("No active filters configured, processing all routers")
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Verbose("filter: none (all routers will be processed)")
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", profileName).Debug("no filters configured, processing all routers")
 	}
 
 	logLevel := options["log_level"] // Get provider-specific log level
@@ -537,7 +537,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	scopedLogger := common.CreateScopedLogger("traefik", profileName, options)
 
 	if logLevel != "" {
-		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
+		scopedLogger.With("action", "config.load").Info("log_level set to: '%s'", logLevel)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -563,8 +563,8 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		outputSyncer:    outputSyncer,
 	}
 
-	scopedLogger.Info("Successfully created new Traefik provider")
-	scopedLogger.Debug("Provider details: URL=%s, interval=%s",
+	scopedLogger.With("action", "provider.init").Info("created new Traefik provider")
+	scopedLogger.With("action", "provider.init").Debug("details: URL=%s, interval=%s",
 		provider.apiURL, provider.pollInterval)
 
 	return provider, nil
@@ -578,10 +578,10 @@ func (tp *TraefikProvider) GetName() string {
 	return "traefik"
 }
 func (t *TraefikProvider) StartPolling() error {
-	t.logger.Info("Starting polling for routers (interval: %s)", t.pollInterval)
+	t.logger.With("action", "provider.poll").Info("polling for routers (interval: %s)", t.pollInterval)
 
 	if t.running {
-		t.logger.Debug("Already running, skipping start")
+		t.logger.With("action", "provider.poll").Debug("already running, skipping start")
 		return nil
 	}
 
@@ -591,7 +591,7 @@ func (t *TraefikProvider) StartPolling() error {
 }
 
 func (t *TraefikProvider) DiscoverHosts(callback func(hostnames []string) error) error {
-	t.logger.Debug("DiscoverHosts called with callback function")
+	t.logger.With("action", "provider.event").Debug("called with callback function")
 	return t.MonitorTraefik(callback)
 }
 
@@ -612,32 +612,32 @@ func (t *TraefikProvider) StopPolling() error {
 }
 
 func (t *TraefikProvider) IsRunning() bool {
-	t.logger.Trace("IsRunning check, current value: %v", t.running)
+	t.logger.With("action", "provider.poll").Trace("running check, current value: %v", t.running)
 	return t.running
 }
 
 func (t *TraefikProvider) MonitorTraefik(callback func(hostnames []string) error) error {
-	t.logger.Debug("MonitorTraefik called with callback function")
+	t.logger.With("action", "provider.event").Debug("called with callback function")
 	if callback == nil {
-		t.logger.Warn("Warning: Callback provided to MonitorTraefik is nil")
+		t.logger.With("action", "provider.validate").Warn("callback provided to MonitorTraefik is nil")
 	}
 	t.callback = callback
-	t.logger.Debug("Callback function set: %v, starting polling", callback != nil)
+	t.logger.With("action", "provider.event").Debug("callback set: %v, starting polling", callback != nil)
 	return t.StartPolling()
 }
 
 func (t *TraefikProvider) pollLoop() {
 	if t.opts.ProcessExisting {
-		t.logger.Trace("Processing existing Traefik routers on startup (process_existing=true)")
+		t.logger.With("action", "sync.start").Trace("existing Traefik routers on startup (process_existing=true)")
 		err := t.processTraefikRouters()
 		if err != nil {
-			t.logger.Error("Failed to process Traefik routers: %v", err)
+			t.logger.With("action", "sync.fail").Error("process Traefik routers: %v", err)
 		}
 	} else {
-		t.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
+		t.logger.With("action", "provider.poll").Trace("poll on startup (process_existing=false), inventory only, no processing")
 		err := t.processTraefikRouters()
 		if err != nil {
-			t.logger.Error("Failed to process Traefik routers: %v", err)
+			t.logger.With("action", "sync.fail").Error("process Traefik routers: %v", err)
 		}
 	}
 
@@ -647,30 +647,30 @@ func (t *TraefikProvider) pollLoop() {
 		<-ticker.C
 		err := t.processTraefikRouters()
 		if err != nil {
-			t.logger.Error("Failed to process Traefik routers: %v", err)
+			t.logger.With("action", "sync.fail").Error("process Traefik routers: %v", err)
 		}
 	}
 }
 
 func (t *TraefikProvider) processTraefikRouters() error {
-	t.logger.Debug("Processing Traefik routers from API")
+	t.logger.With("action", "provider.poll").Debug("Traefik routers from API")
 
 	body, err := t.fetchTraefikAPI(t.apiURL, t.authUser, t.authPass, t.logPrefix)
 	if err != nil {
-		t.logger.Error("Failed to fetch data from Traefik API: %v", err)
+		t.logger.With("action", "provider.poll").Error("fetch data from Traefik API: %v", err)
 		return fmt.Errorf("%s failed to fetch data: %w", t.logPrefix, err)
 	}
 
-	t.logger.Debug("Parsing JSON response")
+	t.logger.With("action", "provider.poll").Debug("JSON response")
 
 	var routersArray []map[string]interface{}
 	if err := json.Unmarshal(body, &routersArray); err != nil {
 		var routersMap map[string]interface{}
 		if err := json.Unmarshal(body, &routersMap); err != nil {
-			t.logger.Error("Failed to parse JSON response: %v", err)
+			t.logger.With("action", "provider.validate").Error("parse JSON response: %v", err)
 			return fmt.Errorf("%s failed to parse JSON: %w", t.logPrefix, err)
 		}
-		t.logger.Debug("Found %d routers in API response (map format)", len(routersMap))
+		t.logger.With("action", "provider.poll").Debug("%d routers in API response (map format)", len(routersMap))
 
 		routersArray = make([]map[string]interface{}, 0, len(routersMap))
 		for name, router := range routersMap {
@@ -681,7 +681,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 		}
 	}
 
-	t.logger.Debug("Found %d routers in API response", len(routersArray))
+	t.logger.With("action", "provider.poll").Debug("%d routers in API response", len(routersArray))
 
 	filteredRouters := make([]map[string]interface{}, 0, len(routersArray))
 	initialLog := !t.initialPollDone
@@ -698,10 +698,10 @@ func (t *TraefikProvider) processTraefikRouters() error {
 			if initialLog {
 				rule, _ := router["rule"].(string)
 				hosts := extractHostsFromRule(rule)
-				t.logger.Debug("Router PASSED filter: %s | Hostnames: %v", routerName, hosts)
+				t.logger.With("action", "input.filter").Debug("passed filter: %s | Hostnames: %v", routerName, hosts)
 			}
 		} else if initialLog {
-			t.logger.Debug("Router FILTERED OUT: %s", routerName)
+			t.logger.With("action", "input.filter").Debug("filtered out: %s", routerName)
 		}
 	}
 
@@ -746,7 +746,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 
 	if initialLog {
 		if len(currentHostnames) == 0 {
-			t.logger.Info("No routers to process")
+			t.logger.With("action", "provider.event").Info("no routers to process")
 		} else {
 			var routerHostPairs []string
 			for _, h := range currentHostnames {
@@ -758,17 +758,17 @@ func (t *TraefikProvider) processTraefikRouters() error {
 				pair := fmt.Sprintf("%s (%s)", routerLabel, h)
 				routerHostPairs = append(routerHostPairs, pair)
 			}
-			t.logger.Info("Initial routers to process [%s]", strings.Join(routerHostPairs, ", "))
+			t.logger.With("action", "provider.event").Info("routers to process [%s]", strings.Join(routerHostPairs, ", "))
 			for _, h := range currentHostnames {
 				state := hostnameToRouter[h]
-				t.logger.Trace("Preparing to add DNS for hostname: %s | RouterState: %+v", h, state)
+				t.logger.With("action", "record.create").Trace("to add DNS for hostname: %s | RouterState: %+v", h, state)
 				t.processRouterAdd(state)
 				t.routerCache[h] = state
 			}
 		}
 		if !t.initialPollDone {
 			t.initialPollDone = true
-			t.logger.Debug("Initial poll complete, future polls will only log changes.")
+			t.logger.With("action", "sync.done").Debug("poll complete, future polls will only log changes.")
 		}
 		return nil
 	}
@@ -792,7 +792,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 
 	if t.initialPollDone {
 		if len(added) > 0 {
-			t.logger.Info("Routers detected: %v", added)
+			t.logger.With("action", "provider.event").Info("detected: %v", added)
 			for _, h := range added {
 				t.processRouterAdd(hostnameToRouter[h])
 			}
@@ -812,7 +812,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 					removedRouterHostPairs = append(removedRouterHostPairs, pair)
 				}
 			}
-			t.logger.Info("Routers removed [%s]", strings.Join(removedRouterHostPairs, ", "))
+			t.logger.With("action", "provider.event").Info("removed [%s]", strings.Join(removedRouterHostPairs, ", "))
 			for _, h := range removed {
 				if prevState, ok := t.routerCache[h]; ok {
 					t.processRouterRemove(prevState)
@@ -830,7 +830,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 
 	if !t.initialPollDone {
 		t.initialPollDone = true
-		t.logger.Debug("Initial poll complete, future polls will only log changes.")
+		t.logger.With("action", "sync.done").Debug("poll complete, future polls will only log changes.")
 	}
 
 	return nil
@@ -840,13 +840,13 @@ func (p *TraefikProvider) fetchTraefikAPI(url, user, pass, logPrefix string) ([]
 	tlsConfig := common.ParseTLSConfigFromOptions(p.options)
 
 	if !tlsConfig.Verify {
-		p.logger.Debug("TLS certificate verification disabled")
+		p.logger.With("action", "tls.skip").Debug("certificate verification disabled")
 	}
 	if tlsConfig.CA != "" {
-		p.logger.Debug("Using custom CA certificate: %s", tlsConfig.CA)
+		p.logger.With("action", "tls.load").Debug("custom CA certificate: %s", tlsConfig.CA)
 	}
 	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
-		p.logger.Debug("Using client certificate authentication")
+		p.logger.With("action", "tls.load").Debug("client certificate authentication")
 	}
 
 	return common.FetchRemoteResourceWithTLSConfig(url, user, pass, nil, &tlsConfig, logPrefix)
@@ -878,24 +878,24 @@ func (p *TraefikProvider) pollRouters() error {
 		for k, v := range currentMap {
 			p.routerCache[k] = v
 		}
-		p.logger.Info("Initial poll: process_existing=true, populating cache only, not processing routers")
+		p.logger.With("action", "sync.start").Info("poll: process_existing=true, populating cache only, not processing routers")
 		return nil
 	}
 
 	for name, state := range currentMap {
 		prev, exists := p.routerCache[name]
 		if !exists {
-			p.logger.Info("New router detected: %s", name)
+			p.logger.With("action", "provider.event").Info("detected: %s", name)
 			p.processRouterAdd(state)
 		} else if !routerStatesEqual(prev, state) {
-			p.logger.Info("Router updated: %s", name)
+			p.logger.With("action", "provider.event").Info("updated: %s", name)
 			p.processRouterUpdate(state)
 		}
 	}
 
 	for name := range p.routerCache {
 		if _, exists := currentMap[name]; !exists {
-			p.logger.Info("Router removed: %s", name)
+			p.logger.With("action", "provider.event").Info("removed: %s", name)
 			if p.opts.RecordRemoveOnStop {
 				p.processRouterRemove(p.routerCache[name])
 			}
@@ -913,12 +913,12 @@ func (t *TraefikProvider) processRouterAdd(state domain.RouterState) {
 	for _, hostname := range hostnames {
 		fqdnNoDot := strings.TrimSuffix(hostname, ".")
 		realDomain := t.getParentDomainForFQDN(fqdnNoDot)
-		t.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
+		t.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider", realDomain)
 
-		t.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+		t.logger.With("action", "record.create").Trace("ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
 		err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 		if err != nil {
-			t.logger.Error("Failed to ensure DNS for '%s': %v", fqdnNoDot, err)
+			t.logger.With("action", "record.create").Error("ensure DNS for '%s': %v", fqdnNoDot, err)
 		}
 	}
 
@@ -936,12 +936,12 @@ func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
 	for _, hostname := range hostnames {
 		fqdnNoDot := strings.TrimSuffix(hostname, ".")
 		realDomain := t.getParentDomainForFQDN(fqdnNoDot)
-		t.logger.Trace("Using real domain name '%s' for DNS provider (removal)", realDomain)
+		t.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider (removal)", realDomain)
 
-		t.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
+		t.logger.With("action", "record.delete").Trace("ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdnNoDot, state)
 		err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 		if err != nil {
-			t.logger.Error("Failed to remove DNS for '%s': %v", fqdnNoDot, err)
+			t.logger.With("action", "record.delete").Error("remove DNS for '%s': %v", fqdnNoDot, err)
 		}
 	}
 
@@ -949,7 +949,7 @@ func (t *TraefikProvider) processRouterRemove(state domain.RouterState) {
 }
 
 func extractHostsFromRule(rule string) []string {
-	log.NewScopedLogger("", "").With("provider", "traefik").Trace("Extracting hosts from rule: '%s'", rule)
+	log.NewScopedLogger("", "").With("action", "input.filter", "provider", "traefik").Trace("hosts from rule: '%s'", rule)
 	var hostnames []string
 
 	parseHosts := func(arg string) []string {

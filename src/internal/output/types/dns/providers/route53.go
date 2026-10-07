@@ -150,7 +150,7 @@ func (p *Route53Provider) postXML(path string, payload interface{}) (int, []byte
 	_, headers := p.sign("POST", p.endpoint+path, body)
 	headers["Content-Type"] = "text/xml"
 
-	p.Logger.Debug("API Request: POST %s", p.endpoint+path)
+	p.Logger.With("action", "api.route").Debug("request: POST %s", p.endpoint+path)
 	req, err := http.NewRequest("POST", p.endpoint+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
@@ -160,15 +160,15 @@ func (p *Route53Provider) postXML(path string, payload interface{}) (int, []byte
 	}
 	resp, err := p.HTTPClient.Do(req)
 	if err != nil {
-		p.Logger.Debug("API Request failed: %v", err)
+		p.Logger.With("action", "api.reject").Debug("request: %v", err)
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		p.Logger.Debug("API Request successful: %s", resp.Status)
+		p.Logger.With("action", "api.route").Debug("request: %s", resp.Status)
 	} else {
-		p.Logger.Debug("API Request failed: %s - %s", resp.Status, string(respBody))
+		p.Logger.With("action", "api.reject").Debug("request: %s - %s", resp.Status, string(respBody))
 	}
 	return resp.StatusCode, respBody, nil
 }

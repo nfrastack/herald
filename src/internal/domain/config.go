@@ -123,7 +123,7 @@ func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfile
 func (dm *DomainManager) ValidateInputProviderAccess(domainName, inputProviderName string) bool {
 	domain, exists := dm.domains[domainName]
 	if !exists {
-		dm.logger.Debug("Domain '%s' not found for input provider '%s'", domainName, inputProviderName)
+		dm.logger.With("action", "domain.skip").Debug("'%s' not found for input provider '%s'", domainName, inputProviderName)
 		return false
 	}
 
@@ -139,7 +139,7 @@ func (dm *DomainManager) ValidateInputProviderAccess(domainName, inputProviderNa
 		}
 	}
 
-	dm.logger.Debug("Input provider '%s' not allowed for domain '%s' (allowed: %s)",
+	dm.logger.With("action", "domain.skip").Debug("'%s' not allowed for domain '%s' (allowed: %s)",
 		inputProviderName, domainName, strings.Join(inputProfiles, ", "))
 	return false
 }
@@ -147,7 +147,7 @@ func (dm *DomainManager) ValidateInputProviderAccess(domainName, inputProviderNa
 func (dm *DomainManager) ValidateOutputProfileAccess(domainName, outputProfileName string) bool {
 	domain, exists := dm.domains[domainName]
 	if !exists {
-		dm.logger.Debug("Domain '%s' not found for output profile '%s'", domainName, outputProfileName)
+		dm.logger.With("action", "domain.skip").Debug("'%s' not found for output profile '%s'", domainName, outputProfileName)
 		return false
 	}
 
@@ -163,14 +163,14 @@ func (dm *DomainManager) ValidateOutputProfileAccess(domainName, outputProfileNa
 		}
 	}
 
-	dm.logger.Debug("Output profile '%s' not allowed for domain '%s' (allowed: %s)",
+	dm.logger.With("action", "domain.skip").Debug("'%s' not allowed for domain '%s' (allowed: %s)",
 		outputProfileName, domainName, strings.Join(outputs, ", "))
 	return false
 }
 
 func (dm *DomainManager) ProcessRecord(inputProviderName, domainName, hostname, target, recordType string, ttl int) error {
 	if !dm.ValidateInputProviderAccess(domainName, inputProviderName) {
-		dm.logger.Debug("Skipping record from input provider '%s' for domain '%s' (not allowed)", inputProviderName, domainName)
+		dm.logger.With("action", "record.skip").Debug("from input provider '%s' for domain '%s' (not allowed)", inputProviderName, domainName)
 		return nil
 	}
 
@@ -180,15 +180,15 @@ func (dm *DomainManager) ProcessRecord(inputProviderName, domainName, hostname, 
 	}
 
 	logPrefix := common.GetDomainLogPrefix(domain.Name, domain.Name)
-	dm.logger.Verbose("%s Processing record from input provider '%s': %s.%s (%s) -> %s",
+	dm.logger.With("action", "record.sync").Verbose("%s from input provider '%s': %s.%s (%s) -> %s",
 		logPrefix, inputProviderName, hostname, domainName, recordType, target)
 
 	if domain.Provider != "" && domain.Provider != "none" {
-		dm.logger.Debug("Sending record to DNS provider '%s' for domain '%s'", domain.Provider, domainName)
+		dm.logger.With("action", "record.sync").Debug("to DNS provider '%s' for domain '%s'", domain.Provider, domainName)
 	}
 
 	for _, outputProfile := range domain.GetOutputs() {
-		dm.logger.Debug("Sending record to output profile '%s' for domain '%s'", outputProfile, domainName)
+		dm.logger.With("action", "output.write").Debug("to output profile '%s' for domain '%s'", outputProfile, domainName)
 	}
 
 	return nil

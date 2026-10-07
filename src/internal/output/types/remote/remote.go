@@ -87,8 +87,8 @@ func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 	}
 
 	r.records[key] = record
-	r.logger.Debug("Queued record: %s.%s (%s) -> %s", hostname, domain, recordType, target)
-	r.logger.Debug("WriteRecordWithSource called: domain=%s, hostname=%s, recordType=%s, target=%s, ttl=%d, source=%s", domain, hostname, recordType, target, ttl, source)
+	r.logger.With("action", "record.create").Debug("record: %s.%s (%s) -> %s", hostname, domain, recordType, target)
+	r.logger.With("action", "api.upload").Debug("domain=%s, hostname=%s, recordType=%s, target=%s, ttl=%d, source=%s", domain, hostname, recordType, target, ttl, source)
 	return nil
 }
 
@@ -97,14 +97,14 @@ func (r *RemoteFormat) RemoveRecord(domain, hostname, recordType string) error {
 	if rec, exists := r.records[key]; exists {
 		delete(r.records, key)
 		r.removals[key] = rec
-		r.logger.Debug("Removed record: %s.%s (%s) [queued for API removal]", hostname, domain, recordType)
+		r.logger.With("action", "record.delete").Debug("record: %s.%s (%s) [queued for API removal]", hostname, domain, recordType)
 	} else {
 		r.removals[key] = &RemoteRecord{
 			Domain:     domain,
 			Hostname:   hostname,
 			RecordType: recordType,
 		}
-		r.logger.Debug("Queued removal for missing record: %s.%s (%s)", hostname, domain, recordType)
+		r.logger.With("action", "record.delete").Debug("removal for missing record: %s.%s (%s)", hostname, domain, recordType)
 	}
 	return nil
 }
@@ -159,7 +159,7 @@ func (r *RemoteFormat) Sync() error {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
-	r.logger.Trace("Sync payload: %s", string(jsonData))
+	r.logger.With("action", "api.upload").Trace("payload: %s", string(jsonData))
 
 	req, err := http.NewRequest("POST", r.url, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -182,7 +182,7 @@ func (r *RemoteFormat) Sync() error {
 		return fmt.Errorf("remote API returned status %d", resp.StatusCode)
 	}
 
-	r.logger.Info("Successfully synced %d records and %d removals to remote endpoint", len(r.records), len(r.removals))
+	r.logger.With("action", "sync.done").Info("%d records and %d removals to remote endpoint", len(r.records), len(r.removals))
 	r.records = make(map[string]*RemoteRecord)
 	r.removals = make(map[string]*RemoteRecord)
 	return nil

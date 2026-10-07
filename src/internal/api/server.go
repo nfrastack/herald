@@ -94,7 +94,7 @@ type FailedAttemptTracker struct {
 func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string, removals map[string][][2]string) {
 	s.mutex.Lock()
 	aggLog := s.logger.With("conn", connID)
-	aggLog.Trace("Starting data aggregation and write process")
+	aggLog.With("action", "sync.start").Trace("data aggregation and write process")
 
 	now := time.Now()
 	expiredCount := 0
@@ -102,14 +102,14 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 		if now.Sub(data.Received) > s.clientExpiry {
 			delete(s.clients, clientID)
 			expiredCount++
-			aggLog.With("client", clientID).Info("Removed expired client")
+			aggLog.With("action", "client.expire", "client", clientID).Info("expired client")
 		}
 	}
 	if expiredCount > 0 {
-		aggLog.Debug("Removed %d expired clients", expiredCount)
+		aggLog.With("action", "client.expire").Debug("%d expired clients", expiredCount)
 	}
 
-	aggLog.Debug("Processing data from %d active clients", len(s.clients))
+	aggLog.With("action", "sync.start").Debug("data from %d active clients", len(s.clients))
 
 	type snapshotRecord struct {
 		domain   string
@@ -172,18 +172,18 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 
 	for clientID, domains := range skippedByClient {
 		for domainName, n := range domains {
-			s.logger.With("conn", connID, "client", clientID).Warn("Attempted %d record(s) for domain '%s' outside allowed list - rejected", n, domainName)
+			s.logger.With("action", "record.reject", "conn", connID, "client", clientID).Warn("%d record(s) for domain '%s' outside allowed list", n, domainName)
 		}
 	}
 
 	for outputProfile, records := range snapshotsByProfile {
 		if outputManager == nil {
-			aggLog.Error("Output manager not available for profile '%s'", outputProfile)
+			aggLog.With("action", "output.write").Error("manager not available for profile '%s'", outputProfile)
 			continue
 		}
 		profile := outputManager.GetProfile(outputProfile)
 		if profile == nil {
-			aggLog.Error("Output profile '%s' not found in configuration", outputProfile)
+			aggLog.With("action", "output.write").Error("profile '%s' not found in configuration", outputProfile)
 			continue
 		}
 
@@ -205,18 +205,18 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 		if removalsSnapshot != nil {
 			for domain, recs := range removalsSnapshot {
 				if uploadAllowed != nil && !uploadAllowed[domain] {
-					s.logger.With("conn", connID, "client", uploadClientID).Warn("Attempted removal(s) for domain '%s' outside allowed list - rejected", domain)
+					s.logger.With("action", "record.reject", "conn", connID, "client", uploadClientID).Warn("removal(s) for domain '%s' outside allowed list", domain)
 					continue
 				}
 				for _, pair := range recs {
 					hostname := pair[0]
 					recordType := pair[1]
 					if !hostAllowed(uploadHosts, hostname) {
-						s.logger.With("conn", connID, "client", uploadClientID).Warn("Attempted removal of %s.%s outside hostname scope - rejected", hostname, domain)
+						s.logger.With("action", "record.reject", "conn", connID, "client", uploadClientID).Warn("removal of %s.%s outside hostname scope", hostname, domain)
 						continue
 					}
 					if !uploadShared && s.ownedByOther(domain, hostname, recordType, uploadClientID) {
-						s.logger.With("conn", connID, "client", uploadClientID).Warn("Attempted removal of %s.%s owned by another client - rejected", hostname, domain)
+						s.logger.With("action", "record.reject", "conn", connID, "client", uploadClientID).Warn("removal of %s.%s owned by another client", hostname, domain)
 						continue
 					}
 					_ = profile.RemoveRecord(domain, hostname, recordType)
@@ -232,11 +232,11 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 		for _, record := range records {
 			domainName := record.domain
 			if !hostAllowed(hostPatterns[record.clientID], record.hostname) {
-				s.logger.With("conn", connID, "client", record.clientID).Warn("Attempted %s.%s outside hostname scope - rejected", record.hostname, domainName)
+				s.logger.With("action", "record.reject", "conn", connID, "client", record.clientID).Warn("%s.%s outside hostname scope", record.hostname, domainName)
 				continue
 			}
 			if !sharedWrites[record.clientID] && s.ownedByOther(domainName, record.hostname, record.rtype, record.clientID) {
-				s.logger.With("conn", connID, "client", record.clientID).Warn("Attempted overwrite of %s.%s owned by another client - rejected", record.hostname, domainName)
+				s.logger.With("action", "record.reject", "conn", connID, "client", record.clientID).Warn("overwrite of %s.%s owned by another client", record.hostname, domainName)
 				continue
 			}
 			if seenRecords[domainName] == nil {
@@ -257,7 +257,7 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 			err := profile.WriteRecordWithSource(domainName, record.hostname, record.target, record.rtype, record.ttl, source)
 			if err != nil {
 				writeErrors = append(writeErrors, fmt.Sprintf("add %s.%s: %v", record.hostname, domainName, err))
-				s.logger.With("conn", connID, "client", record.clientID).Error("Failed to add record %s.%s to profile '%s': %v", record.hostname, domainName, outputProfile, err)
+				s.logger.With("action", "record.create", "conn", connID, "client", record.clientID).Error("record %s.%s to profile '%s': %v", record.hostname, domainName, outputProfile, err)
 				continue
 			}
 			recordsWritten++
@@ -267,14 +267,14 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 		err := profile.Sync()
 		if err != nil {
 			writeErrors = append(writeErrors, fmt.Sprintf("sync: %v", err))
-			aggLog.Error("Failed to sync profile '%s': %v", outputProfile, err)
+			aggLog.With("action", "sync.fail").Error("profile '%s': %v", outputProfile, err)
 		}
 		if len(writeErrors) == 0 {
-			aggLog.Verbose("Successfully wrote and synced %d records to profile '%s'", recordsWritten, outputProfile)
+			aggLog.With("action", "sync.done").Verbose("%d records to profile '%s'", recordsWritten, outputProfile)
 		} else {
-			aggLog.Error("Failed to write data to output profile '%s': %d errors occurred", outputProfile, len(writeErrors))
+			aggLog.With("action", "output.write").Error("data to output profile '%s': %d errors occurred", outputProfile, len(writeErrors))
 		}
-		aggLog.Debug("Completed aggregation for profile '%s'", outputProfile)
+		aggLog.With("action", "sync.done").Debug("aggregation for profile '%s'", outputProfile)
 	}
 }
 
@@ -287,14 +287,14 @@ func (s *APIServer) authenticateClient(r *http.Request) (string, bool) {
 	reqLog := s.logger.With("conn", connID)
 
 	if s.isRateLimited(r.RemoteAddr) {
-		reqLog.Warn("SECURITY: Rate limited IP attempted connection: %s", r.RemoteAddr)
+		reqLog.With("action", "auth.limit").Warn("limited: %s", r.RemoteAddr)
 		return "", false
 	}
 
 	authHeader := r.Header.Get("Authorization")
 	clientIDHeader := r.Header.Get("X-Client-ID")
 
-	reqLog.Debug("Auth headers - Authorization: '%s', X-Client-ID: '%s'",
+	reqLog.With("action", "auth.accept").Debug("headers - Authorization: '%s', X-Client-ID: '%s'",
 		func() string {
 			if authHeader == "" {
 				return "(missing)"
@@ -341,7 +341,7 @@ func (s *APIServer) authenticateClient(r *http.Request) (string, bool) {
 	}
 
 	s.resetFailedAttempts(r.RemoteAddr)
-	reqLog.Debug("Authentication successful from %s", r.RemoteAddr)
+	reqLog.With("action", "auth.accept").Debug("from %s", r.RemoteAddr)
 	return clientID, true
 }
 
@@ -375,7 +375,7 @@ func (s *APIServer) cleanupFailedAttempts() {
 	}
 
 	if cleanedCount > 0 {
-		s.logger.Debug("Cleaned up %d old failed attempt records", cleanedCount)
+		s.logger.With("action", "auth.limit").Debug("%d old failed attempt records", cleanedCount)
 	}
 }
 
@@ -432,39 +432,39 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	connID := getConnectionID(r)
 
 	if r.Method != http.MethodPost {
-		s.logger.With("conn", connID).Debug("Method not allowed: %s", r.Method)
+		s.logger.With("action", "api.reject", "conn", connID).Debug("not allowed: %s", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	s.logger.With("conn", connID).Verbose("New connection from %s", r.RemoteAddr)
+	s.logger.With("action", "client.connect", "conn", connID).Verbose("from %s", r.RemoteAddr)
 
 	clientID, authenticated := s.authenticateClient(r)
 	if !authenticated {
-		s.logger.With("conn", connID).Warn("Unauthorized request from %s", r.RemoteAddr)
+		s.logger.With("action", "auth.reject", "conn", connID).Warn("request from %s", r.RemoteAddr)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	reqLog := s.logger.With("conn", connID, "client", clientID)
-	reqLog.Verbose("Processing upload")
+	reqLog.With("action", "client.upload").Verbose("upload")
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		reqLog.Error("Failed to read body: %v", err)
+		reqLog.With("action", "api.reject").Error("read body: %v", err)
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
 		return
 	}
 
-	reqLog.Debug("Received %d bytes", len(body))
-	reqLog.Trace("Raw request body: %s", string(body))
+	reqLog.With("action", "client.upload").Debug("%d bytes", len(body))
+	reqLog.With("action", "client.upload").Trace("body: %s", string(body))
 
 	var clientData ClientData
 	var remotePayload RemoteActionPayload
 	var removalsFromPayload map[string][][2]string // domain -> list of [hostname, type]
 	contentType := r.Header.Get("Content-Type")
-	reqLog.Trace("Content-Type: %s", contentType)
-	reqLog.Trace("Payload: %s", string(body))
+	reqLog.With("action", "client.upload").Trace("Content-Type: %s", contentType)
+	reqLog.With("action", "client.upload").Trace("payload: %s", string(body))
 	switch {
 	default:
 		if err := json.Unmarshal(body, &clientData); err == nil {
@@ -527,8 +527,8 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 		s.clients[clientID] = &clientData
 	}
 
-	reqLog.Info("Received data with %d domains", len(clientData.Domains))
-	reqLog.Debug("Metadata generator=%s",
+	reqLog.With("action", "client.upload").Info("data with %d domains", len(clientData.Domains))
+	reqLog.With("action", "client.upload").Debug("metadata generator=%s",
 		func() string {
 			if clientData.Metadata != nil {
 				return clientData.Metadata.Generator
@@ -538,12 +538,12 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 		}())
 
 	for domainName, domain := range clientData.Domains {
-		reqLog.Trace("Domain '%s': %d records", domainName, len(domain.Records))
+		reqLog.With("action", "domain.match").Trace("'%s': %d records", domainName, len(domain.Records))
 	}
 
 	go s.aggregateAndWriteWithRemovals(connID, clientID, removalsFromPayload)
 
-	reqLog.Debug("Completed processing")
+	reqLog.With("action", "client.upload").Debug("processing")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -569,7 +569,7 @@ func (s *APIServer) initializeAPIOutputProfiles(outputConfigs map[string]interfa
 	}
 
 	if len(profilesNeeded) == 0 {
-		s.logger.Debug("No API output profiles needed")
+		s.logger.With("action", "sync.skip").Debug("no API output profiles needed")
 		return nil
 	}
 
@@ -578,24 +578,24 @@ func (s *APIServer) initializeAPIOutputProfiles(outputConfigs map[string]interfa
 		enabledProfiles = append(enabledProfiles, profileName)
 	}
 
-	s.logger.Debug("Initializing API output profiles: %v", enabledProfiles)
+	s.logger.With("action", "output.write").Debug("API output profiles: %v", enabledProfiles)
 
 	for _, profileName := range enabledProfiles {
 		if _, exists := outputConfigs[profileName]; exists {
-			s.logger.Debug("Found config for API output profile '%s'", profileName)
+			s.logger.With("action", "config.load").Debug("config for API output profile '%s'", profileName)
 		} else {
-			s.logger.Error("API output profile '%s' not found in config", profileName)
+			s.logger.With("action", "config.error").Error("output profile '%s' not found in config", profileName)
 		}
 	}
 
 	err := output.InitializeOutputManagerWithProfiles(outputConfigs, enabledProfiles)
 	if err != nil {
-		s.logger.Error("Failed to initialize API output manager: %v", err)
+		s.logger.With("action", "output.write").Error("API output manager: %v", err)
 		return err
 	}
 
 	s.outputManager = output.GetOutputManager()
-	s.logger.Debug("Successfully initialized API output manager")
+	s.logger.With("action", "output.write").Debug("API output manager")
 	return nil
 }
 
@@ -621,7 +621,7 @@ func (s *APIServer) LoadClientProfiles(profiles map[string]config.APIClientProfi
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	s.profiles = profiles
-	s.logger.Verbose("Client profiles configured: %v", func() []string {
+	s.logger.With("action", "config.load").Verbose("profiles configured: %v", func() []string {
 		var names []string
 		for name := range profiles {
 			names = append(names, name)
@@ -638,7 +638,7 @@ func NewAPIServer(outputProfiles map[string]interface{}, apiConfig *config.APICo
 
 	scopedLogger := log.NewScopedLogger("[api]", logLevel)
 	if logLevel != "" {
-		scopedLogger.Info("API server log_level set to: '%s'", logLevel)
+		scopedLogger.With("action", "config.load").Info("API server log_level: '%s'", logLevel)
 	}
 
 	return &APIServer{
@@ -687,13 +687,13 @@ func (s *APIServer) recordFailedAttempt(remoteAddr string, clientID string, reas
 	tracker := s.failedAttempts[ip]
 
 	if tracker.Count >= 10 {
-		s.logger.Error("SECURITY: %d failed auth attempts from %s (client_id: %s, reason: %s)",
+		s.logger.With("action", "auth.limit").Error("%d failed auth attempts from %s (client_id: %s, reason: %s)",
 			tracker.Count, ip, clientID, reason)
 	} else if tracker.Count >= 5 {
-		s.logger.Warn("Multiple failed auth attempts from %s: %d attempts (client_id: %s, reason: %s)",
+		s.logger.With("action", "auth.limit").Warn("failed auth attempts from %s: %d attempts (client_id: %s, reason: %s)",
 			ip, tracker.Count, clientID, reason)
 	} else {
-		s.logger.Verbose("Failed auth attempt from %s (client_id: %s, reason: %s)", ip, clientID, reason)
+		s.logger.With("action", "auth.reject").Verbose("attempt from %s (client_id: %s, reason: %s)", ip, clientID, reason)
 	}
 }
 
@@ -711,7 +711,7 @@ func (s *APIServer) resetFailedAttempts(remoteAddr string) {
 	defer s.attemptsMutex.Unlock()
 
 	if tracker, exists := s.failedAttempts[ip]; exists && tracker.Count > 0 {
-		s.logger.Debug("Clearing %d failed attempts for %s after successful auth", tracker.Count, ip)
+		s.logger.With("action", "auth.accept").Debug("%d failed attempts for %s after successful auth", tracker.Count, ip)
 		delete(s.failedAttempts, ip)
 	}
 }
@@ -765,7 +765,7 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 				SharedWrites:  profile.SharedWrites,
 			}
 
-			server.logger.Debug("Registered client profile: %s -> %s (token: %s)", clientID, profile.OutputProfile, util.MaskSensitiveValue(token))
+			server.logger.With("action", "client.connect").Debug("profile: %s -> %s (token: %s)", clientID, profile.OutputProfile, util.MaskSensitiveValue(token))
 		}
 
 		server.LoadClientProfiles(resolvedProfiles)
@@ -800,7 +800,7 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		if duration, err := time.ParseDuration(apiConfig.ClientExpiry); err == nil {
 			server.clientExpiry = duration
 		} else {
-			server.logger.Warn("Invalid client_expiry format '%s', using default", apiConfig.ClientExpiry)
+			server.logger.With("action", "config.error").Warn("client_expiry format '%s', using default", apiConfig.ClientExpiry)
 		}
 	}
 
@@ -816,7 +816,7 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		port = "8080"
 	}
 
-	server.logger.Debug("Endpoint: %s", endpoint)
+	server.logger.With("action", "api.route").Debug("endpoint: %s", endpoint)
 
 	if len(apiConfig.Listen) > 0 {
 		if err := util.ValidateListenPatterns(apiConfig.Listen); err != nil {
@@ -831,7 +831,7 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 		} else {
 			addresses, err := util.ResolveListenAddressesQuiet([]string{pattern}, port)
 			if err != nil {
-				server.logger.Warn("Interface resolution warning for '%s': %v", pattern, err)
+				server.logger.With("action", "api.listen").Warn("resolution warning for '%s': %v", pattern, err)
 			} else {
 				resolvedAddresses = append(resolvedAddresses, addresses...)
 			}
@@ -843,7 +843,7 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 	}
 
 	for _, addr := range resolvedAddresses {
-		server.logger.Verbose("Listen address: %s", addr)
+		server.logger.With("action", "server.listen").Verbose("address: %s", addr)
 	}
 
 	var servers []*http.Server
@@ -868,10 +868,10 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 
 			tlsConfig.ClientCAs = caCertPool
 			tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
-			server.logger.Info("TLS client certificate verification enabled")
+			server.logger.With("action", "tls.load").Info("client certificate verification enabled")
 		}
 
-		server.logger.Info("Starting HTTPS servers with TLS")
+		server.logger.With("action", "server.start").Info("HTTPS servers with TLS")
 		for _, address := range resolvedAddresses {
 			httpServer := &http.Server{
 				Addr:      address,
@@ -881,14 +881,14 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 			servers = append(servers, httpServer)
 
 			go func(s *http.Server, addr string) {
-				server.logger.Debug("Starting HTTPS server on %s", addr)
+				server.logger.With("action", "server.start").Debug("HTTPS server on %s", addr)
 				if err := s.ListenAndServeTLS(apiConfig.TLS.Cert, apiConfig.TLS.Key); err != nil && err != http.ErrServerClosed {
-					server.logger.Error("HTTPS server on %s error: %v", addr, err)
+					server.logger.With("action", "server.shutdown").Error("HTTPS server on %s: %v", addr, err)
 				}
 			}(httpServer, address)
 		}
 	} else {
-		server.logger.Warn("WARNING: Running HTTP servers without TLS - use only on trusted networks!")
+		server.logger.With("action", "tls.skip").Warn("HTTP servers without TLS - use only on trusted networks!")
 		for _, address := range resolvedAddresses {
 			httpServer := &http.Server{
 				Addr:    address,
@@ -897,9 +897,9 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 			servers = append(servers, httpServer)
 
 			go func(s *http.Server, addr string) {
-				server.logger.Verbose("Starting HTTP server on %s", addr)
+				server.logger.With("action", "server.start").Verbose("HTTP server on %s", addr)
 				if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-					server.logger.Error("HTTP server on %s error: %v", addr, err)
+					server.logger.With("action", "server.shutdown").Error("HTTP server on %s: %v", addr, err)
 				}
 			}(httpServer, address)
 		}
@@ -924,9 +924,9 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 }
 
 func (s *APIServer) syncNonRemoteOutputs(outputManager *output.OutputManager) error {
-	s.logger.Debug("API server syncing non-remote outputs only to prevent loops")
+	s.logger.With("action", "sync.skip").Debug("syncing non-remote outputs only to prevent loops")
 
-	s.logger.Debug("Skipping sync for API aggregation to prevent infinite loops with remote outputs")
+	s.logger.With("action", "sync.skip").Debug("sync for API aggregation to prevent infinite loops with remote outputs")
 	return nil
 }
 
@@ -969,7 +969,7 @@ func (s *APIServer) writeToSpecificProfile(outputManager *output.OutputManager, 
 		return fmt.Errorf("failed to write to profile '%s': %v", profileName, err)
 	}
 
-	s.logger.Debug("API record written to zone file: %s.%s (%s) -> %s (TTL: %d)",
+	s.logger.With("action", "zone.write").Debug("record to zone file: %s.%s (%s) -> %s (TTL: %d)",
 		hostname, domain, recordType, target, ttl)
 
 	return nil

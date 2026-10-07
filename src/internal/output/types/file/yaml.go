@@ -37,7 +37,7 @@ func NewYAMLFormat(profileName string, config map[string]interface{}) (OutputFor
 	}
 
 	if err := format.LoadExistingData(yaml.Unmarshal); err != nil {
-		log.Warn("%s Failed to load existing export: %v", format.GetLogPrefix(), err)
+		log.NewScopedLogger("", "").With("action", "state.load").Warn("%s existing export load failed: %v", format.GetLogPrefix(), err)
 	}
 
 	return format, nil
@@ -50,7 +50,7 @@ func (y *YAMLFormat) GetName() string {
 func (y *YAMLFormat) Sync() error {
 	err := y.CommonFormat.SyncWithSerializer(y.serializeYAML)
 	if err != nil {
-		log.Error("[output/yaml] Sync FAILED for domain=%s, profile=%s, file=%s: %v", y.GetDomain(), y.GetProfile(), y.GetFilePath(), err)
+		log.NewScopedLogger("", "").With("action", "sync.fail").Error("[output/yaml] sync failed for domain=%s, profile=%s, file=%s: %v", y.GetDomain(), y.GetProfile(), y.GetFilePath(), err)
 	}
 	return err
 }
@@ -91,9 +91,9 @@ func (y *YAMLFormat) GetFilePath() string {
 }
 
 func (y *YAMLFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
-	log.Debug("[output/yaml] WriteRecordWithSource called: domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
+	log.NewScopedLogger("", "").With("action", "record.create").Debug("[output/yaml] domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
 	defer func() {
-		log.Debug("[output/yaml] WriteRecordWithSource finished: domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
+		log.NewScopedLogger("", "").With("action", "record.create").Debug("[output/yaml] domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
 	}()
 
 	filePath := y.GetFilePath()
@@ -105,11 +105,11 @@ func (y *YAMLFormat) WriteRecordWithSource(domain, hostname, target, recordType 
 
 	if !loaded {
 		if _, err := os.Stat(filePath); err == nil {
-			log.Debug("[output/yaml] Loading existing records from YAML file: %s", filePath)
+			log.NewScopedLogger("", "").With("action", "state.load").Debug("[output/yaml] loading existing records from YAML file: %s", filePath)
 			if err := y.LoadExistingData(yaml.Unmarshal); err != nil {
-				log.Warn("[output/yaml] Failed to load existing records from %s: %v", filePath, err)
+				log.NewScopedLogger("", "").With("action", "state.load").Warn("[output/yaml] existing records load failed from %s: %v", filePath, err)
 			} else {
-				log.Debug("[output/yaml] Successfully loaded existing records from %s", filePath)
+				log.NewScopedLogger("", "").With("action", "state.load").Debug("[output/yaml] existing records loaded from %s", filePath)
 			}
 		}
 

@@ -177,7 +177,7 @@ func (t *TailscaleProvider) refreshAccessToken() error {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	t.logger.Debug("Requesting OAuth access token")
+	t.logger.With("action", "auth.accept").Debug("oauth access token request")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("OAuth token request failed: %w", err)
@@ -203,7 +203,7 @@ func (t *TailscaleProvider) refreshAccessToken() error {
 	expiryDuration := time.Duration(tokenResp.ExpiresIn-60) * time.Second
 	t.tokenExpiry = time.Now().Add(expiryDuration)
 
-	t.logger.Verbose("%s OAuth access token refreshed, expires at %s", t.logPrefix, t.tokenExpiry.Format(time.RFC3339))
+	t.logger.With("action", "auth.accept").Verbose("oauth access token refreshed, expires at %s", t.tokenExpiry.Format(time.RFC3339))
 	return nil
 }
 
@@ -216,9 +216,9 @@ func (t *TailscaleProvider) getValidAccessToken() (string, error) {
 	t.tokenMutex.RUnlock()
 
 	if needsRefresh && t.clientID != "" && t.clientSecret != "" {
-		t.logger.Debug("%s Access token expiring soon, refreshing...", t.logPrefix)
+		t.logger.With("action", "auth.accept").Debug("access token expiring soon, refreshing...")
 		if err := t.refreshAccessToken(); err != nil {
-			t.logger.Warn("%s Failed to refresh access token: %v", t.logPrefix, err)
+			t.logger.With("action", "auth.reject").Warn("failed to refresh access token: %v", err)
 			return currentToken, nil
 		}
 
@@ -301,9 +301,9 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	apiURL := options["api_url"]
 	if apiURL == "" {
 		apiURL = "https://api.tailscale.com/api/v2"
-		log.Debug("%s Using Tailscale API (default)", logPrefix)
+		log.NewScopedLogger(logPrefix, "").With("action", "config.load").Debug("tailscale API (default)")
 	} else {
-		log.Debug("%s Using custom API URL: %s", logPrefix, apiURL)
+		log.NewScopedLogger(logPrefix, "").With("action", "config.load").Debug("custom API URL: %s", apiURL)
 	}
 
 	if domain == "" {
@@ -312,7 +312,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 
 	if tailnet == "" {
 		tailnet = "-"
-		log.Debug("%s Using default tailnet", logPrefix)
+		log.NewScopedLogger(logPrefix, "").With("action", "config.load").Debug("default tailnet")
 	}
 
 	structuredOptions := make(map[string]interface{})
@@ -324,12 +324,12 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		log.Debug("%s Error creating filter configuration: %v, using default", logPrefix, err)
+		log.NewScopedLogger(logPrefix, "").With("action", "config.error").Debug("creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
 	if len(filterConfig.Filters) == 0 || (len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone) {
-		log.Debug("%s Adding default online=true filter", logPrefix)
+		log.NewScopedLogger(logPrefix, "").With("action", "input.filter").Debug("default online=true filter")
 		filterConfig.Filters = []common.Filter{
 			{
 				Type:      common.FilterTypeOnline,
@@ -349,17 +349,16 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
 	if logLevel != "" {
-		log.Info("%s Provider log_level set to: '%s'", logPrefix, logLevel)
+		log.NewScopedLogger(logPrefix, "").With("action", "config.load").Info("provider log_level set to: '%s'", logLevel)
 	}
 
 	if len(filterConfig.Filters) > 1 || (len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type != common.FilterTypeNone) {
-		log.Debug("%s Filter configuration: %d filters", logPrefix, len(filterConfig.Filters))
+		log.NewScopedLogger(logPrefix, "").With("action", "input.filter").Debug("filter configuration: %d filters", len(filterConfig.Filters))
 		for i, filter := range filterConfig.Filters {
-			log.Trace("%s Filter %d: type=%s value=%s operation=%s negate=%t",
-				logPrefix, i, filter.Type, filter.Value, filter.Operation, filter.Negate)
+			log.NewScopedLogger(logPrefix, "").With("action", "input.filter").Trace("filter %d: type=%s value=%s operation=%s negate=%t", i, filter.Type, filter.Value, filter.Operation, filter.Negate)
 		}
 	} else {
-		log.Debug("%s No filters configured, processing all devices", logPrefix)
+		log.NewScopedLogger(logPrefix, "").With("action", "input.filter").Debug("no filters configured, processing all devices")
 	}
 
 	provider := &TailscaleProvider{
@@ -390,9 +389,9 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	if apiKey != "" {
 		provider.accessToken = apiKey
 		provider.tokenExpiry = time.Now().Add(365 * 24 * time.Hour)
-		log.Debug("%s Using static API key", logPrefix)
+		log.NewScopedLogger(logPrefix, "").With("action", "auth.accept").Debug("static API key")
 	} else {
-		log.Debug("%s Using OAuth client credentials (client_id: %s)", logPrefix, clientID)
+		log.NewScopedLogger(logPrefix, "").With("action", "auth.accept").Debug("oauth client credentials (client_id: %s)", clientID)
 	}
 
 	return provider, nil
@@ -404,7 +403,7 @@ func (p *TailscaleProvider) StartPolling() error {
 	}
 	p.running = true
 
-	p.logger.Debug("Starting Tailscale polling with interval: %v", p.interval)
+	p.logger.With("action", "provider.poll").Debug("tailscale polling with interval: %v", p.interval)
 
 	go p.pollLoop()
 
@@ -422,25 +421,25 @@ func (p *TailscaleProvider) IsRunning() bool {
 }
 
 func (p *TailscaleProvider) logMemberAdded(fqdn string) {
-	p.logger.With("device", fqdn).Info("Device added")
+	p.logger.With("action", "provider.event", "device", fqdn).Info("added")
 }
 
 func (p *TailscaleProvider) logMemberRemoved(fqdn string) {
-	p.logger.With("device", fqdn).Info("Device removed")
+	p.logger.With("action", "provider.event", "device", fqdn).Info("removed")
 }
 
 func (p *TailscaleProvider) logMemberChanged(fqdn, oldIP, newIP string) {
-	p.logger.With("device", fqdn).Info("Device changed: %s -> %s", oldIP, newIP)
+	p.logger.With("action", "provider.event", "device", fqdn).Info("changed: %s -> %s", oldIP, newIP)
 }
 
 func (p *TailscaleProvider) GetDNSEntries() ([]DNSEntry, error) {
 	devices, err := p.fetchTailscaleDevices()
 	if err != nil {
-		p.logger.Error("Failed to fetch devices: %v", err)
+		p.logger.With("action", "sync.fail").Error("failed to fetch devices: %v", err)
 		return nil, fmt.Errorf("failed to fetch devices: %v", err)
 	}
 
-	p.logger.Debug("Fetched %d devices from Tailscale API", len(devices))
+	p.logger.With("action", "provider.poll").Debug("%d devices from Tailscale API", len(devices))
 
 	var entries []DNSEntry
 	for _, device := range devices {
@@ -450,12 +449,12 @@ func (p *TailscaleProvider) GetDNSEntries() ([]DNSEntry, error) {
 
 		hostname := p.formatHostname(device)
 		if hostname == "" {
-			p.logger.With("device", device.ID).Warn("Skipping device - no name or hostname available")
+			p.logger.With("action", "input.filter", "device", device.ID).Warn("no name or hostname available")
 			continue
 		}
 
 		if len(device.Addresses) == 0 {
-			p.logger.Debug("Skipping device %s (no IP addresses)", hostname)
+			p.logger.With("action", "input.filter").Debug("%s (no IP addresses)", hostname)
 			continue
 		}
 
@@ -468,10 +467,10 @@ func (p *TailscaleProvider) GetDNSEntries() ([]DNSEntry, error) {
 			recordType := "A"
 			if strings.Contains(cleanIP, ":") {
 				recordType = "AAAA"
-				p.logger.Debug("IPv6 address detected for device %s", hostname)
+				p.logger.With("action", "input.pass").Debug("ipv6 address for device %s", hostname)
 			}
 
-			p.logger.Debug("Creating DNS entry - hostname: %s, ip: %s, type: %s, source: %s",
+			p.logger.With("action", "record.create").Debug("dns entry - hostname: %s, ip: %s, type: %s, source: %s",
 				hostname, cleanIP, recordType, p.profileName)
 
 			entry := DNSEntry{
@@ -497,8 +496,8 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 
 	url := fmt.Sprintf("%s/tailnet/%s/devices", p.apiURL, p.tailnet)
 
-	p.logger.Trace("Fetching devices from URL: %s", url)
-	p.logger.Trace("Using tailnet: %s", p.tailnet)
+	p.logger.With("action", "provider.poll").Trace("devices from URL: %s", url)
+	p.logger.With("action", "provider.poll").Trace("tailnet: %s", p.tailnet)
 
 	httpClient, err := p.tlsConfig.CreateHTTPClient()
 	if err != nil {
@@ -513,10 +512,10 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	p.logger.Trace("Making HTTP request to Tailscale API")
+	p.logger.With("action", "provider.poll").Trace("http request to Tailscale API")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		p.logger.Error("API request failed: %v", err)
+		p.logger.With("action", "sync.fail").Error("api request failed: %v", err)
 		return nil, fmt.Errorf("API request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -525,7 +524,7 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode == http.StatusUnauthorized {
 			if p.clientID != "" && p.clientSecret != "" {
-				p.logger.Debug("Received 401, attempting token refresh")
+				p.logger.With("action", "auth.accept").Debug("401, attempting token refresh")
 				if refreshErr := p.refreshAccessToken(); refreshErr != nil {
 					return nil, fmt.Errorf("HTTP %d and failed to refresh token: %s", resp.StatusCode, string(body))
 				}
@@ -540,21 +539,21 @@ func (p *TailscaleProvider) fetchTailscaleDevices() ([]TailscaleDevice, error) {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	p.logger.Trace("Received %d bytes from Tailscale API", len(data))
-	p.logger.Trace("Parsing JSON response")
+	p.logger.With("action", "provider.poll").Trace("%d bytes from Tailscale API", len(data))
+	p.logger.With("action", "provider.poll").Trace("json response")
 	var response TailscaleDevicesResponse
 	if err := json.Unmarshal(data, &response); err != nil {
-		p.logger.Error("Failed to parse JSON response: %v", err)
-		p.logger.Debug("Raw response: %s", string(data))
+		p.logger.With("action", "sync.fail").Error("parse JSON response: %v", err)
+		p.logger.With("action", "sync.fail").Debug("raw response: %s", string(data))
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
-	p.logger.Verbose("Successfully fetched %d devices from Tailscale", len(response.Devices))
+	p.logger.With("action", "sync.done").Verbose("%d devices from Tailscale", len(response.Devices))
 	return response.Devices, nil
 }
 
 func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
-	p.logger.Trace("Device %s - Name: '%s', Hostname: '%s', Format: '%s'",
+	p.logger.With("action", "domain.match").Trace("device %s - name: '%s', hostname: '%s', format: '%s'",
 		device.ID, device.Name, device.Hostname, p.hostnameFormat)
 
 	switch p.hostnameFormat {
@@ -564,15 +563,15 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 			hostname = device.Hostname
 		}
 
-		p.logger.Trace("Before processing: '%s'", hostname)
+		p.logger.With("action", "domain.match").Trace("processing: '%s'", hostname)
 
 		if idx := strings.Index(hostname, ".tail"); idx != -1 {
 			hostname = hostname[:idx]
-			p.logger.Trace("After removing .tail suffix: '%s'", hostname)
+			p.logger.With("action", "domain.match").Trace("'.tail' suffix removed: '%s'", hostname)
 		}
 
 		result := sanitizeHostname(hostname)
-		p.logger.Trace("Final hostname for device %s: '%s'", device.ID, result)
+		p.logger.With("action", "domain.match").Trace("hostname for device %s: '%s'", device.ID, result)
 		return result
 
 	case "tailscale":
@@ -592,7 +591,7 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 		hostname = strings.ReplaceAll(hostname, "_", "-")
 
 		result := sanitizeHostname(hostname)
-		p.logger.Trace("Final hostname for device %s: '%s'", device.ID, result)
+		p.logger.With("action", "domain.match").Trace("hostname for device %s: '%s'", device.ID, result)
 		return result
 
 	case "full":
@@ -601,7 +600,7 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 			hostname = device.Name
 		}
 		result := sanitizeHostname(hostname)
-		p.logger.Trace("Final hostname for device %s: '%s'", device.ID, result)
+		p.logger.With("action", "domain.match").Trace("hostname for device %s: '%s'", device.ID, result)
 		return result
 
 	default:
@@ -615,7 +614,7 @@ func (p *TailscaleProvider) formatHostname(device TailscaleDevice) string {
 		}
 
 		result := sanitizeHostname(hostname)
-		p.logger.Trace("Final hostname for device %s: '%s'", device.ID, result)
+		p.logger.With("action", "domain.match").Trace("hostname for device %s: '%s'", device.ID, result)
 		return result
 	}
 }
@@ -731,15 +730,15 @@ func evaluateTailscaleFilter(filter common.Filter, device TailscaleDevice) bool 
 }
 
 func exchangeAuthToken(authToken, authID, logPrefix string) (string, error) {
-	log.Debug("%s Exchanging auth token for access token", logPrefix)
-	log.Debug("%s Client ID: %s", logPrefix, authID)
-	log.Debug("%s Client Secret length: %d", logPrefix, len(authToken))
+	log.NewScopedLogger(logPrefix, "").With("action", "auth.accept").Debug("auth token for access token")
+	log.NewScopedLogger(logPrefix, "").With("action", "auth.accept").Debug("client ID: %s", authID)
+	log.NewScopedLogger(logPrefix, "").With("action", "auth.accept").Debug("client secret length: %d", len(authToken))
 
 	url := "https://api.tailscale.com/api/v2/oauth/token"
 
 	formData := fmt.Sprintf("client_id=%s&client_secret=%s&grant_type=client_credentials",
 		neturl.QueryEscape(authID), neturl.QueryEscape(authToken))
-	log.Debug("%s Form data: client_id=%s&client_secret=[REDACTED]&grant_type=client_credentials", logPrefix, authID)
+	log.NewScopedLogger(logPrefix, "").With("action", "auth.accept").Debug("form data: client_id=%s&client_secret=[REDACTED]&grant_type=client_credentials", authID)
 
 	tlsConfig := common.DefaultTLSConfig()
 	client, err := tlsConfig.CreateHTTPClient()
@@ -784,16 +783,16 @@ func exchangeAuthToken(authToken, authID, logPrefix string) (string, error) {
 		return "", fmt.Errorf("no access token received from OAuth exchange")
 	}
 
-	log.Debug("%s Successfully exchanged auth token for access token", logPrefix)
+	log.NewScopedLogger(logPrefix, "").With("action", "auth.accept").Debug("exchanged auth token for access token")
 	return tokenResponse.AccessToken, nil
 }
 
 func (p *TailscaleProvider) pollLoop() {
 	if p.processExisting {
-		p.logger.Trace("Processing existing Tailscale devices on startup (process_existing=true)")
+		p.logger.With("action", "sync.start").Trace("existing Tailscale devices on startup (process_existing=true)")
 		p.processDevices()
 	} else {
-		p.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
+		p.logger.With("action", "sync.start").Trace("poll on startup (process_existing=false), inventory only")
 		devices, err := p.fetchTailscaleDevices()
 		if err == nil {
 			current := make(map[string]string) // hostname:recordType -> target
@@ -856,58 +855,58 @@ func (p *TailscaleProvider) targetDomains() []string {
 }
 
 func (p *TailscaleProvider) processDevices() {
-	p.logger.Trace("Starting device processing cycle")
+	p.logger.With("action", "sync.start").Trace("device processing cycle")
 	devices, err := p.fetchTailscaleDevices()
 	if err != nil {
-		p.logger.Error("Failed to fetch devices: %v", err)
+		p.logger.With("action", "sync.fail").Error("failed to fetch devices: %v", err)
 		return
 	}
 
-	p.logger.Trace("Processing devices and building current records map")
+	p.logger.With("action", "sync.start").Trace("building current records map")
 
 	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
 	current := make(map[string]string) // hostname:recordType -> target
 
-	p.logger.Trace("Processing %d devices from Tailscale", len(devices))
+	p.logger.With("action", "sync.start").Trace("%d devices from Tailscale", len(devices))
 	processedCount := 0
 	filteredCount := 0
 
 	for i, device := range devices {
-		p.logger.Trace("Processing device %d/%d: %s (%s)", i+1, len(devices), device.Name, device.ID)
+		p.logger.With("action", "provider.event").Trace("device %d/%d: %s (%s)", i+1, len(devices), device.Name, device.ID)
 
 		if !EvaluateTailscaleFilters(p.filterConfig, device) {
 			filteredCount++
-			p.logger.Trace("Device %s filtered out", device.Name)
+			p.logger.With("action", "input.filter").Trace("%s filtered out", device.Name)
 			continue
 		}
 
 		hostname := p.formatHostname(device)
 		if hostname == "" {
-			p.logger.With("device", device.ID).Warn("Skipping device - no name or hostname available")
+			p.logger.With("action", "input.filter", "device", device.ID).Warn("no name or hostname available")
 			continue
 		}
 
 		if len(device.Addresses) == 0 {
-			p.logger.Debug("Skipping device %s (no IP addresses)", hostname)
+			p.logger.With("action", "input.filter").Debug("%s (no IP addresses)", hostname)
 			continue
 		}
 
-		p.logger.Trace("Device %s has %d IP addresses", hostname, len(device.Addresses))
+		p.logger.With("action", "provider.event").Trace("%s has %d IP addresses", hostname, len(device.Addresses))
 		processedCount++
 
 		for addrIdx, ip := range device.Addresses {
-			p.logger.Trace("Processing IP %d/%d: %s for device %s", addrIdx+1, len(device.Addresses), ip, hostname)
+			p.logger.With("action", "provider.event").Trace("ip %d/%d: %s for device %s", addrIdx+1, len(device.Addresses), ip, hostname)
 
 			cleanIP := ip
 			if strings.Contains(ip, "/") {
 				cleanIP = strings.Split(ip, "/")[0]
-				p.logger.Trace("Cleaned IP %s -> %s", ip, cleanIP)
+				p.logger.With("action", "provider.event").Trace("ip %s -> %s", ip, cleanIP)
 			}
 
 			recordType := "A"
 			if strings.Contains(cleanIP, ":") {
 				recordType = "AAAA"
-				p.logger.Trace("IPv6 address detected: %s", cleanIP)
+				p.logger.With("action", "input.pass").Trace("ipv6 address: %s", cleanIP)
 			}
 
 			key := hostname + ":" + recordType
@@ -925,11 +924,11 @@ func (p *TailscaleProvider) processDevices() {
 
 			for _, targetDomain := range p.targetDomains() {
 				fqdn := hostname + "." + targetDomain
-				p.logger.Trace("Checking record %s (%s) -> %s", fqdn, recordType, cleanIP)
+				p.logger.With("action", "record.sync").Trace("record %s (%s) -> %s", fqdn, recordType, cleanIP)
 
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-				p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
+				p.logger.With("action", "domain.route").Trace("real domain name '%s' for DNS provider", realDomain)
 
 				if changed {
 					state := domain.RouterState{
@@ -940,13 +939,13 @@ func (p *TailscaleProvider) processDevices() {
 						ForceServiceAsTarget: true, // VPN providers always use Service IP as target
 					}
 
-					p.logger.Trace("Calling ProcessRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdn, state)
+					p.logger.With("action", "record.create").Trace("processRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdn, state)
 					err := batchProcessor.ProcessRecord(realDomain, fqdn, state)
 					if err != nil {
-						p.logger.With("device", fqdn).Error("Failed to ensure DNS: %v", err)
+						p.logger.With("action", "record.reject", "device", fqdn).Error("ensure DNS: %v", err)
 					}
 				} else {
-					p.logger.Trace("Record unchanged: %s (%s) -> %s", fqdn, recordType, cleanIP)
+					p.logger.With("action", "record.skip").Trace("unchanged: %s (%s) -> %s", fqdn, recordType, cleanIP)
 				}
 				heraldstate.Touch(realDomain, hostname, recordType, cleanIP, p.profileName, "")
 			}
@@ -954,12 +953,12 @@ func (p *TailscaleProvider) processDevices() {
 	}
 
 	if filteredCount > 0 {
-		p.logger.Verbose("Filtered out %d devices, processed %d devices", filteredCount, processedCount)
+		p.logger.With("action", "sync.done").Verbose("%d devices filtered out, %d processed", filteredCount, processedCount)
 	} else {
-		p.logger.Verbose("Processed %d devices (no filtering applied)", processedCount)
+		p.logger.With("action", "sync.done").Verbose("%d devices (no filtering applied)", processedCount)
 	}
 
-	p.logger.Trace("Checking for removed records (recordRemoveOnStop=%t)", p.recordRemoveOnStop)
+	p.logger.With("action", "record.delete").Trace("removed records (recordRemoveOnStop=%t)", p.recordRemoveOnStop)
 	if p.recordRemoveOnStop {
 		removedCount := 0
 		for key, oldTarget := range p.lastKnownRecords {
@@ -974,7 +973,7 @@ func (p *TailscaleProvider) processDevices() {
 					fqdn := hostname + "." + targetDomain
 					fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 					realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-					p.logger.Trace("Using real domain name '%s' for DNS provider (removal)", realDomain)
+					p.logger.With("action", "domain.route").Trace("real domain name '%s' for DNS provider (removal)", realDomain)
 
 					p.logMemberRemoved(fqdn) // This log is fine
 					state := domain.RouterState{
@@ -985,10 +984,10 @@ func (p *TailscaleProvider) processDevices() {
 						ForceServiceAsTarget: true, // VPN providers always use Service IP as target
 					}
 
-					p.logger.Trace("Calling ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdn, state)
+					p.logger.With("action", "record.delete").Trace("processRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdn, state)
 					err := batchProcessor.ProcessRecordRemoval(realDomain, fqdn, state)
 					if err != nil {
-						p.logger.With("device", fqdn).Error("Failed to remove DNS: %v", err)
+						p.logger.With("action", "record.reject", "device", fqdn).Error("remove DNS: %v", err)
 					} else {
 						heraldstate.Remove(realDomain, hostname, recordType)
 					}
@@ -996,14 +995,14 @@ func (p *TailscaleProvider) processDevices() {
 			}
 		}
 		if removedCount > 0 {
-			p.logger.Verbose("Processed %d record removals", removedCount)
+			p.logger.With("action", "sync.done").Verbose("%d record removals", removedCount)
 		}
 	} else {
-		p.logger.Trace("Record removal disabled (recordRemoveOnStop=false)")
+		p.logger.With("action", "record.skip").Trace("removal disabled (recordRemoveOnStop=false)")
 	}
 
 	p.lastKnownRecords = current
-	p.logger.Trace("Updated lastKnownRecords cache with %d entries", len(current))
+	p.logger.With("action", "state.save").Trace("lastKnownRecords cache with %d entries", len(current))
 
 	batchProcessor.FinalizeBatch()
 }

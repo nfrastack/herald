@@ -94,14 +94,14 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		log.NewScopedLogger("", "").With("provider", parsed.Name).Debug("Error creating filter configuration: %v, using default", err)
+		log.NewScopedLogger("", "").With("action", "input.filter", "provider", parsed.Name).Debug("creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
 	if logLevel != "" {
-		scopedLogger.Info("Provider log_level set to: '%s'", logLevel)
+		scopedLogger.With("action", "provider.init").Info("log_level set to: '%s'", logLevel)
 	}
 
 	return &RemoteProvider{
@@ -145,10 +145,10 @@ func (p *RemoteProvider) GetDNSEntries() ([]DNSEntry, error) {
 
 func (p *RemoteProvider) pollLoop() {
 	if p.opts.ProcessExisting {
-		p.logger.Trace("Processing existing remote records on startup (process_existing=true)")
+		p.logger.With("action", "input.load").Trace("existing remote records on startup (process_existing=true)")
 		p.processRemote()
 	} else {
-		p.logger.Trace("Initial poll on startup (process_existing=false), inventory only, no processing")
+		p.logger.With("action", "provider.poll").Trace("on startup (process_existing=false), inventory only, no processing")
 		entries, err := p.readRemote()
 		if err == nil {
 			current := make(map[string]DNSEntry)
@@ -174,10 +174,10 @@ func (p *RemoteProvider) processRemote() {
 	isInitialLoad := len(p.lastRecords) == 0
 	entries, err := p.readRemote()
 	if err != nil {
-		p.logger.Error("Failed to read remote: %v", err)
+		p.logger.With("action", "input.load").Error("remote: %v", err)
 		return
 	}
-	p.logger.Verbose("Processing %d DNS entries from remote", len(entries))
+	p.logger.With("action", "input.load").Verbose("%d DNS entries from remote", len(entries))
 
 	providerName := p.name
 	if providerName == "" {
@@ -197,13 +197,13 @@ func (p *RemoteProvider) processRemote() {
 		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 		if _, ok := p.lastRecords[key]; !ok {
 			if isInitialLoad {
-				p.logger.With("fqdn", fqdnNoDot).Info("Initial record detected (%s)", recordType)
+				p.logger.With("action", "record.create", "fqdn", fqdnNoDot).Info("(%s)", recordType)
 			} else {
-				p.logger.With("fqdn", fqdnNoDot).Info("New record detected (%s)", recordType)
+				p.logger.With("action", "record.create", "fqdn", fqdnNoDot).Info("(%s)", recordType)
 			}
 
 			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-			p.logger.Trace("Using real domain name '%s' for DNS provider", realDomain)
+			p.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider", realDomain)
 
 			state := domain.RouterState{
 				SourceType: "remote_profile",
@@ -212,10 +212,10 @@ func (p *RemoteProvider) processRemote() {
 				RecordType: recordType,
 			}
 
-			p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecord: %+v", state)
+			p.logger.With("action", "record.create", "domain", realDomain, "fqdn", fqdnNoDot).Trace("ProcessRecord: %+v", state)
 			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
 			if err != nil {
-				p.logger.With("fqdn", fqdnNoDot).Error("Failed to ensure DNS: %v", err)
+				p.logger.With("action", "sync.fail", "fqdn", fqdnNoDot).Error("ensuring DNS: %v", err)
 			}
 		}
 	}
@@ -226,10 +226,10 @@ func (p *RemoteProvider) processRemote() {
 				fqdn := old.GetFQDN()
 				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
 				recordType := old.GetRecordType()
-				p.logger.With("fqdn", fqdnNoDot).Info("Record removed (%s)", recordType)
+				p.logger.With("action", "record.delete", "fqdn", fqdnNoDot).Info("removed (%s)", recordType)
 
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
-				p.logger.Trace("Using real domain name '%s' for DNS provider (removal)", realDomain)
+				p.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider (removal)", realDomain)
 
 				state := domain.RouterState{
 					SourceType: "remote_profile",
@@ -238,10 +238,10 @@ func (p *RemoteProvider) processRemote() {
 					RecordType: recordType,
 				}
 
-				p.logger.With("domain", realDomain, "fqdn", fqdnNoDot).Trace("Calling ProcessRecordRemoval: %+v", state)
+				p.logger.With("action", "record.delete", "domain", realDomain, "fqdn", fqdnNoDot).Trace("ProcessRecordRemoval: %+v", state)
 				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
 				if err != nil {
-					p.logger.With("fqdn", fqdnNoDot).Error("Failed to remove DNS: %v", err)
+					p.logger.With("action", "sync.fail", "fqdn", fqdnNoDot).Error("removing DNS: %v", err)
 				}
 			}
 		}
@@ -253,53 +253,53 @@ func (p *RemoteProvider) processRemote() {
 }
 
 func (p *RemoteProvider) readRemote() ([]DNSEntry, error) {
-	p.logger.Debug("Fetching remote source: %s", p.remoteURL)
+	p.logger.With("action", "input.load").Debug("remote source: %s", p.remoteURL)
 	httpUser := common.ReadFileValue(p.options["remote_auth_user"])
 	httpPass := common.ReadFileValue(p.options["remote_auth_pass"])
 
 	tlsConfig := common.ParseTLSConfigFromOptions(p.options)
 
 	if !tlsConfig.Verify {
-		p.logger.Debug("TLS certificate verification disabled")
+		p.logger.With("action", "tls.skip").Debug("certificate verification disabled")
 	}
 	if tlsConfig.CA != "" {
-		p.logger.Debug("Using custom CA certificate: %s", tlsConfig.CA)
+		p.logger.With("action", "tls.load").Debug("custom CA certificate: %s", tlsConfig.CA)
 	}
 	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
-		p.logger.Debug("Using client certificate authentication")
+		p.logger.With("action", "tls.load").Debug("client certificate authentication")
 	}
 
 	data, err := common.FetchRemoteResourceWithTLSConfig(p.remoteURL, httpUser, httpPass, nil, &tlsConfig, p.logPrefix)
 	if err != nil {
-		p.logger.Error("%v", err)
+		p.logger.With("action", "sync.fail").Error("%v", err)
 		return nil, err
 	}
-	p.logger.Trace("Fetched %d bytes from %s", len(data), p.remoteURL)
+	p.logger.With("action", "input.load").Trace("%d bytes from %s", len(data), p.remoteURL)
 
 	var records []common.FileRecord
 	if p.format == "yaml" {
-		p.logger.Trace("Parsing YAML from remote")
+		p.logger.With("action", "input.load").Trace("YAML from remote")
 		records, err = common.ParseRecordsYAML(data)
 		if err != nil {
-			p.logger.Error("YAML unmarshal error: %v", err)
+			p.logger.With("action", "config.error").Error("unmarshal error: %v", err)
 			return nil, err
 		}
 	} else if p.format == "json" {
-		p.logger.Trace("Parsing JSON from remote")
+		p.logger.With("action", "input.load").Trace("JSON from remote")
 		records, err = common.ParseRecordsJSON(data)
 		if err != nil {
-			p.logger.Error("JSON unmarshal error: %v", err)
+			p.logger.With("action", "config.error").Error("unmarshal error: %v", err)
 			return nil, err
 		}
 	} else if p.format == "hosts" {
-		p.logger.Trace("Parsing hosts file from remote")
+		p.logger.With("action", "input.load").Trace("hosts file from remote")
 		records, err = parsers.ParseHostsFile(data)
 		if err != nil {
-			p.logger.Error("Hosts file parse error: %v", err)
+			p.logger.With("action", "config.error").Error("parse error: %v", err)
 			return nil, err
 		}
 	} else {
-		p.logger.Error("Unsupported remote file format: %s", p.format)
+		p.logger.With("action", "config.error").Error("remote file format: %s", p.format)
 		return nil, fmt.Errorf("unsupported remote file format: %s", p.format)
 	}
 	entries := common.ConvertRecordsToDNSEntries(records, p.opts.Name)
@@ -332,19 +332,19 @@ func (p *RemoteProvider) SetDomainConfigs(domainConfigs map[string]config.Domain
 }
 
 func (p *RemoteProvider) getParentDomainForFQDN(fqdn string) string {
-	p.logger.Trace("getParentDomainForFQDN called with fqdn='%s'", fqdn)
+	p.logger.With("action", "domain.match").Trace("with fqdn='%s'", fqdn)
 	var bestMatch string
 	for _, cfg := range p.domainConfigs {
-		p.logger.Trace("Checking if fqdn '%s' has suffix '%s'", fqdn, cfg.Name)
+		p.logger.With("action", "domain.match").Trace("if fqdn '%s' has suffix '%s'", fqdn, cfg.Name)
 		if strings.HasSuffix(fqdn, cfg.Name) {
 			if len(cfg.Name) > len(bestMatch) {
 				bestMatch = cfg.Name
-				p.logger.Trace("Match: '%s'", bestMatch)
+				p.logger.With("action", "domain.match").Trace("'%s'", bestMatch)
 			}
 		}
 	}
 	if bestMatch == "" {
-		p.logger.Warn("No domain config matched for FQDN '%s' (configs: %v)", fqdn, p.domainConfigs)
+		p.logger.With("action", "domain.skip").Warn("no domain config matched for FQDN '%s' (configs: %v)", fqdn, p.domainConfigs)
 	}
 	return bestMatch
 }
