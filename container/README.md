@@ -109,7 +109,7 @@ Below are the main environment variables supported by the image, as reflected in
 | `HERALD_SETUP_TYPE` | `auto` to generate config, `manual` for custom | `auto`       |
 | `HERALD_USER`       | User to run as (`root` needed for docker.sock) | `herald`     |
 | `LOG_TYPE`          | Log to `console`, `file`, or `both` or `none`  | `console`    |
-| `LOG_FORMAT`        | Log encoding (`text` or `json`)                | `text`       |
+| `LOG_FORMAT`        | Log encoding (`text`, `structured`, or `json`) | `text`       |
 | `LOG_LEVEL`         | Logging level (`info`, `verbose`, etc)         | `info`       |
 | `LOG_PATH`          | Log file directory                             | `/logs/`     |
 | `LOG_FILE`          | Log file name                                  | `herald.log` |
