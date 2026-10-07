@@ -190,7 +190,15 @@ Herald tracks when each DNS record was first and last confirmed present (poll hi
 
 Each input/output/domain provider supports individual log level configuration via the `log_level` option, allowing fine-grained control over logging verbosity per provider without affecting global log levels.
 
-Log records carry structured fields (`scope`, `client`, `domain`, `profile`, `container`, `device`, `member`). With `LOG_FORMAT=json`, query them directly:
+Log format is selected by `--log-format`, `LOG_FORMAT`, or `general.log_format` in `herald.yml` (flag wins, then env, then file; empty means auto: `structured` on a console, `text` under systemd/journald):
+
+- `text`: plain `LEVEL [scope] action message` lines for humans and journald.
+- `structured`: slog `level=... msg=...` key=value lines.
+- `json`: one JSON object per line.
+
+Every record carries an `action` (`record.create`, `auth.reject`, `sync.fail`, ...) plus a short companion message, so all three formats stay greppable for the same verbs.
+
+Log records carry structured fields (`scope`, `action`, `client`, `domain`, `profile`, `container`, `device`, `member`). With `LOG_FORMAT=json`, query them directly:
 
 ```bash
 journalctl -u herald --output=json | jq -r 'select(.client == "examplehostname") | "\(.__REALTIME_TIMESTAMP) \(.msg)"'
@@ -1597,7 +1605,7 @@ Herald supports a minimal set of environment variables for global application se
 | `DRY_RUN`          | If true, do not perform actual DNS updates         | `false`   |
 | `LOG_LEVEL`        | Set log level (`trace` `debug`, `verbose`, `info`) | `verbose` |
 | `LOG_TIMESTAMPS`   | Include timestamps in log output (`true`/`false`)  | `true`    |
-| `LOG_FORMAT`       | Log encoding (`text`/`json`)                       | `text`    |
+| `LOG_FORMAT`       | Log encoding (`text`/`structured`/`json`)          | auto (`structured` console, `text` systemd) |
 
 All other configuration should be done via the YAML configuration file. See the sample [.env](contrib/config/env.sample) file for examples.
 

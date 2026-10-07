@@ -5,6 +5,7 @@
 general:
   log_level: info
   log_timestamps: true
+  # log_format: text  # text, structured, or json (default: auto)
   dry_run: false
 
 # Operational state (presence tracking)
