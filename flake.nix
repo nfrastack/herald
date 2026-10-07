@@ -4,7 +4,7 @@
   inputs = { nixpkgs.url = "nixpkgs/nixos-unstable"; };
   outputs = { self, nixpkgs }:
     let
-      version = "2.3.4";
+      version = "3.0.0beta";
       expectedGoVersion = "1.26.8";
       supportedSystems = [
         "x86_64-linux"
