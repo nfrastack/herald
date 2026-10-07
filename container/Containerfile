@@ -20,6 +20,7 @@ LABEL \
 ARG \
     HERALD_VERSION \
     HERALD_COMMIT \
+    CHANNEL="auto" \
     GOLANG_VERSION="1.26.8"
 
 ENV \
@@ -46,7 +47,7 @@ RUN echo "" && \
     if [ "${hver}" = "dev" ]; then hver=""; fi && \
     if [ -z "${hver}" ]; then \
         if [ -n "${HERALD_COMMIT}" ]; then hver="dev-${HERALD_COMMIT}"; \
-        else hver="dev-$(date -u +%Y%m%d-%H%M%S)-h$(find /usr/src/herald/src /usr/src/herald/container -type f | LC_ALL=C sort | xargs sha256sum 2>/dev/null | sha256sum | cut -c1-7)"; fi && \
+        else hver="dev-$(date -u +%Y%m%d-%H%M%S)-h$(find /usr/src/herald/src /usr/src/herald/container -type f | LC_ALL=C sort | xargs sha256sum 2>/dev/null | sha256sum | cut -c1-7)"; fi; \
     fi && \
     HERALD_BUILD_DEPS_ALPINE=" \
                                 make \
@@ -94,7 +95,7 @@ RUN echo "" && \
         ;; \
     esac ; \
     \
-    make build-release HERALD_VERSION="${hver}" && \
+    make build-release HERALD_VERSION="${hver}" CHANNEL="${CHANNEL}" && \
     cp -aR \
                 herald \
                 LICENSE \

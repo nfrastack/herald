@@ -1166,10 +1166,43 @@ Output providers handle where DNS records are sent. This includes live DNS provi
 
 #### Live DNS Providers
 
-Live DNS providers use `type: dns` and manage records directly with DNS services:
+Live DNS providers use `type: dns` and manage records directly with DNS services. All credential values accept `file://` and `env://` secret references (see [Secret References](#secret-references)).
 
-- **cloudflare**: Manage DNS records via Cloudflare API
-- **powerdns**: Manage DNS records via PowerDNS API
+Shared options for every DNS provider:
+
+- `timeout` (integer): API request timeout in seconds, defaults to 30.
+- `retries` (integer): Retry attempts, defaults to 3.
+- `log_level` (string): Per-profile log level override.
+- `api_host` / `endpoint`: Override the API base URL where the provider supports it.
+- `options` (object): Provider-specific extra options, passed through as `options.<key>`.
+
+| Provider       | Credential options                   | Notes                                      |
+| -------------- | ------------------------------------ | ------------------------------------------ |
+| `azure`        | tenant_id, client_id, client_secret, | Entra client credentials                   |
+|                | subscription_id, resource_group      | A/AAAA/CNAME/TXT only                      |
+| `cloudflare`   | token (or api_token)                 | Honors `proxied` option                    |
+| `digitalocean` | token                                |                                            |
+| `easydns`      | token, api_key                       | Parent account only                        |
+|                |                                      | paced to 1 req/sec (500/day quota)         |
+| `external`     | command (absolute path),             | Shells out per write - see below           |
+|                | args (list), env (object)            |                                            |
+| `gandi`        | api_key                              |                                            |
+| `godaddy`      | api_key, api_secret                  |                                            |
+| `google`       | project,                             | Cloud DNS API                              |
+|                | credentials (JSON or path)           |                                            |
+| `hetzner`      | token                                | Auth-API-Token header                      |
+| `linode`       | token                                |                                            |
+| `ovh`          | app_key, app_secret,                 |                                            |
+|                | consumer_key, endpoint               |                                            |
+| `porkbun`      | api_key, secret_key                  |                                            |
+| `powerdns`     | api_host, api_token,                 |                                            |
+|                | server_id,                           |                                            |
+|                | tls.ca/cert/key/skip_verify          |                                            |
+| `route53`      | access_key, secret_key,              |                                            |
+|                | session_token, region                |                                            |
+| `spaceship`    | api_key, api_secret                  |                                            |
+| `technitium`   | api_host, token                      |                                            |
+| `vultr`        | token                                |                                            |
 
 ```yaml
 outputs:
@@ -1180,19 +1213,129 @@ outputs:
     token: "your-cloudflare-token"
     log_level: info
 
-  # Live PowerDNS API
+  # External hook - Runs command per write. 
+  # Placeholders: {action} (upsert/delete) {domain}, {name} (relative, @ for apex),
+  # {fqdn}, {type}, {target}, {ttl}, {source}, {comment}, {profile}.
+  external_hook:
+    type: dns
+    provider: external
+    command: /usr/local/bin/herald-external
+    args: ["{action}", "{domain}", "{name}", "{type}", "{target}"]
+    env:
+      EXTERNAL_KEY: file:///run/secrets/external_key
+
+  # Azure DNS (Entra client credentials)
+  azure_dns:
+    type: dns
+    provider: azure
+    tenant_id: env://AZURE_TENANT_ID
+    client_id: env://AZURE_CLIENT_ID
+    client_secret: file:///run/secrets/azure_secret
+    subscription_id: env://AZURE_SUBSCRIPTION_ID
+    resource_group: "dns-rg"
+
+  # DigitalOcean DNS
+  do_dns:
+    type: dns
+    provider: digitalocean
+    token: env://DO_TOKEN
+
+  # easyDNS (parent account only, paced requests)
+  easydns_dns:
+    type: dns
+    provider: easydns
+    token: env://EASYDNS_TOKEN
+    api_key: env://EASYDNS_KEY
+
+  # Gandi LiveDNS
+  gandi_dns:
+    type: dns
+    provider: gandi
+    api_key: env://GANDI_KEY
+
+  # GoDaddy
+  godaddy_dns:
+    type: dns
+    provider: godaddy
+    api_key: env://GODADDY_KEY
+    api_secret: file:///run/secrets/godaddy_secret
+
+  # Google Cloud DNS (service account)
+  google_dns:
+    type: dns
+    provider: google
+    project: "my-gcp-project"
+    credentials: file:///run/secrets/gcp_dns.json
+
+  # Hetzner DNS
+  hetzner_dns:
+    type: dns
+    provider: hetzner
+    token: file:///run/secrets/hetzner_token
+
+  # Linode DNS
+  linode_dns:
+    type: dns
+    provider: linode
+    token: env://LINODE_TOKEN
+
+  # OVH
+  ovh_dns:
+    type: dns
+    provider: ovh
+    app_key: env://OVH_APP_KEY
+    app_secret: file:///run/secrets/ovh_app_secret
+    consumer_key: file:///run/secrets/ovh_consumer_key
+    endpoint: "https://ca.api.ovh.com/1.0"  # Optional, eu/ca/us
+
+  # Porkbun
+  porkbun_dns:
+    type: dns
+    provider: porkbun
+    api_key: env://PORKBUN_KEY
+    secret_key: file:///run/secrets/porkbun_secret
+
+  # PowerDNS API
   powerdns_dns:
     type: dns
     provider: powerdns
     api_host: "http://powerdns.example.com:8081/api/v1"
     api_token: "your-powerdns-api-token"
-    server_id: "localhost"  # Optional, defaults to "localhost"
+    server_id: "localhost"            # Optional, defaults to "localhost"
     tls:
       ca: "/path/to/ca.pem"           # Optional CA certificate
       cert: "/path/to/client.pem"     # Optional client certificate
       key: "/path/to/client.key"      # Optional client private key
       skip_verify: false              # Optional, skip TLS verification
     log_level: info
+
+  # AWS Route53
+  route53_dns:
+    type: dns
+    provider: route53
+    access_key: env://AWS_ACCESS_KEY_ID
+    secret_key: file:///run/secrets/aws_secret
+    region: "us-east-1"  # Optional
+
+  # Spaceship
+  spaceship_dns:
+    type: dns
+    provider: spaceship
+    api_key: env://SPACESHIP_KEY
+    api_secret: file:///run/secrets/spaceship_secret
+
+  # Technitium
+  technitium_dns:
+    type: dns
+    provider: technitium
+    api_host: "http://192.168.1.53:5380"
+    token: file:///run/secrets/technitium_token
+
+  # Vultr DNS
+  vultr_dns:
+    type: dns
+    provider: vultr
+    token: env://VULTR_TOKEN
 ```
 
 #### File Export Formats

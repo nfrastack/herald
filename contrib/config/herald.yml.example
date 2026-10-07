@@ -145,22 +145,130 @@ outputs:
     api_token: "your_cloudflare_api_token"
     log_level: info
 
-  # PowerDNS API
-  powerdns_dns:
-    type: dns
-    provider: powerdns
-    # api_host: env://POWERDNS_API_HOST
-    api_host: "http://powerdns.example.com:8081/api/v1"
-    # api_token: env://POWERDNS_API_TOKEN
-    api_token: "your_powerdns_api_token"
-    server_id: "localhost"  # Optional, defaults to "localhost"
-    tls:
-      ca: "/path/to/ca.pem"           # Optional CA certificate
-      cert: "/path/to/client.pem"     # Optional client certificate
-      key: "/path/to/client.key"      # Optional client private key
-      skip_verify: false              # Optional, skip TLS verification
-    log_level: info
+  # External hook for anything without a native provider
+  # Placeholders: {action} (upsert/delete), {domain}, {name}, {fqdn}, {type}, {target}, {ttl}, {source}, {comment}, {profile}.
+  #external_hook:
+  #  type: dns
+  #  provider: external
+  #  command: /usr/local/bin/herald-external
+  #  args: ["{action}", "{domain}", "{name}", "{type}", "{target}"]
+  #  env:
+  #    EXTERNAL_KEY: file:///run/secrets/nfrastack_key
 
+  # AWS Route53
+  #route53_dns:
+  #  type: dns
+  #  provider: route53
+  #  access_key: env://AWS_ACCESS_KEY_ID
+  #  secret_key: file:///run/secrets/aws_secret
+  #  region: "us-east-1"  # Optional
+
+  # Azure DNS (Entra client credentials)
+  #azure_dns:
+  #  type: dns
+  #  provider: azure
+  #  tenant_id: env://AZURE_TENANT_ID
+  #  client_id: env://AZURE_CLIENT_ID
+  #  client_secret: file:///run/secrets/azure_secret
+  #  subscription_id: env://AZURE_SUBSCRIPTION_ID
+  #  resource_group: "dns-rg"
+
+  # DigitalOcean DNS
+  #digitalocean_dns:
+  #  type: dns
+  #  provider: digitalocean
+  #  token: env://DO_TOKEN
+
+  # Gandi LiveDNS
+  #gandi_dns:
+  #  type: dns
+  #  provider: gandi
+  #  api_key: env://GANDI_KEY
+
+  # GoDaddy DNS
+  #godaddy_dns:
+  #  type: dns
+  #  provider: godaddy
+  #  api_key: env://GODADDY_KEY
+  #  api_secret: file:///run/secrets/godaddy_secret
+
+  # Google Cloud DNS (service account)
+  #google_dns:
+  #  type: dns
+  #  provider: google
+  #  project: "my-gcp-project"
+  #  credentials: file:///run/secrets/gcp_dns.json
+
+  # Hetzner DNS
+  #hetzner_dns:
+  #  type: dns
+  #  provider: hetzner
+  #  token: file:///run/secrets/hetzner_token
+
+  # Porkbun DNS
+  #porkbun_dns:
+  #  type: dns
+  #  provider: porkbun
+  #  api_key: env://PORKBUN_KEY
+  #  secret_key: file:///run/secrets/porkbun_secret
+
+  # Linode DNS
+  #linode_dns:
+  #  type: dns
+  #  provider: linode
+  #  token: env://LINODE_TOKEN
+
+  # OVH DNS
+  #ovh_dns:
+  #  type: dns
+  #  provider: ovh
+  #  app_key: env://OVH_APP_KEY
+  #  app_secret: file:///run/secrets/ovh_app_secret
+  #  consumer_key: file:///run/secrets/ovh_consumer_key
+  #  endpoint: "https://ca.api.ovh.com/1.0"  # Optional, eu/us
+
+  # Spaceship DNS
+  #spaceship_dns:
+  #  type: dns
+  #  provider: spaceship
+  #  api_key: env://SPACESHIP_KEY
+  #  api_secret: file:///run/secrets/spaceship_secret
+
+  # easyDNS (parent account only)
+  #easydns_dns:
+  #  type: dns
+  #  provider: easydns
+  #  token: env://EASYDNS_TOKEN
+  #  api_key: env://EASYDNS_KEY
+
+  # PowerDNS API
+  #powerdns_dns:
+  #  type: dns
+  #  provider: powerdns
+  #  # api_host: env://POWERDNS_API_HOST
+  #  api_host: "http://powerdns.example.com:8081/api/v1"
+  #  # api_token: env://POWERDNS_API_TOKEN
+  #  api_token: "your_powerdns_api_token"
+  #  server_id: "localhost"  # Optional, defaults to "localhost"
+  #  tls:
+  #    ca: "/path/to/ca.pem"           # Optional CA certificate
+  #    cert: "/path/to/client.pem"     # Optional client certificate
+  #    key: "/path/to/client.key"      # Optional client private key
+  #    skip_verify: false              # Optional, skip TLS verification
+  #  log_level: info
+
+  # Technitium (A/AAAA/CNAME/TXT only)
+  #technitium_dns:
+  #  type: dns
+  #  provider: technitium
+  #  api_host: "http://192.168.1.53:5380"
+  #  token: file:///run/secrets/technitium_token
+
+  # Vultr DNS
+  #vultr_dns:
+  #  type: dns
+  #  provider: vultr
+  #  token: env://VULTR_TOKEN
 
   # Remote aggregator
   remote_aggregator:
