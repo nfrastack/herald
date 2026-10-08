@@ -1,7 +1,9 @@
-## beta 2026-10-04 <code at nfrastack dot com>
+## 3.0.0beta 2026-10-04 <code at nfrastack dot com>
 
    ### Added
     - state tracking to assist in detecting stale records
+    - (input/docker) add api_auth_user/api_auth_pass basic auth support
+    - (input/docker) and api_header_* custom headers
     - (input/tailscale) support additional_domains
     - (input/zerotier) support additional_domains
     - (output/dns/technitium) add provider
@@ -19,20 +21,21 @@
     - (output/dns/google) add provider
     - (output/dns/route53) add provider
     - (output/dns/external) add provider
+    - (output/remote) add mTLS support
 
    ### Changed
+    - config rejects unknown fields at startup
+    - constant format strings
+    - rework repository layout
+    - properly parse ipv6 addresses
+    - structured logging
+    - (api) add shareable_writes capability to write to whole zone
+    - (api) gracefully stop server and flush states on shutdown
+    - (api) scope client uploads to allowed domains
+    - (api) scope clients to allowed hostnames
     - (output/dns) rework provider format
     - (output/dns/cloudflare) refactor provider
     - (output/dns/powerdns) refactor provider
-    - Support IPV6 safely
-    - rework repository layout
-    - constant format strings
-    - structured logging
-    - config rejects unknown fields at startup
-    - gracefully stop API server and flush states on shutdown
-    - (api) scope client uploads to allowed domains
-    - (api) scope clients to allowed hostnames
-    - (api) add shareable_writes capability to write to whole zone
     - (output/zone) seperate manual from managed records
     - (output/zone) only write zone files when actual record change
     - (output/zone) properly attribute client on record addition
