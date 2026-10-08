@@ -22,11 +22,15 @@
         };
       };
 
-      input = {
+      inputs = {
         # Docker containers with labels
         docker_public = {
           type = "docker";
           api_url = "unix:///var/run/docker.sock";
+          # api_url = "http://socket-proxy";
+          # api_auth_user = "file:///run/secrets/docker_user";
+          # api_auth_pass = "file:://run/secrets/docker_PASSWORD";
+          # "api_header_X-Custom-Token" = "file:///run/secrets/custom_token";
           expose_containers = true;
           process_existing = true;
           record_remove_on_stop = true;
@@ -154,7 +158,7 @@
         };
       };
 
-      output = {
+      outputs = {
         # Live Cloudflare DNS
         cloudflare_dns = {
           type = "dns";

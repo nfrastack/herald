@@ -17,8 +17,10 @@ inputs:
   docker_public:
     type: docker
     api_url: unix:///var/run/docker.sock
-    # api_auth_user: file:///run/secrets/docker_user    # Load from file
-    # api_auth_pass: env://DOCKER_PASSWORD              # Load from environment
+    # api_url: http://socket-proxy:2375
+    # api_auth_user: file:///run/secrets/docker_user
+    # api_auth_pass: env://DOCKER_PASSWORD
+    # api_header_X-Custom-Token: file:///run/secrets/custom_token
     expose_containers: true
     process_existing: true
     record_remove_on_stop: true
@@ -98,7 +100,7 @@ inputs:
     tls:
       verify: true
 
-  # Tailscale VPN integration
+  # Tailscale integration
   tailscale_example:
     type: tailscale
     # api_key: file:///run/secrets/tailscale_key
@@ -117,7 +119,7 @@ inputs:
         conditions:
           - value: "true"
 
-  # ZeroTier VPN integration
+  # ZeroTier integration
   zerotier_example:
     type: zerotier
     api_url: "https://my.zerotier.com"
@@ -281,6 +283,9 @@ outputs:
     timeout: "30s"
     tls:
       verify: true
+      # ca: "/etc/ssl/certs/aggregator-ca.pem"   # private CA for https:// aggregators
+      # cert: "/etc/ssl/herald/client.crt"       # client cert for mTLS
+      # key: "/etc/ssl/herald/client.key"        # client key for mTLS
 
   # Local hosts file with DNS resolution control
   hosts:
@@ -292,8 +297,8 @@ outputs:
     mode: 0644
     # DNS Resolution Control Options
     flatten_cnames: true          # Enable CNAME to A record flattening (default: true)
-    dns_server: "1.1.1.1"        # Use external DNS server (Cloudflare)
-    resolve_external: true       # Force external DNS resolution
+    dns_server: "1.1.1.1"         # Use external DNS server (Cloudflare)
+    resolve_external: true        # Force external DNS resolution
     # ip_override: "192.168.1.100" # Override all resolved IPs with this address
 
   # JSON backup files
@@ -426,7 +431,7 @@ api:
       # token: file:///var/run/secrets/server1_token
       token: "server1-secret-token"
       output_profile: "zone_file"
-      # domains: ["example.com"]  # optional: reject uploads for other domains
+      # domains: ["example.com"]  # reject uploads for other domains
     server2:
       # token: env://SERVER2_API_TOKEN
       token: "server2-secret-token"
