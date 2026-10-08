@@ -98,7 +98,8 @@ func main() {
 	}
 
 	fmt.Printf("Starting Herald version: %s \n", versionString(false))
-	fmt.Printf("© 2025 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
+	fmt.Printf("© 2026 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
+	fmt.Println("For implementation support and consulting visit: https://nfrastack.com")
 	fmt.Println()
 
 	log.NewScopedLogger("", "").With("action", "server.start").Trace("build: %s", BuildTime)
