@@ -111,6 +111,7 @@ type GeneralConfig struct {
 	OutputProfiles       []string `yaml:"output_profiles"`
 	DryRun               bool     `yaml:"dry_run"`
 	SkipDomainValidation bool     `yaml:"skip_domain_validation"`
+	AllowMissingOutputs  bool     `yaml:"allow_missing_outputs"`
 }
 
 type DefaultsConfig struct {

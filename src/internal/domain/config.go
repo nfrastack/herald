@@ -75,8 +75,9 @@ func (dm *DomainManager) GetAllDomains() map[string]*DomainConfig {
 	return dm.domains
 }
 
-func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfiles, outputProfiles, dnsProviders map[string]interface{}) error {
+func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfiles, outputProfiles, dnsProviders map[string]interface{}, allowMissingOutputs bool) error {
 	var errors []string
+	validateLog := log.NewScopedLogger("[domain]", "")
 
 	for domainName, domain := range domains {
 		inputProfilesToValidate := domain.GetInputProfiles()
@@ -91,11 +92,26 @@ func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfile
 
 		outputsToValidate := domain.GetOutputs()
 
-		for _, output := range outputsToValidate {
-			if _, exists := outputProfiles[output]; !exists {
-				availableOutputs := getMapKeys(outputProfiles)
-				errors = append(errors, fmt.Sprintf("domain '%s' references non-existent output '%s' (available: %s)",
-					domainName, output, strings.Join(availableOutputs, ", ")))
+		if allowMissingOutputs {
+			kept := outputsToValidate[:0]
+			for _, output := range outputsToValidate {
+				if _, exists := outputProfiles[output]; !exists {
+					validateLog.With("action", "domain.skip", "domain", domainName).Warn("domain references non-existent output '%s', skipping it (allow_missing_outputs=true)", output)
+					continue
+				}
+				kept = append(kept, output)
+			}
+			if domain.Profiles != nil {
+				domain.Profiles.Outputs = kept
+			}
+			outputsToValidate = kept
+		} else {
+			for _, output := range outputsToValidate {
+				if _, exists := outputProfiles[output]; !exists {
+					availableOutputs := getMapKeys(outputProfiles)
+					errors = append(errors, fmt.Sprintf("domain '%s' references non-existent output '%s' (available: %s)",
+						domainName, output, strings.Join(availableOutputs, ", ")))
+				}
 			}
 		}
 
@@ -109,6 +125,11 @@ func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfile
 
 		hasDestination := (domain.Provider != "" && domain.Provider != "none") || len(domain.GetOutputs()) > 0
 		if !hasDestination {
+			if allowMissingOutputs {
+				validateLog.With("action", "domain.skip", "domain", domainName).Warn("domain has no destination configured, skipping it (allow_missing_outputs=true)")
+				delete(domains, domainName)
+				continue
+			}
 			errors = append(errors, fmt.Sprintf("domain '%s' has no destination configured (must have either a DNS provider or outputs)", domainName))
 		}
 	}

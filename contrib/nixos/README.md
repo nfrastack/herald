@@ -33,6 +33,7 @@ Here are the available options for the NixOS module (services.herald):
   * `log_level` (str): Logging level ("info", "debug", "verbose", etc.).
   * `log_timestamps` (bool): Show timestamps in logs.
   * `dry_run` (bool): Enable dry run mode (no actual DNS changes).
+  * `allow_missing_outputs` (bool): Warn and skip domains referencing outputs that don't exist instead of exiting (default: `false`).
 * `defaults` (attrs): Default DNS record settings applied to all domains.
   * `record` (attrs):
     * `type` (str): DNS record type ("A", "AAAA", "CNAME", etc.).

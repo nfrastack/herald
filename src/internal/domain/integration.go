@@ -39,7 +39,7 @@ func parseStringArray(value interface{}) []string {
 	}
 }
 
-func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles, outputProfiles, dnsProviders map[string]interface{}) error {
+func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles, outputProfiles, dnsProviders map[string]interface{}, allowMissingOutputs bool) error {
 	log.NewScopedLogger("", "").With("action", "config.load").Debug("domain configs received: %+v", domainConfigs)
 
 	domains := make(map[string]*DomainConfig)
@@ -128,7 +128,7 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 			domainName, domainConfig.Provider, domainConfig.GetInputProfiles(), domainConfig.GetOutputs())
 	}
 
-	if err := ValidateDomainConfigurations(domains, inputProfiles, outputProfiles, dnsProviders); err != nil {
+	if err := ValidateDomainConfigurations(domains, inputProfiles, outputProfiles, dnsProviders, allowMissingOutputs); err != nil {
 		return fmt.Errorf("domain validation failed: %v", err)
 	}
 
