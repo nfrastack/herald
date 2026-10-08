@@ -12,6 +12,7 @@ import (
 	heraldstate "github.com/nfrastack/herald/internal/state"
 
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"os"
@@ -309,6 +310,43 @@ func evaluateDockerStatusFilter(filter common.Filter, container dcontainer.Inspe
 	return result
 }
 
+const customHeaderPrefix = "api_header_"
+
+func isTCPAPIURL(apiURL string) bool {
+	lower := strings.ToLower(apiURL)
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
+}
+
+func basicAuthHeader(user, pass string) string {
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
+}
+
+func hasAuthorizationHeader(headers map[string]string) bool {
+	for k := range headers {
+		if strings.EqualFold(k, "Authorization") {
+			return true
+		}
+	}
+	return false
+}
+
+func collectCustomHeaders(stringOptions map[string]string) map[string]string {
+	headers := make(map[string]string)
+	for key, value := range stringOptions {
+		if !strings.HasPrefix(key, customHeaderPrefix) {
+			continue
+		}
+		name := strings.TrimPrefix(key, customHeaderPrefix)
+		if name == "" {
+			continue
+		}
+		if resolved := common.ReadFileValue(value); resolved != "" {
+			headers[name] = resolved
+		}
+	}
+	return headers
+}
+
 func NewProvider(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	options := make(map[string]string)
 	for k, v := range config {
@@ -409,12 +447,26 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 
 	apiAuthUser := common.ReadFileValue(stringOptions["api_auth_user"])
 	apiAuthPass := common.ReadFileValue(stringOptions["api_auth_pass"])
+	customHeaders := collectCustomHeaders(stringOptions)
 	if apiAuthUser != "" {
 		scopedLogger.With("action", "config.load").Debug("docker API basic auth user: %s", apiAuthUser)
 		if apiAuthPass != "" {
 			scopedLogger.With("action", "config.load").Debug("docker API basic auth password is set (masked)")
 		} else {
 			scopedLogger.With("action", "config.error").Warn("docker API basic auth user provided without password")
+		}
+		if !isTCPAPIURL(apiURL) {
+			scopedLogger.With("action", "config.error").Warn("docker API basic auth only applies to http(s) endpoints, ignoring for '%s'", apiURL)
+		} else if !hasAuthorizationHeader(customHeaders) {
+			customHeaders["Authorization"] = basicAuthHeader(apiAuthUser, apiAuthPass)
+		}
+	}
+	if len(customHeaders) > 0 {
+		if !isTCPAPIURL(apiURL) {
+			scopedLogger.With("action", "config.error").Warn("docker API custom headers only apply to http(s) endpoints, ignoring for '%s'", apiURL)
+		} else {
+			scopedLogger.With("action", "config.load").Debug("docker API custom headers: %d (values masked)", len(customHeaders))
+			clientOpts = append(clientOpts, client.WithHTTPHeaders(customHeaders))
 		}
 	}
 
