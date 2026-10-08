@@ -6,6 +6,7 @@ general:
   log_level: info
   log_timestamps: true
   # log_format: text  # text, structured, or json (default: auto)
+  # allow_missing_outputs: false  # warn + skip domains referencing outputs that don't exist insead of exiting
   dry_run: false
 
 # Operational state (presence tracking)

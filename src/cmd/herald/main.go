@@ -230,7 +230,7 @@ func main() {
 		outputsInterface[k] = v
 	}
 
-	if err := domain.InitializeDomainSystem(domainsInterface, inputsInterface, outputsInterface, map[string]interface{}{}); err != nil {
+	if err := domain.InitializeDomainSystem(domainsInterface, inputsInterface, outputsInterface, map[string]interface{}{}, cfg.General.AllowMissingOutputs); err != nil {
 		log.NewScopedLogger("", "").With("action", "domain.route").Error("[domain] initialize domain system: %v", err)
 		os.Exit(1)
 	}

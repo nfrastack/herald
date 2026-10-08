@@ -1,7 +1,8 @@
 ## 3.0.0beta 2026-10-04 <code at nfrastack dot com>
 
    ### Added
-    - state tracking to assist in detecting stale records
+    - add allow_missing_outputs to warn + skip domains with unknown outputs instead of exiting
+    - (api) state tracking to assist in detecting stale records
     - (input/docker) add api_auth_user/api_auth_pass basic auth support
     - (input/docker) and api_header_* custom headers
     - (input/tailscale) support additional_domains
