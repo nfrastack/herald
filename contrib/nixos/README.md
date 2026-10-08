@@ -39,12 +39,13 @@ Here are the available options for the NixOS module (services.herald):
     * `ttl` (int): Time to live in seconds.
     * `update_existing` (bool): Update existing records.
     * `allow_multiple` (bool): Allow multiple records for same name.
-* `input` (attrs): Input provider configurations for discovering DNS records.
+* `inputs` (attrs): Input provider configurations for discovering DNS records.
   * `docker_example` (attrs):
     * `type` (str): "docker"
     * `api_url` (str): Docker socket path or API URL.
-    * `api_auth_user` (str): Username for Docker API authentication.
-    * `api_auth_pass` (str): Password for Docker API authentication.
+    * `api_auth_user` (str): Username for HTTP basic auth (http(s) endpoints only)
+    * `api_auth_pass` (str): Password for HTTP basic auth (http(s) endpoints only)
+    * `api_header_<Name>` (str): Extra HTTP header sent with every Docker API request (http(s) endpoints only)
     * `interval` (str): Poll interval (e.g., "60s").
     * `process_existing` (bool): Process existing containers on startup.
     * `expose_containers` (bool): Expose containers without labels.
@@ -119,7 +120,7 @@ Here are the available options for the NixOS module (services.herald):
     * `use_address_fallback` (bool): Use ZeroTier address as hostname when name is empty.
     * `filter` (list): Advanced filtering configuration.
     * `log_level` (str): Provider-specific log level override.
-* `output` (attrs): Output configurations for exporting DNS records.
+* `outputs` (attrs): Output configurations for exporting DNS records.
   * `cloudflare_dns` (attrs):
     * `type` (str): "dns"
     * `provider` (str): "cloudflare"
@@ -191,10 +192,10 @@ Here are the available options for the NixOS module (services.herald):
     * `ns_records` (list): List of authoritative nameservers.
   * `remote_api` (attrs):
     * `type` (str): "remote"
-    * `url` (str): Remote aggregator URL.
-    * `client_id` (str): Unique client identifier.
-    * `token` (str): Bearer authentication token.
-    * `timeout` (str): HTTP request timeout.
+    * `url` (str): Remote aggregator URL (supports `file://`/`env://`).
+    * `client_id` (str): Unique client identifier (supports `file://`/`env://`).
+    * `token` (str): Bearer authentication token (supports `file://`/`env://`).
+    * `timeout` (str): HTTP request timeout (e.g. `"30s"`, default 30s).
     * `data_format` (str): Data format ("json" or "yaml").
     * `log_level` (str): Output-specific log level override.
     * `tls` (attrs): TLS configuration for HTTPS.
