@@ -10,6 +10,7 @@ import (
 	"github.com/nfrastack/herald/internal/log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types/events"
 	dfilters "github.com/docker/docker/api/types/filters"
@@ -118,18 +119,25 @@ func (cm *ConnectionManager) RemoveProvider(provider *DockerProvider) {
 	}
 }
 
-func (sc *SharedConnection) StartEventStreaming() error {
-	if sc.running {
-		return nil
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
 	}
+	return id
+}
 
-	sc.running = true
-
+func (sc *SharedConnection) buildEventFilters() dfilters.Args {
 	f := dfilters.NewArgs()
 	f.Add("type", "container")
+	f.Add("event", "create")
 	f.Add("event", "start")
+	f.Add("event", "restart")
+	f.Add("event", "unpause")
 	f.Add("event", "stop")
+	f.Add("event", "pause")
 	f.Add("event", "die")
+	f.Add("event", "kill")
+	f.Add("event", "destroy")
 
 	needsSwarm := false
 	sc.mutex.RLock()
@@ -149,37 +157,88 @@ func (sc *SharedConnection) StartEventStreaming() error {
 		log.NewScopedLogger("", "").With("action", "sync.start").Debug("added service events to filter (swarm mode needed)")
 	}
 
-	eventChan, errChan := sc.client.Events(sc.ctx, events.ListOptions{
-		Filters: f,
-	})
+	return f
+}
 
-	log.NewScopedLogger("", "").With("action", "sync.start").Info("shared event streaming started")
+func (sc *SharedConnection) StartEventStreaming() error {
+	if sc.running {
+		return nil
+	}
 
-	go func() {
-		for {
+	sc.running = true
+
+	go sc.streamLoop()
+
+	return nil
+}
+
+func (sc *SharedConnection) streamLoop() {
+	backoff := time.Second
+	const maxBackoff = 5 * time.Minute
+	attempt := 0
+
+	for {
+		select {
+		case <-sc.ctx.Done():
+			log.NewScopedLogger("", "").With("action", "provider.shutdown").Debug("event streaming stopped (context cancelled)")
+			return
+		default:
+		}
+
+		attempt++
+		eventChan, errChan := sc.client.Events(sc.ctx, events.ListOptions{
+			Filters: sc.buildEventFilters(),
+		})
+
+		log.NewScopedLogger("", "").With("action", "sync.start").Info("shared event streaming started (attempt %d)", attempt)
+
+		reconnect := true
+		for reconnect {
 			select {
 			case <-sc.ctx.Done():
 				log.NewScopedLogger("", "").With("action", "provider.shutdown").Debug("event streaming stopped (context cancelled)")
 				return
 
-			case err := <-errChan:
+			case err, ok := <-errChan:
+				if !ok {
+					errChan = nil
+					continue
+				}
 				if err != nil {
-					log.NewScopedLogger("", "").With("action", "provider.reconnect", "component", "docker/shared").Error("event stream error: %v", err)
+					log.NewScopedLogger("", "").With("action", "provider.reconnect", "component", "docker/shared").Error("event stream error (attempt %d): %v", attempt, err)
 					sc.mutex.RLock()
 					for profileName := range sc.subscribers {
-						log.NewScopedLogger("", "").With("action", "provider.reconnect", "component", "docker/shared").Error("stream error affects subscriber '%s'", profileName)
+						log.NewScopedLogger("", "").With("action", "provider.reconnect", "component", "docker/shared").Error("stream error affects subscriber '%s', retry in %v", profileName, backoff)
 					}
 					sc.mutex.RUnlock()
+				} else {
+					log.NewScopedLogger("", "").With("action", "provider.reconnect", "component", "docker/shared").Error("event stream closed (attempt %d), retry in %v", attempt, backoff)
 				}
-				return
+				reconnect = false
 
-			case event := <-eventChan:
+			case event, ok := <-eventChan:
+				if !ok {
+					log.NewScopedLogger("", "").With("action", "provider.reconnect", "component", "docker/shared").Error("event channel closed (attempt %d), retry in %v", attempt, backoff)
+					reconnect = false
+					continue
+				}
+				backoff = time.Second
 				sc.distributeEvent(event)
 			}
 		}
-	}()
 
-	return nil
+		select {
+		case <-sc.ctx.Done():
+			log.NewScopedLogger("", "").With("action", "provider.shutdown").Debug("event streaming stopped (context cancelled)")
+			return
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
 }
 
 func (sc *SharedConnection) distributeEvent(event events.Message) {
@@ -193,7 +252,7 @@ func (sc *SharedConnection) distributeEvent(event events.Message) {
 	containerName := event.Actor.Attributes["name"]
 	containerName = strings.TrimPrefix(containerName, "/")
 
-	log.NewScopedLogger("", "").With("action", "provider.event", "component", "docker/shared", "container", containerName, "id", event.Actor.ID[:12]).Verbose("event: '%s'", event.Action)
+	log.NewScopedLogger("", "").With("action", "provider.event", "component", "docker/shared", "container", containerName, "id", shortID(event.Actor.ID)).Verbose("event: '%s'", event.Action)
 
 	for _, provider := range subscribers {
 		go func(p *DockerProvider) {

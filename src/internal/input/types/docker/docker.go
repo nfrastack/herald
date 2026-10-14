@@ -713,6 +713,8 @@ func (p *DockerProvider) StartPolling() error {
 		go p.reconcileLoop()
 	}
 
+	go p.resyncLoop()
+
 	if p.config.ProcessExisting {
 		p.logger.With("action", "sync.start").Verbose("existing containers and services")
 		go p.processRunningContainers(context.Background())
@@ -727,6 +729,35 @@ func (p *DockerProvider) StartPolling() error {
 	return nil
 }
 
+func (p *DockerProvider) resyncInterval() time.Duration {
+	if v, ok := p.options["resync_interval"]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			if d, err := time.ParseDuration(s); err == nil && d > 0 {
+				return d
+			}
+		}
+	}
+	if _, explicit := p.options["interval"]; explicit && p.opts.Interval > 0 {
+		return p.opts.Interval
+	}
+	return 5 * time.Minute
+}
+
+func (p *DockerProvider) resyncLoop() {
+	interval := p.resyncInterval()
+	p.logger.With("action", "provider.poll").Debug("periodic output resync every %v", interval)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for p.running {
+		<-ticker.C
+		if !p.running {
+			return
+		}
+		p.logger.With("action", "provider.poll").Verbose("periodic output resync")
+		p.processRunningContainers(context.Background())
+	}
+}
+
 func (p *DockerProvider) reconcileLoop() {
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
@@ -737,6 +768,7 @@ func (p *DockerProvider) reconcileLoop() {
 }
 
 func (p *DockerProvider) reconcilePresence() {
+	p.logger.With("action", "sync.start").Verbose("presence reconcile (state only, no output writes)")
 	ctx := context.Background()
 	containers, err := p.client.ContainerList(ctx, dcontainer.ListOptions{})
 	if err != nil {
@@ -777,7 +809,7 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 	containerID := event.Actor.ID
 	containerName := event.Actor.Attributes["name"]
 	if containerName == "" {
-		containerName = containerID[:12]
+		containerName = shortID(containerID)
 	}
 
 	if strings.HasPrefix(containerName, "/") {
@@ -785,13 +817,13 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 	}
 
 	switch event.Action {
-	case "start", "unpause":
-		p.logger.With("action", "record.create", "container", containerName).With("id", event.Actor.ID[:12]).Info("started: %s (%s), processing DNS records for this container only", containerName, event.Actor.ID[:12])
+	case "create", "start", "restart", "unpause":
+		p.logger.With("action", "record.create", "container", containerName).With("id", shortID(event.Actor.ID)).Info("started: %s (%s), processing DNS records for this container only", containerName, shortID(event.Actor.ID))
 		p.processSpecificContainer(event.Actor.ID)
 	case "stop", "pause", "die", "kill", "destroy":
 		p.removalCacheMutex.Lock()
 		if lastRemoval, found := p.removalCache[containerID]; found && time.Since(lastRemoval) < 5*time.Second {
-			p.logger.With("action", "sync.skip", "container", containerName).With("id", event.Actor.ID[:12]).Trace("duplicate removal event for container %s (%s)", containerName, event.Actor.ID[:12])
+			p.logger.With("action", "sync.skip", "container", containerName).With("id", shortID(event.Actor.ID)).Trace("duplicate removal event for container %s (%s)", containerName, shortID(event.Actor.ID))
 			p.removalCacheMutex.Unlock()
 			return
 		}
@@ -800,21 +832,21 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 
 		if !p.recordRemoveOnStop {
 			if event.Action == "destroy" {
-				p.logger.With("action", "record.skip", "container", containerName).With("id", event.Actor.ID[:12]).Debug("destroyed: %s (%s) but record_remove_on_stop=false, skipping DNS removal", containerName, event.Actor.ID[:12])
+				p.logger.With("action", "record.skip", "container", containerName).With("id", shortID(event.Actor.ID)).Debug("destroyed: %s (%s) but record_remove_on_stop=false, skipping DNS removal", containerName, shortID(event.Actor.ID))
 			} else {
-				p.logger.With("action", "record.skip", "container", containerName).With("id", event.Actor.ID[:12]).Info("stopped: %s (%s) but record_remove_on_stop=false, skipping DNS removal", containerName, event.Actor.ID[:12])
+				p.logger.With("action", "record.skip", "container", containerName).With("id", shortID(event.Actor.ID)).Info("stopped: %s (%s) but record_remove_on_stop=false, skipping DNS removal", containerName, shortID(event.Actor.ID))
 			}
 			return
 		}
 
 		if event.Action == "destroy" {
-			p.logger.With("action", "record.delete", "container", containerName).With("id", event.Actor.ID[:12]).Debug("destroyed: %s (%s), removing DNS records", containerName, event.Actor.ID[:12])
+			p.logger.With("action", "record.delete", "container", containerName).With("id", shortID(event.Actor.ID)).Debug("destroyed: %s (%s), removing DNS records", containerName, shortID(event.Actor.ID))
 		} else {
-			p.logger.With("action", "record.delete", "container", containerName).With("id", event.Actor.ID[:12]).Info("stopped: %s (%s), removing DNS records for this container only", containerName, event.Actor.ID[:12])
+			p.logger.With("action", "record.delete", "container", containerName).With("id", shortID(event.Actor.ID)).Info("stopped: %s (%s), removing DNS records for this container only", containerName, shortID(event.Actor.ID))
 		}
 		p.removeContainerRecords(event.Actor.ID)
 	default:
-		p.logger.With("action", "sync.skip", "container", containerName).With("id", event.Actor.ID[:12]).Trace("event %s for container %s (%s)", event.Action, containerName, event.Actor.ID[:12])
+		p.logger.With("action", "sync.skip", "container", containerName).With("id", shortID(event.Actor.ID)).Trace("event %s for container %s (%s)", event.Action, containerName, shortID(event.Actor.ID))
 	}
 }
 
