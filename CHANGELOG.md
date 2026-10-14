@@ -5,6 +5,7 @@
     - (api) state tracking to assist in detecting stale records
     - (input/docker) add api_auth_user/api_auth_pass basic auth support
     - (input/docker) and api_header_* custom headers
+    - (input/docker) add resync_interval for periodic output resync
     - (input/tailscale) support additional_domains
     - (input/zerotier) support additional_domains
     - (output/dns/technitium) add provider
@@ -34,6 +35,8 @@
     - (api) gracefully stop server and flush states on shutdown
     - (api) scope client uploads to allowed domains
     - (api) scope clients to allowed hostnames
+    - (input/docker) reconnect event stream with backoff instead of dying on first error
+    - (input/docker) widen event filter to create/restart/unpause/pause/kill/destroy
     - (output/dns) rework provider format
     - (output/dns/cloudflare) refactor provider
     - (output/dns/powerdns) refactor provider
