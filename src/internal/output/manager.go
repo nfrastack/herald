@@ -66,6 +66,11 @@ func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, h
 }
 
 func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain, hostname, recordType, source string) error {
+	if DryRun() {
+		mgrLog.With("action", "dryrun.skip", "domain", domain, "source", source).Debug("removal skipped: %s %s", hostname, recordType)
+		return nil
+	}
+
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
 

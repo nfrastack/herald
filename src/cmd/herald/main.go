@@ -130,6 +130,10 @@ func main() {
 		cfg.General.LogLevel = os.Getenv("LOG_LEVEL")
 	}
 	cfg.General.DryRun = *dryRunFlag || strings.ToLower(os.Getenv("DRY_RUN")) == "true"
+	output.SetDryRun(cfg.General.DryRun)
+	if cfg.General.DryRun {
+		log.NewScopedLogger("", "").With("action", "config.load").Warn("dry-run enabled: all DNS, file and remote writes are skipped")
+	}
 
 	if val := os.Getenv("LOG_TIMESTAMPS"); val != "" {
 		valLower := strings.ToLower(val)

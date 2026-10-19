@@ -28,6 +28,21 @@ type GlobalConfigForOutput interface {
 
 var globalConfigGetter func() GlobalConfigForOutput
 
+var dryRun bool
+var dryRunMutex sync.RWMutex
+
+func SetDryRun(v bool) {
+	dryRunMutex.Lock()
+	defer dryRunMutex.Unlock()
+	dryRun = v
+}
+
+func DryRun() bool {
+	dryRunMutex.RLock()
+	defer dryRunMutex.RUnlock()
+	return dryRun
+}
+
 func SetGlobalConfigGetter(getter func() GlobalConfigForOutput) {
 	globalConfigGetter = getter
 }
@@ -40,6 +55,10 @@ func getGlobalConfigForOutput() GlobalConfigForOutput {
 }
 
 func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool) (bool, string) {
+	if DryRun() {
+		mgrLog.With("action", "dryrun.skip", "profile", profileName, "domain", domain).Debug("write skipped: %s %s -> %s", hostname, recordType, target)
+		return false, ""
+	}
 	if df, ok := profile.(*dns.DNSOutputFormat); ok {
 		if df.Provider == nil {
 			return false, fmt.Sprintf("profile '%s': dns provider not initialized", profileName)
@@ -323,6 +342,11 @@ func (om *OutputManager) WriteRecord(domain, hostname, target, recordType string
 }
 
 func (om *OutputManager) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
+	if DryRun() {
+		mgrLog.With("action", "dryrun.skip", "domain", domain).Debug("write skipped: %s %s -> %s", hostname, recordType, target)
+		return nil
+	}
+
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
 
@@ -345,6 +369,11 @@ func (om *OutputManager) WriteRecordWithSource(domain, hostname, target, recordT
 }
 
 func (om *OutputManager) RemoveRecord(domain, hostname, recordType string) error {
+	if DryRun() {
+		mgrLog.With("action", "dryrun.skip", "domain", domain).Debug("removal skipped: %s %s", hostname, recordType)
+		return nil
+	}
+
 	om.mutex.RLock()
 	defer om.mutex.RUnlock()
 
@@ -359,6 +388,11 @@ func (om *OutputManager) RemoveRecord(domain, hostname, recordType string) error
 }
 
 func (om *OutputManager) SyncAll() error {
+	if DryRun() {
+		mgrLog.With("action", "dryrun.skip").Debug("sync skipped")
+		return nil
+	}
+
 	om.syncMutex.Lock()
 	defer om.syncMutex.Unlock()
 
@@ -420,6 +454,11 @@ func (om *OutputManager) SyncAll() error {
 }
 
 func (om *OutputManager) SyncAllFromSource(source string) error {
+	if DryRun() {
+		mgrLog.With("action", "dryrun.skip", "source", source).Debug("sync skipped")
+		return nil
+	}
+
 	om.syncMutex.Lock()
 	defer om.syncMutex.Unlock()
 

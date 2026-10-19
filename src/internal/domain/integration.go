@@ -278,7 +278,9 @@ func IntegrateDomain(domainConfigKey string, domainConfig *DomainConfig) error {
 
 	if domainConfig.Provider != "" && domainConfig.Provider != "none" {
 		logger.With("action", "record.update").Info("%s DNS records via provider '%s'", logPrefix, domainConfig.Provider)
-		if dnsProvider, exists := GlobalDNSProviders[domainConfig.Provider]; exists {
+		if output.DryRun() {
+			logger.With("action", "dryrun.skip").Debug("%s apex record write skipped", logPrefix)
+		} else if dnsProvider, exists := GlobalDNSProviders[domainConfig.Provider]; exists {
 			record := domainConfig.Record
 			proxiedFlag := record.Proxied
 			if err := dnsProvider.CreateOrUpdateRecord(domainConfig.Name, record.Type, "@", record.Target, record.TTL, proxiedFlag, record.UpdateExisting); err != nil {
