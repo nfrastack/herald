@@ -10,6 +10,7 @@
     - (input/zerotier) support additional_domains
     - (output/dns) skip provider calls for identical records with optional reassert_interval
     - (output/dns/cloudflare) cache zone IDs, compare before update, quiet cross type conflicts
+    - (output/dns/cloudflare) add allow_replace during reconciliation
     - (output/dns/technitium) add provider
     - (output/dns/digitalocean) add provider
     - (output/dns/hetzner) add provider

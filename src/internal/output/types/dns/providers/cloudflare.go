@@ -63,6 +63,11 @@ func existingProxied(p *bool) bool {
 	return p != nil && *p
 }
 
+func (c *CloudflareProvider) allowReplace() bool {
+	v := strings.ToLower(strings.TrimSpace(c.Option("allow_replace", "false")))
+	return v == "true" || v == "1" || v == "yes"
+}
+
 func (c *CloudflareProvider) CreateOrUpdateRecord(domain, recordType, name, target string, ttl int, proxied bool, overwrite bool) error {
 	return c.CreateOrUpdateRecordWithSource(domain, recordType, name, target, ttl, proxied, "", "herald", overwrite)
 }
@@ -171,10 +176,14 @@ func (c *CloudflareProvider) resolveOccupantConflict(ctx context.Context, zoneID
 		c.Logger.With("action", "record.skip").Warn("%s held by %s %s -> %s, not overwriting", logPrefix, occupant.Type, fullName, occupant.Content)
 		return nil
 	}
+	if !c.allowReplace() {
+		c.Logger.With("action", "record.skip").Warn("%s held by %s %s -> %s, not replacing (allow_replace not enabled)", logPrefix, occupant.Type, fullName, occupant.Content)
+		return nil
+	}
 	if err := c.client.DeleteDNSRecord(ctx, rc, occupant.ID); err != nil {
 		return fmt.Errorf("failed to remove conflicting %s record %s: %v", occupant.Type, fullName, err)
 	}
-	c.Logger.With("action", "record.delete").Info("%s removed conflicting %s record to create %s", logPrefix, occupant.Type, recordType)
+	c.Logger.With("action", "record.delete").Warn("%s replacing conflicting %s record with %s (allow_replace enabled)", logPrefix, occupant.Type, recordType)
 	if _, cerr := c.client.CreateDNSRecord(ctx, rc, recordParams); cerr != nil {
 		return fmt.Errorf("failed to create DNS record after removing conflict %s: %v", fullName, cerr)
 	}
