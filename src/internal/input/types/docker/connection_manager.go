@@ -27,6 +27,8 @@ type SharedConnection struct {
 	cancel      context.CancelFunc
 	mutex       sync.RWMutex
 	logPrefix   string
+	lastEventMu sync.RWMutex
+	lastEventAt time.Time
 }
 
 type ConnectionManager struct {
@@ -166,6 +168,7 @@ func (sc *SharedConnection) StartEventStreaming() error {
 	}
 
 	sc.running = true
+	sc.noteEvent()
 
 	go sc.streamLoop()
 
@@ -223,6 +226,7 @@ func (sc *SharedConnection) streamLoop() {
 					continue
 				}
 				backoff = time.Second
+				sc.noteEvent()
 				sc.distributeEvent(event)
 			}
 		}
@@ -280,4 +284,19 @@ func (sc *SharedConnection) GetSubscriberCount() int {
 	sc.mutex.RLock()
 	defer sc.mutex.RUnlock()
 	return len(sc.subscribers)
+}
+
+func (sc *SharedConnection) noteEvent() {
+	sc.lastEventMu.Lock()
+	defer sc.lastEventMu.Unlock()
+	sc.lastEventAt = time.Now()
+}
+
+func (sc *SharedConnection) Silence() time.Duration {
+	sc.lastEventMu.RLock()
+	defer sc.lastEventMu.RUnlock()
+	if sc.lastEventAt.IsZero() {
+		return 0
+	}
+	return time.Since(sc.lastEventAt)
 }

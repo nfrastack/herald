@@ -82,6 +82,9 @@ type DockerProvider struct {
 	sharedConnection   *SharedConnection
 	removalCache       map[string]time.Time
 	removalCacheMutex  sync.Mutex
+	watchdogMu         sync.Mutex
+	lastProbe          time.Time
+	warnedSilence      bool
 	outputWriter       domain.OutputWriter // Injected dependency
 	outputSyncer       domain.OutputSyncer // Injected dependency
 }
@@ -713,7 +716,11 @@ func (p *DockerProvider) StartPolling() error {
 		go p.reconcileLoop()
 	}
 
-	go p.resyncLoop()
+	if _, ok := p.options["resync_interval"]; ok {
+		p.logger.With("action", "config.load").Warn("resync_interval is deprecated and ignored: blind output resync removed, silence watchdog probes only")
+	}
+
+	go p.watchdogLoop()
 
 	if p.config.ProcessExisting {
 		p.logger.With("action", "sync.start").Verbose("existing containers and services")
@@ -729,37 +736,63 @@ func (p *DockerProvider) StartPolling() error {
 	return nil
 }
 
-func (p *DockerProvider) resyncInterval() time.Duration {
-	if v, ok := p.options["resync_interval"]; ok {
-		if s, ok := v.(string); ok && s != "" {
-			if d, err := time.ParseDuration(s); err == nil && d > 0 {
-				return d
-			}
-		}
-	}
-	if _, explicit := p.options["interval"]; explicit && p.opts.Interval > 0 {
-		return p.opts.Interval
-	}
-	return 5 * time.Minute
-}
-
-func (p *DockerProvider) resyncLoop() {
-	interval := p.resyncInterval()
-	p.logger.With("action", "provider.poll").Debug("periodic output resync every %v", interval)
-	ticker := time.NewTicker(interval)
+func (p *DockerProvider) watchdogLoop() {
+	const silenceWarn = 5 * time.Minute
+	const silenceProbe = 10 * time.Minute
+	p.logger.With("action", "provider.poll").Debug("silence watchdog: warn after %v, probe after %v (probe only, no output writes)", silenceWarn, silenceProbe)
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for p.running {
 		<-ticker.C
 		if !p.running {
 			return
 		}
-		p.logger.With("action", "provider.poll").Verbose("periodic output resync")
-		p.processRunningContainers(context.Background())
+		if p.sharedConnection == nil {
+			continue
+		}
+		silence := p.sharedConnection.Silence()
+		if silence >= silenceProbe {
+			p.watchdogMu.Lock()
+			sinceProbe := time.Since(p.lastProbe)
+			firstProbe := p.lastProbe.IsZero()
+			p.watchdogMu.Unlock()
+			if firstProbe || sinceProbe >= silenceProbe {
+				p.healthProbe(silence)
+			}
+			continue
+		}
+		p.watchdogMu.Lock()
+		warned := p.warnedSilence
+		p.watchdogMu.Unlock()
+		if silence >= silenceWarn && !warned {
+			p.logger.With("action", "provider.poll").Verbose("no docker events for %v, socket probe in %v if silence continues", silence.Round(time.Second), (silenceProbe - silence).Round(time.Second))
+			p.watchdogMu.Lock()
+			p.warnedSilence = true
+			p.watchdogMu.Unlock()
+		} else if silence < silenceWarn && warned {
+			p.watchdogMu.Lock()
+			p.warnedSilence = false
+			p.watchdogMu.Unlock()
+		}
 	}
 }
 
+func (p *DockerProvider) healthProbe(silence time.Duration) {
+	p.watchdogMu.Lock()
+	p.lastProbe = time.Now()
+	p.warnedSilence = false
+	p.watchdogMu.Unlock()
+	containers, err := p.client.ContainerList(context.Background(), dcontainer.ListOptions{})
+	if err != nil {
+		p.logger.With("action", "sync.fail").Warn("socket health probe failed after %v silence: %v (stream reconnect owned by event loop)", silence.Round(time.Second), err)
+		return
+	}
+	p.logger.With("action", "provider.poll").Debug("socket health probe ok after %v silence (%d containers listed), refreshing presence only", silence.Round(time.Second), len(containers))
+	p.reconcilePresence()
+}
+
 func (p *DockerProvider) reconcileLoop() {
-	ticker := time.NewTicker(15 * time.Minute)
+	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 	for p.running {
 		<-ticker.C
