@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go"
@@ -18,6 +19,9 @@ import (
 type CloudflareProvider struct {
 	*BaseProvider
 	client *cloudflare.API
+
+	zoneMu  sync.Mutex
+	zoneIDs map[string]string
 }
 
 func NewCloudflareProviderWithProfile(profileName string, config map[string]string) (interface{}, error) {
@@ -36,6 +40,7 @@ func NewCloudflareProviderWithProfile(profileName string, config map[string]stri
 	provider := &CloudflareProvider{
 		BaseProvider: base,
 		client:       api,
+		zoneIDs:      make(map[string]string),
 	}
 
 	base.Logger.With("action", "provider.init").Debug("initialized (retries: %d, timeout: %v)", base.Retries, base.Timeout)
@@ -52,6 +57,10 @@ func init() {
 
 func (c *CloudflareProvider) SupportsProxied() bool {
 	return true
+}
+
+func existingProxied(p *bool) bool {
+	return p != nil && *p
 }
 
 func (c *CloudflareProvider) CreateOrUpdateRecord(domain, recordType, name, target string, ttl int, proxied bool, overwrite bool) error {
@@ -80,8 +89,12 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 	}
 
 	if existingRecord != nil {
-		c.Logger.With("action", "record.update").Info("%s updating: id=%s", logPrefix, existingRecord.ID)
 		c.Logger.With("action", "record.sync").Trace("%s details: id=%s type=%s name=%s content=%s ttl=%d proxied=%v", logPrefix, existingRecord.ID, existingRecord.Type, existingRecord.Name, existingRecord.Content, existingRecord.TTL, existingRecord.Proxied)
+		if existingRecord.Content == target && existingRecord.TTL == ttl && existingProxied(existingRecord.Proxied) == proxied {
+			c.Logger.With("action", "record.skip").Debug("%s already matches, skipping update", logPrefix)
+			return nil
+		}
+		c.Logger.With("action", "record.update").Info("%s updating: id=%s", logPrefix, existingRecord.ID)
 		updateParams := cloudflare.UpdateDNSRecordParams{
 			Type:    recordType,
 			Name:    fullName,
@@ -120,6 +133,10 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 			return nil
 		}
 
+		if isOccupantConflict(cerrStr) {
+			return c.resolveOccupantConflict(ctx, zoneID, fullName, domain, recordType, target, ttl, proxied, overwrite, recordParams, rc)
+		}
+
 		c.Logger.With("action", "record.create").Error("%s (attempt %d/%d): %v", logPrefix, i, attempts, cerr)
 		if i < attempts {
 			c.Sleep(i, 500*time.Millisecond)
@@ -127,6 +144,42 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 	}
 
 	return fmt.Errorf("failed to create DNS record after %d attempts: %s", attempts, fullName)
+}
+
+func isOccupantConflict(cerrStr string) bool {
+	lower := strings.ToLower(cerrStr)
+	return strings.Contains(lower, "already exists") || strings.Contains(cerrStr, "81054")
+}
+
+func (c *CloudflareProvider) resolveOccupantConflict(ctx context.Context, zoneID, fullName, domain, recordType, target string, ttl int, proxied bool, overwrite bool, recordParams cloudflare.CreateDNSRecordParams, rc *cloudflare.ResourceContainer) error {
+	logPrefix := getDomainLogPrefix(c.ProfileName, domain)
+	occupants, _, err := c.client.ListDNSRecords(ctx, rc, cloudflare.ListDNSRecordsParams{Name: fullName})
+	if err != nil {
+		return fmt.Errorf("failed to create DNS record %s (occupant lookup failed): %v", fullName, err)
+	}
+	var occupant *cloudflare.DNSRecord
+	for i, r := range occupants {
+		if r.Name == fullName && r.Type != recordType {
+			occupant = &occupants[i]
+			break
+		}
+	}
+	if occupant == nil {
+		return fmt.Errorf("failed to create DNS record %s: conflicting record exists", fullName)
+	}
+	if !overwrite {
+		c.Logger.With("action", "record.skip").Warn("%s held by %s %s -> %s, not overwriting", logPrefix, occupant.Type, fullName, occupant.Content)
+		return nil
+	}
+	if err := c.client.DeleteDNSRecord(ctx, rc, occupant.ID); err != nil {
+		return fmt.Errorf("failed to remove conflicting %s record %s: %v", occupant.Type, fullName, err)
+	}
+	c.Logger.With("action", "record.delete").Info("%s removed conflicting %s record to create %s", logPrefix, occupant.Type, recordType)
+	if _, cerr := c.client.CreateDNSRecord(ctx, rc, recordParams); cerr != nil {
+		return fmt.Errorf("failed to create DNS record after removing conflict %s: %v", fullName, cerr)
+	}
+	c.Logger.With("action", "record.create").Info("%s: %s %s -> %s", logPrefix, fullName, recordType, target)
+	return nil
 }
 
 func (c *CloudflareProvider) checkExistingRecord(ctx context.Context, zoneID, name, recordType string) (*cloudflare.DNSRecord, error) {
@@ -267,6 +320,13 @@ func (c *CloudflareProvider) DeleteRecord(domain, recordType, name string) error
 }
 
 func (c *CloudflareProvider) getZoneID(ctx context.Context, domain string) (string, error) {
+	c.zoneMu.Lock()
+	if id, ok := c.zoneIDs[domain]; ok {
+		c.zoneMu.Unlock()
+		return id, nil
+	}
+	c.zoneMu.Unlock()
+
 	zones, err := c.client.ListZones(ctx, domain)
 	if err != nil {
 		return "", fmt.Errorf("failed to list zones: %v", err)
@@ -275,6 +335,10 @@ func (c *CloudflareProvider) getZoneID(ctx context.Context, domain string) (stri
 	if len(zones) == 0 {
 		return "", fmt.Errorf("no zone found for domain: %s", domain)
 	}
+
+	c.zoneMu.Lock()
+	c.zoneIDs[domain] = zones[0].ID
+	c.zoneMu.Unlock()
 
 	return zones[0].ID, nil
 }

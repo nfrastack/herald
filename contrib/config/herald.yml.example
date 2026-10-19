@@ -147,6 +147,7 @@ outputs:
     provider: cloudflare
     # api_token: env://CLOUDFLARE_API_TOKEN
     api_token: "your_cloudflare_api_token"
+    # reassert_interval: 24h
     log_level: info
 
   # External hook for anything without a native provider

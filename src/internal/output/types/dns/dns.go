@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Provider interface {
@@ -117,10 +118,95 @@ func processConfigValue(value string) string {
 	return value
 }
 
+type writtenState struct {
+	target  string
+	ttl     int
+	proxied bool
+	touched time.Time
+}
+
 type DNSOutputFormat struct {
 	ProfileName string
 	Provider    Provider
 	Config      map[string]interface{}
+
+	mu               sync.Mutex
+	lastWritten      map[string]writtenState
+	reassertInterval time.Duration
+	reassertParsed   bool
+}
+
+func dnsCacheKey(domain, hostname, recordType string) string {
+	return domain + "\x00" + hostname + "\x00" + recordType
+}
+
+func (d *DNSOutputFormat) shouldWrite(domain, hostname, target, recordType string, ttl int, proxied bool) bool {
+	key := dnsCacheKey(domain, hostname, recordType)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.lastWritten == nil {
+		d.lastWritten = make(map[string]writtenState)
+	}
+	if !d.reassertParsed {
+		d.reassertParsed = true
+		d.reassertInterval = parseReassertInterval(d.Config["reassert_interval"])
+	}
+	if prev, ok := d.lastWritten[key]; ok && prev.target == target && prev.ttl == ttl && prev.proxied == proxied {
+		if d.reassertInterval > 0 && time.Since(prev.touched) >= d.reassertInterval {
+			return true
+		}
+		return false
+	}
+	return true
+}
+func parseReassertInterval(v interface{}) time.Duration {
+	switch t := v.(type) {
+	case nil:
+		return 0
+	case string:
+		if s := strings.TrimSpace(t); s != "" {
+			if s == "0" || strings.ToLower(s) == "off" || strings.ToLower(s) == "never" {
+				return 0
+			}
+			if d, err := time.ParseDuration(s); err == nil && d > 0 {
+				return d
+			}
+		}
+		return 0
+	case int:
+		if t > 0 {
+			return time.Duration(t) * time.Second
+		}
+		return 0
+	case int64:
+		if t > 0 {
+			return time.Duration(t) * time.Second
+		}
+		return 0
+	case float64:
+		if t > 0 {
+			return time.Duration(t * float64(time.Second))
+		}
+		return 0
+	default:
+		return 0
+	}
+}
+
+func (d *DNSOutputFormat) noteWritten(domain, hostname, target, recordType string, ttl int, proxied bool) {
+	key := dnsCacheKey(domain, hostname, recordType)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.lastWritten == nil {
+		d.lastWritten = make(map[string]writtenState)
+	}
+	d.lastWritten[key] = writtenState{target: target, ttl: ttl, proxied: proxied, touched: time.Now()}
+}
+
+func (d *DNSOutputFormat) forget(domain, hostname, recordType string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.lastWritten, dnsCacheKey(domain, hostname, recordType))
 }
 
 func (d *DNSOutputFormat) GetName() string {
@@ -138,7 +224,14 @@ func (d *DNSOutputFormat) WriteRecord(domain, hostname, target, recordType strin
 			}
 		}
 	}
-	return d.Provider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, proxied, false)
+	if !d.shouldWrite(domain, hostname, target, recordType, ttl, proxied) {
+		return nil
+	}
+	if err := d.Provider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, proxied, false); err != nil {
+		return err
+	}
+	d.noteWritten(domain, hostname, target, recordType, ttl, proxied)
+	return nil
 }
 
 func (d *DNSOutputFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
@@ -152,10 +245,18 @@ func (d *DNSOutputFormat) WriteRecordWithSource(domain, hostname, target, record
 			}
 		}
 	}
-	return d.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, proxied, "", source, false)
+	if !d.shouldWrite(domain, hostname, target, recordType, ttl, proxied) {
+		return nil
+	}
+	if err := d.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, proxied, "", source, false); err != nil {
+		return err
+	}
+	d.noteWritten(domain, hostname, target, recordType, ttl, proxied)
+	return nil
 }
 
 func (d *DNSOutputFormat) RemoveRecord(domain, hostname, recordType string) error {
+	d.forget(domain, hostname, recordType)
 	return d.Provider.DeleteRecord(domain, recordType, hostname)
 }
 

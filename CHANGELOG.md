@@ -8,6 +8,8 @@
     - (input/docker) add resync_interval for periodic output resync
     - (input/tailscale) support additional_domains
     - (input/zerotier) support additional_domains
+    - (output/dns) skip provider calls for identical records with optional reassert_interval
+    - (output/dns/cloudflare) cache zone IDs, compare before update, quiet cross type conflicts
     - (output/dns/technitium) add provider
     - (output/dns/digitalocean) add provider
     - (output/dns/hetzner) add provider

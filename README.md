@@ -1183,6 +1183,9 @@ Shared options for every DNS provider:
 - `log_level` (string): Per-profile log level override.
 - `api_host` / `endpoint`: Override the API base URL where the provider supports it.
 - `options` (object): Provider-specific extra options, passed through as `options.<key>`.
+- `reassert_interval` (duration): re-assert identical records after this interval to resolve drift.
+                                  Accepts `24h`, `30m`, etc -  `0`/`off`/`never` disables.
+                                  Default off. identical target/TTL/proxied writes skip the provider call entirely.
 
 | Provider       | Credential options                   | Notes                                      |
 | -------------- | ------------------------------------ | ------------------------------------------ |
