@@ -49,7 +49,7 @@ nfrastack <code@nfrastack.com>
 
 ### From Source
 
-Clone this repository and compile with [GoLang 1.25 or later](https://golang.org):
+Clone this repository and compile with [GoLang 1.26 or later](https://golang.org):
 
 ```bash
 make build
