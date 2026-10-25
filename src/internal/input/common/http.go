@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/nfrastack/herald/internal/util"
 )
 
 func FetchRemoteResourceWithTLSConfig(url, user, pass string, headers map[string]string, tlsConfig *TLSConfig, logPrefix string) ([]byte, error) {
@@ -27,6 +29,10 @@ func FetchRemoteResourceWithTLSConfig(url, user, pass string, headers map[string
 
 	for key, value := range headers {
 		req.Header.Set(key, value)
+	}
+
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", util.UserAgent())
 	}
 
 	resp, err := httpClient.Do(req)

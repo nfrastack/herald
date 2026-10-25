@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -39,6 +40,36 @@ var (
 
 	_ = providers.PowerDNSProviderName
 )
+
+func resolveDevVersion() {
+	if Version != "development" {
+		return
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	var rev string
+	dirty := false
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if rev == "" {
+		return
+	}
+	if len(rev) > 7 {
+		rev = rev[:7]
+	}
+	Version = "dev-" + rev
+	if dirty {
+		Version += "-dirty"
+	}
+}
 
 func versionString(showBuild bool) string {
 	if showBuild {
@@ -80,6 +111,8 @@ func main() {
 
 	log.Initialize("info", defaultLogTimestamps, "")
 
+	resolveDevVersion()
+
 	if *showVersion {
 		fmt.Println(versionString(true))
 		os.Exit(0)
@@ -96,6 +129,8 @@ func main() {
 		fmt.Println("o888o o888o o888o   d888b    `Y888\"\"8o 8\"\"888P'   \"888\" `Y888\"\"8o `Y8bod8P' o888o o888o")
 		fmt.Println()
 	}
+
+	util.Version = Version
 
 	fmt.Printf("Starting Herald version: %s \n", versionString(false))
 	fmt.Printf("© 2026 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
