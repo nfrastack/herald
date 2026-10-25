@@ -5,9 +5,13 @@
   outputs = { self, nixpkgs }:
     let
       version = "3.0.0beta";
-      expectedGoVersion = "1.26.10";
 
-      goOverrideVersion = "1.26.10";
+      goVersion = "1.26.10";
+
+      goMajorMinor = nixpkgs.lib.versions.majorMinor goVersion;
+      goAttr = "go_${nixpkgs.lib.replaceStrings ["."] ["_"] goMajorMinor}";
+      goBuilder = "buildGo${nixpkgs.lib.replaceStrings ["."] [""] goMajorMinor}Module";
+
       goOverrideHash = "sha256-/WPog7ovK/ypPBZGsx6+9j4rHk0rMXyXidl2po2B828=";
 
       supportedSystems = [
@@ -19,15 +23,23 @@
       nixpkgsFor = forAllSystems (system: import nixpkgs {
         inherit system;
         overlays = [
-          (final: prev: {
-            go = prev.go_1_26.overrideAttrs (old: {
-              version = goOverrideVersion;
-              src = final.fetchurl {
-                url = "https://go.dev/dl/go${goOverrideVersion}.src.tar.gz";
-                hash = goOverrideHash;
-              };
-            });
-          })
+          (final: prev:
+            let stock = prev.${goAttr}; in
+            {
+              ${goAttr} =
+                if nixpkgs.lib.versionOlder stock.version goVersion then
+                  stock.overrideAttrs (old: {
+                    version = goVersion;
+                    src = final.fetchurl {
+                      url = "https://go.dev/dl/go${goVersion}.src.tar.gz";
+                      hash = goOverrideHash;
+                    };
+                  })
+                else
+                  stock;
+              go = final.${goAttr};
+              buildGoModule = prev.${goBuilder};
+            })
         ];
       });
     in {
@@ -43,16 +55,14 @@
             else if self ? shortRev && self.shortRev != null then self.shortRev
             else "unknown";
         in assert nixpkgs.lib.assertMsg
-          (nixpkgs.lib.versions.majorMinor pkgs.go.version == nixpkgs.lib.versions.majorMinor expectedGoVersion)
-          "Go toolchain mismatch: nixpkgs provides ${pkgs.go.version}, expected ${expectedGoVersion}.x";
+          (!(nixpkgs.lib.versionOlder (pkgs.${goAttr}.version or "0") goVersion))
+          "Go toolchain too old: ${goAttr} provides ${pkgs.${goAttr}.version or "missing"}, herald needs >= ${goVersion}";
         {
           herald = pkgs.buildGoModule {
             pname = "herald";
             version = "${version}";
             src = self;
             modRoot = "src";
-
-            go = pkgs.go;
 
             meta = {
               description = "Herald - Dynamic DNS record management for modern infrastructure. Supports Docker, Traefik, File, Remote, Tailscale, and ZeroTier/ZT-Net poll providers.";
