@@ -9,7 +9,7 @@ import (
 	"github.com/nfrastack/herald/internal/domain"
 	"github.com/nfrastack/herald/internal/input/common"
 	"github.com/nfrastack/herald/internal/log" // Re-import the log package
-	heraldstate "github.com/nfrastack/herald/internal/state"
+	state "github.com/nfrastack/herald/internal/state"
 
 	"context"
 	"encoding/base64"
@@ -712,7 +712,7 @@ func (p *DockerProvider) StartPolling() error {
 
 	p.running = true
 
-	if heraldstate.Default != nil {
+	if state.Default != nil {
 		go p.reconcileLoop()
 	}
 
@@ -829,7 +829,7 @@ func (p *DockerProvider) reconcilePresence() {
 			if host == "" {
 				host = "@"
 			}
-			heraldstate.Touch(domainCfg.Name, host, entry.RecordType, entry.Target, p.profileName, "")
+			state.Touch(domainCfg.Name, host, entry.RecordType, entry.Target, p.profileName, "")
 		}
 	}
 }
@@ -1147,7 +1147,7 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 		realDomain := domainCfg.Name
 		p.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider (configKey='%s')", realDomain, domainKey)
 
-		state := domain.RouterState{
+		routerState := domain.RouterState{
 			SourceType: p.profileName, // Use the unique profile name for change tracking
 			Name:       p.profileName,
 			Service:    entry.Target,
@@ -1168,16 +1168,16 @@ func (p *DockerProvider) processDNSEntries(entries []DNSEntry, remove bool) erro
 			trackedHost = "@"
 		}
 		if remove {
-			p.logger.With("action", "record.delete").Trace("ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v, outputWriter)", realDomain, fqdnForBatch, state)
-			err = batchProcessor.ProcessRecordRemoval(realDomain, fqdnForBatch, state)
+			p.logger.With("action", "record.delete").Trace("ProcessRecordRemoval(domain='%s', fqdn='%s', state=%+v, outputWriter)", realDomain, fqdnForBatch, routerState)
+			err = batchProcessor.ProcessRecordRemoval(realDomain, fqdnForBatch, routerState)
 			if err == nil {
-				heraldstate.Remove(realDomain, trackedHost, entry.RecordType)
+				state.Remove(realDomain, trackedHost, entry.RecordType)
 			}
 		} else {
-			p.logger.With("action", "record.sync").Trace("ProcessRecord(domain='%s', fqdn='%s', state=%+v, outputWriter)", realDomain, fqdnForBatch, state)
-			err = batchProcessor.ProcessRecord(realDomain, fqdnForBatch, state)
+			p.logger.With("action", "record.sync").Trace("ProcessRecord(domain='%s', fqdn='%s', state=%+v, outputWriter)", realDomain, fqdnForBatch, routerState)
+			err = batchProcessor.ProcessRecord(realDomain, fqdnForBatch, routerState)
 			if err == nil {
-				heraldstate.Touch(realDomain, trackedHost, entry.RecordType, entry.Target, p.profileName, "")
+				state.Touch(realDomain, trackedHost, entry.RecordType, entry.Target, p.profileName, "")
 			}
 		}
 

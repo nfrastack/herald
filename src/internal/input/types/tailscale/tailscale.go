@@ -9,7 +9,7 @@ import (
 	"github.com/nfrastack/herald/internal/domain"
 	"github.com/nfrastack/herald/internal/input/common"
 	"github.com/nfrastack/herald/internal/log"
-	heraldstate "github.com/nfrastack/herald/internal/state"
+	state "github.com/nfrastack/herald/internal/state"
 
 	"context"
 	"encoding/json"
@@ -931,7 +931,7 @@ func (p *TailscaleProvider) processDevices() {
 				p.logger.With("action", "domain.route").Trace("real domain name '%s' for DNS provider", realDomain)
 
 				if changed {
-					state := domain.RouterState{
+					routerState := domain.RouterState{
 						SourceType:           "tailscale",
 						Name:                 p.profileName,
 						Service:              cleanIP,
@@ -939,15 +939,15 @@ func (p *TailscaleProvider) processDevices() {
 						ForceServiceAsTarget: true, // VPN providers always use Service IP as target
 					}
 
-					p.logger.With("action", "record.create").Trace("processRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdn, state)
-					err := batchProcessor.ProcessRecord(realDomain, fqdn, state)
+					p.logger.With("action", "record.create").Trace("processRecord(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdn, routerState)
+					err := batchProcessor.ProcessRecord(realDomain, fqdn, routerState)
 					if err != nil {
 						p.logger.With("action", "record.reject", "device", fqdn).Error("ensure DNS: %v", err)
 					}
 				} else {
 					p.logger.With("action", "record.skip").Trace("unchanged: %s (%s) -> %s", fqdn, recordType, cleanIP)
 				}
-				heraldstate.Touch(realDomain, hostname, recordType, cleanIP, p.profileName, "")
+				state.Touch(realDomain, hostname, recordType, cleanIP, p.profileName, "")
 			}
 		}
 	}
@@ -976,7 +976,7 @@ func (p *TailscaleProvider) processDevices() {
 					p.logger.With("action", "domain.route").Trace("real domain name '%s' for DNS provider (removal)", realDomain)
 
 					p.logMemberRemoved(fqdn) // This log is fine
-					state := domain.RouterState{
+					routerState := domain.RouterState{
 						SourceType:           "tailscale",
 						Name:                 p.profileName,
 						Service:              oldTarget,
@@ -984,12 +984,12 @@ func (p *TailscaleProvider) processDevices() {
 						ForceServiceAsTarget: true, // VPN providers always use Service IP as target
 					}
 
-					p.logger.With("action", "record.delete").Trace("processRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdn, state)
-					err := batchProcessor.ProcessRecordRemoval(realDomain, fqdn, state)
+					p.logger.With("action", "record.delete").Trace("processRecordRemoval(domain='%s', fqdn='%s', state=%+v)", realDomain, fqdn, routerState)
+					err := batchProcessor.ProcessRecordRemoval(realDomain, fqdn, routerState)
 					if err != nil {
 						p.logger.With("action", "record.reject", "device", fqdn).Error("remove DNS: %v", err)
 					} else {
-						heraldstate.Remove(realDomain, hostname, recordType)
+						state.Remove(realDomain, hostname, recordType)
 					}
 				}
 			}

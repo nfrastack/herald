@@ -9,7 +9,7 @@ import (
 	"github.com/nfrastack/herald/internal/domain"
 	"github.com/nfrastack/herald/internal/input/common"
 	"github.com/nfrastack/herald/internal/log"
-	heraldstate "github.com/nfrastack/herald/internal/state"
+	state "github.com/nfrastack/herald/internal/state"
 
 	"context"
 	"encoding/json"
@@ -343,7 +343,7 @@ func shortHostname(entry DNSEntry, primaryDomain string) string {
 
 func (p *ZerotierProvider) publishEntry(batchProcessor *domain.BatchProcessor, entry DNSEntry, remove bool) {
 	hostname := shortHostname(entry, p.domain)
-	state := domain.RouterState{
+	routerState := domain.RouterState{
 		SourceType:           p.profileName, // Use the provider/profile name as source
 		Name:                 p.profileName,
 		Service:              entry.Target,
@@ -358,18 +358,18 @@ func (p *ZerotierProvider) publishEntry(batchProcessor *domain.BatchProcessor, e
 			fqdnNoDot = realDomain
 		}
 		if remove {
-			p.logger.With("action", "record.delete", "domain", realDomain, "fqdn", fqdnNoDot).Trace("processRecordRemoval: %+v", state)
-			if err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state); err != nil {
+			p.logger.With("action", "record.delete", "domain", realDomain, "fqdn", fqdnNoDot).Trace("processRecordRemoval: %+v", routerState)
+			if err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, routerState); err != nil {
 				p.logger.With("action", "record.reject").Error("remove DNS for '%s': %v", fqdnNoDot, err)
 			} else {
-				heraldstate.Remove(realDomain, hostname, entry.RecordType)
+				state.Remove(realDomain, hostname, entry.RecordType)
 			}
 		} else {
-			p.logger.With("action", "record.create", "domain", realDomain, "fqdn", fqdnNoDot).Trace("processRecord: %+v", state)
-			if err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state); err != nil {
+			state.Touch(realDomain, hostname, entry.RecordType, entry.Target, p.profileName, "")
+			p.logger.With("action", "record.create", "domain", realDomain, "fqdn", fqdnNoDot).Trace("processRecord: %+v", routerState)
+			if err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, routerState); err != nil {
 				p.logger.With("action", "record.reject").Error("ensure DNS for '%s': %v", fqdnNoDot, err)
 			}
-			heraldstate.Touch(realDomain, hostname, entry.RecordType, entry.Target, p.profileName, "")
 		}
 	}
 }
@@ -402,7 +402,7 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 				hostname := shortHostname(entry, p.domain)
 				for _, targetDomain := range p.targetDomains() {
 					realDomain := p.resolveRealDomain(targetDomain)
-					heraldstate.Touch(realDomain, hostname, entry.RecordType, entry.Target, p.profileName, "")
+					state.Touch(realDomain, hostname, entry.RecordType, entry.Target, p.profileName, "")
 				}
 			}
 		}

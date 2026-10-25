@@ -8,7 +8,6 @@ import (
 	"github.com/nfrastack/herald/internal/log"
 	"github.com/nfrastack/herald/internal/output/common"
 
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -63,11 +62,7 @@ func (y *YAMLFormat) serializeYAML(domain string, export *common.ExportData) ([]
 	export.Metadata.LastUpdated = time.Now().UTC()
 	for _, d := range export.Domains {
 		for _, r := range d.Records {
-			if !r.CreatedAt.IsZero() {
-				r.Comment = fmt.Sprintf("created_at: %s input: %s", r.CreatedAt.Format(time.RFC3339), r.Source)
-			} else {
-				r.Comment = fmt.Sprintf("input: %s", r.Source)
-			}
+			r.Comment = common.RecordComment(r.CreatedAt, r.UpdatedAt, r.Source)
 		}
 	}
 

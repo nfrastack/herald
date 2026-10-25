@@ -8,6 +8,7 @@ import (
 	"github.com/nfrastack/herald/internal/config"
 	"github.com/nfrastack/herald/internal/log"
 	"github.com/nfrastack/herald/internal/output"
+	"github.com/nfrastack/herald/internal/output/types/common"
 	"github.com/nfrastack/herald/internal/state"
 	"github.com/nfrastack/herald/internal/util"
 
@@ -112,13 +113,14 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 	aggLog.With("action", "sync.start").Debug("data from %d active clients", len(s.clients))
 
 	type snapshotRecord struct {
-		domain   string
-		hostname string
-		target   string
-		rtype    string
-		ttl      int
-		source   string
-		clientID string
+		domain    string
+		hostname  string
+		target    string
+		rtype     string
+		ttl       int
+		source    string
+		clientID  string
+		createdAt time.Time
 	}
 	snapshotsByProfile := make(map[string][]snapshotRecord)
 	skippedByClient := make(map[string]map[string]int) // client -> domain -> count
@@ -155,13 +157,14 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 					continue
 				}
 				snapshotsByProfile[outputProfile] = append(snapshotsByProfile[outputProfile], snapshotRecord{
-					domain:   domainName,
-					hostname: record.Hostname,
-					target:   record.Target,
-					rtype:    record.Type,
-					ttl:      int(record.TTL),
-					source:   record.Source,
-					clientID: clientID,
+					domain:    domainName,
+					hostname:  record.Hostname,
+					target:    record.Target,
+					rtype:     record.Type,
+					ttl:       int(record.TTL),
+					source:    record.Source,
+					clientID:  clientID,
+					createdAt: record.CreatedAt,
 				})
 			}
 		}
@@ -254,7 +257,12 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 					source = record.clientID
 				}
 			}
-			err := profile.WriteRecordWithSource(domainName, record.hostname, record.target, record.rtype, record.ttl, source)
+			var err error
+			if w, ok := profile.(common.TimestampedWriter); ok {
+				err = w.WriteRecordWithSourceAt(domainName, record.hostname, record.target, record.rtype, record.ttl, source, record.createdAt, time.Time{})
+			} else {
+				err = profile.WriteRecordWithSource(domainName, record.hostname, record.target, record.rtype, record.ttl, source)
+			}
 			if err != nil {
 				writeErrors = append(writeErrors, fmt.Sprintf("add %s.%s: %v", record.hostname, domainName, err))
 				s.logger.With("action", "record.create", "conn", connID, "client", record.clientID).Error("record %s.%s to profile '%s': %v", record.hostname, domainName, outputProfile, err)

@@ -438,15 +438,7 @@ func (z *ZoneFormat) loadManagedRecordsFromFile(domain, filePath string) error {
 			rec.Source = source
 		}
 
-		if idx := strings.Index(line, "; created_at: "); idx != -1 {
-			created := strings.TrimSpace(line[idx+13:])
-			if i := strings.Index(created, " "); i != -1 {
-				created = created[:i]
-			}
-			if t, err := time.Parse(time.RFC3339, created); err == nil {
-				rec.CreatedAt = t
-			}
-		}
+		rec.CreatedAt, rec.UpdatedAt = common.ParseRecordComment(line)
 		records = append(records, rec)
 	}
 	if err := scanner.Err(); err != nil {
@@ -460,7 +452,7 @@ func (z *ZoneFormat) loadManagedRecordsFromFile(domain, filePath string) error {
 
 	for _, rec := range records {
 		if rec.Hostname != "" && rec.Type != "" && rec.Target != "" {
-			err := z.CommonFormat.WriteRecordWithSource(domain, rec.Hostname, rec.Target, rec.Type, int(rec.TTL), rec.Source)
+			err := z.CommonFormat.WriteRecordWithSourceAt(domain, rec.Hostname, rec.Target, rec.Type, int(rec.TTL), rec.Source, rec.CreatedAt, rec.UpdatedAt)
 			if err != nil {
 				z.GetLogger().With("action", "state.load").Warn("loaded record %s.%s (%s) merge failed: %v", rec.Hostname, domain, rec.Type, err)
 			}
@@ -658,13 +650,7 @@ func formatManagedRecord(record *common.BaseRecord) string {
 	if hostname == "" || hostname == "@" {
 		hostname = "@"
 	}
-	comment := ""
-	if !record.CreatedAt.IsZero() {
-		comment = fmt.Sprintf("; created_at: %s input: %s",
-			record.CreatedAt.Format(time.RFC3339), record.Source)
-	} else {
-		comment = fmt.Sprintf("; input: %s", record.Source)
-	}
+	comment := "; " + common.RecordComment(record.CreatedAt, record.UpdatedAt, record.Source)
 	return fmt.Sprintf("%-20s %-6d %-4s %-5s %-15s %s",
 		hostname, record.TTL, "IN", record.Type, record.Target, comment)
 }
@@ -772,6 +758,10 @@ func enforceCNAMEExclusivity(z *ZoneFormat, domain string, records []*common.Bas
 }
 
 func (z *ZoneFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
+	origDomain := z.CommonFormat.GetDomain()
+	z.CommonFormat.SetDomain(domain)
+	defer z.CommonFormat.SetDomain(origDomain)
+
 	z.GetLogger().With("action", "record.create").Debug("domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", domain, hostname, target, recordType, ttl, source)
 	defer func() {
 		z.GetLogger().With("action", "record.create").Debug("domain=%s, hostname=%s, type=%s", domain, hostname, recordType)
@@ -896,12 +886,15 @@ func (z *ZoneFormat) parseRecordLine(line, domain string) *common.BaseRecord {
 		}
 	}
 
+	createdAt, updatedAt := common.ParseRecordComment(line)
+
 	return &common.BaseRecord{
 		Hostname:  hostname,
 		Type:      recordType,
 		Target:    target,
 		TTL:       uint32(ttl),
 		Source:    source,
-		CreatedAt: time.Now(), // Set current time for parsed records
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
 	}
 }

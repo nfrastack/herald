@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	state "github.com/nfrastack/herald/internal/state"
 )
 
 type Provider interface {
@@ -248,7 +250,8 @@ func (d *DNSOutputFormat) WriteRecordWithSource(domain, hostname, target, record
 	if !d.shouldWrite(domain, hostname, target, recordType, ttl, proxied) {
 		return nil
 	}
-	if err := d.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, proxied, "", source, false); err != nil {
+	comment := state.CommentFor(domain, hostname, recordType, source)
+	if err := d.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, proxied, comment, source, false); err != nil {
 		return err
 	}
 	d.noteWritten(domain, hostname, target, recordType, ttl, proxied)

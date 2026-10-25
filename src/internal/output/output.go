@@ -9,6 +9,7 @@ import (
 	"github.com/nfrastack/herald/internal/output/types/common"
 	"github.com/nfrastack/herald/internal/output/types/dns"
 	fileoutput "github.com/nfrastack/herald/internal/output/types/file"
+	state "github.com/nfrastack/herald/internal/state"
 
 	"fmt"
 	"strconv"
@@ -67,7 +68,13 @@ func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat
 		if proxied && df.Provider.SupportsProxied() {
 			applyProxied = true
 		}
-		if err := df.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, applyProxied, "", source, overwrite); err != nil {
+		// Stable first-seen/last-modified comment from presence tracking.
+		// Callers Touch state before writing, so FirstSeen is preserved
+		// across polls and LastModified only moves when the target
+		// changes - the comment is byte-identical while the record is
+		// unchanged, letting providers skip the update entirely.
+		comment := state.CommentFor(domain, hostname, recordType, source)
+		if err := df.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, applyProxied, comment, source, overwrite); err != nil {
 			return false, fmt.Sprintf("profile '%s': %v", profileName, err)
 		}
 		mgrLog.With("action", "record.create", "profile", profileName).Debug("record to DNS profile (proxied=%t)", applyProxied)

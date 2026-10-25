@@ -43,6 +43,7 @@ type HostsRecord struct {
 	TTL       uint32
 	Source    string
 	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 var hostsReentrancyGuard sync.Map
@@ -163,17 +164,25 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 	key := fmt.Sprintf("%s:%s", hostname, recordType)
 	existingRecord := h.records[key]
 	if existingRecord != nil {
-		existingRecord.Target = target
+		if existingRecord.Target != target {
+			existingRecord.Target = target
+			existingRecord.UpdatedAt = time.Now().UTC()
+		}
+		if existingRecord.UpdatedAt.IsZero() {
+			existingRecord.UpdatedAt = existingRecord.CreatedAt
+		}
 		existingRecord.TTL = uint32(ttl)
 		existingRecord.Source = source
 	} else {
+		now := time.Now().UTC()
 		h.records[key] = &HostsRecord{
 			Hostname:  hostname,
 			Type:      recordType,
 			Target:    target,
 			TTL:       uint32(ttl),
 			Source:    source,
-			CreatedAt: time.Now(),
+			CreatedAt: now,
+			UpdatedAt: now,
 		}
 	}
 	h.Unlock()
@@ -442,12 +451,7 @@ func (h *HostsFormat) generateHostsFile(domain string, export *common.ExportData
 			ipSpaces := strings.Repeat(" ", maxIPWidth-len(record.Target))
 			hostnameSpaces := strings.Repeat(" ", maxHostnameWidth-len(hostname))
 
-			comment := ""
-			if !record.CreatedAt.IsZero() {
-				comment = fmt.Sprintf("# created_at: %s input: %s", record.CreatedAt.Format(time.RFC3339), record.Source)
-			} else {
-				comment = fmt.Sprintf("# input: %s", record.Source)
-			}
+			comment := "# " + common.RecordComment(record.CreatedAt, record.UpdatedAt, record.Source)
 			line := fmt.Sprintf("%s%s%s%s%s",
 				record.Target,
 				ipSpaces,

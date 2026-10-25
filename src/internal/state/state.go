@@ -15,14 +15,15 @@ import (
 )
 
 type Entry struct {
-	Domain    string    `json:"domain"`
-	Hostname  string    `json:"hostname"`
-	Type      string    `json:"type"`
-	Target    string    `json:"target"`
-	Source    string    `json:"source,omitempty"`
-	Client    string    `json:"client,omitempty"`
-	FirstSeen time.Time `json:"first_seen"`
-	LastSeen  time.Time `json:"last_seen"`
+	Domain       string    `json:"domain"`
+	Hostname     string    `json:"hostname"`
+	Type         string    `json:"type"`
+	Target       string    `json:"target"`
+	Source       string    `json:"source,omitempty"`
+	Client       string    `json:"client,omitempty"`
+	FirstSeen    time.Time `json:"first_seen"`
+	LastModified time.Time `json:"last_modified"`
+	LastSeen     time.Time `json:"last_seen"`
 }
 
 type Tracker struct {
@@ -87,7 +88,16 @@ func (t *Tracker) Touch(domain, hostname, recordType, target, source, client str
 	k := key(domain, hostname, recordType)
 	if e, ok := t.entries[k]; ok {
 		e.LastSeen = now
-		e.Target = target
+		if e.FirstSeen.IsZero() {
+			e.FirstSeen = now
+		}
+		if e.LastModified.IsZero() {
+			e.LastModified = e.FirstSeen
+		}
+		if e.Target != target {
+			e.Target = target
+			e.LastModified = now
+		}
 		if source != "" {
 			e.Source = source
 		}
@@ -98,7 +108,7 @@ func (t *Tracker) Touch(domain, hostname, recordType, target, source, client str
 		t.entries[k] = &Entry{
 			Domain: hostnameDomain(domain), Hostname: hostname, Type: recordType,
 			Target: target, Source: source, Client: client,
-			FirstSeen: now, LastSeen: now,
+			FirstSeen: now, LastModified: now, LastSeen: now,
 		}
 	}
 	t.dirty = true
@@ -106,6 +116,19 @@ func (t *Tracker) Touch(domain, hostname, recordType, target, source, client str
 
 func hostnameDomain(domain string) string {
 	return strings.TrimSuffix(domain, ".")
+}
+
+func (t *Tracker) Get(domain, hostname, recordType string) *Entry {
+	if t == nil {
+		return nil
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if e, ok := t.entries[key(domain, hostname, recordType)]; ok && e != nil {
+		cp := *e
+		return &cp
+	}
+	return nil
 }
 
 func (t *Tracker) Remove(domain, hostname, recordType string) {

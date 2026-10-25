@@ -6,6 +6,7 @@ package providers
 
 import (
 	"github.com/nfrastack/herald/internal/output/types/dns"
+	state "github.com/nfrastack/herald/internal/state"
 
 	"context"
 	"fmt"
@@ -95,7 +96,9 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 
 	if existingRecord != nil {
 		c.Logger.With("action", "record.sync").Trace("%s details: id=%s type=%s name=%s content=%s ttl=%d proxied=%v", logPrefix, existingRecord.ID, existingRecord.Type, existingRecord.Name, existingRecord.Content, existingRecord.TTL, existingRecord.Proxied)
-		if existingRecord.Content == target && existingRecord.TTL == ttl && existingProxied(existingRecord.Proxied) == proxied {
+		comment = state.MergeComment(comment, existingRecord.Comment, source)
+		commentMatches := comment == "" || existingRecord.Comment == comment
+		if existingRecord.Content == target && existingRecord.TTL == ttl && existingProxied(existingRecord.Proxied) == proxied && commentMatches {
 			c.Logger.With("action", "record.skip").Debug("%s already matches, skipping update", logPrefix)
 			return nil
 		}
@@ -121,7 +124,7 @@ func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 
 	c.Logger.With("action", "record.create").Info("%s no existing record, proceeding with create", logPrefix)
 
-	recordParams := cloudflare.CreateDNSRecordParams{Type: recordType, Name: fullName, Content: target, TTL: ttl, Proxied: &proxied}
+	recordParams := cloudflare.CreateDNSRecordParams{Type: recordType, Name: fullName, Content: target, TTL: ttl, Proxied: &proxied, Comment: comment}
 	rc := cloudflare.ZoneIdentifier(zoneID)
 
 	attempts := 3

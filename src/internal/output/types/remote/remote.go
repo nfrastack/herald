@@ -28,16 +28,18 @@ type RemoteFormat struct {
 	httpClient *http.Client
 	records    map[string]*RemoteRecord
 	removals   map[string]*RemoteRecord
+	firstSeen  map[string]time.Time
 	logger     *log.ScopedLogger
 }
 
 type RemoteRecord struct {
-	Domain     string `json:"domain"`
-	Hostname   string `json:"hostname"`
-	Target     string `json:"target"`
-	RecordType string `json:"type"`
-	TTL        int    `json:"ttl"`
-	Source     string `json:"source"`
+	Domain     string    `json:"domain"`
+	Hostname   string    `json:"hostname"`
+	Target     string    `json:"target"`
+	RecordType string    `json:"type"`
+	TTL        int       `json:"ttl"`
+	Source     string    `json:"source"`
+	CreatedAt  time.Time `json:"created_at,omitempty"`
 }
 
 func NewRemoteFormat(profileName string, config map[string]interface{}) (common.OutputFormat, error) {
@@ -78,9 +80,10 @@ func NewRemoteFormat(profileName string, config map[string]interface{}) (common.
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
 	return &RemoteFormat{
-		url:      url,
-		clientID: clientID,
-		token:    token,
+		url:       url,
+		clientID:  clientID,
+		token:     token,
+		firstSeen: make(map[string]time.Time),
 		httpClient: &http.Client{
 			Transport: transport,
 			Timeout:   timeout,
@@ -201,6 +204,9 @@ func (r *RemoteFormat) WriteRecord(domain, hostname, target, recordType string, 
 func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
 	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
 
+	if _, ok := r.firstSeen[key]; !ok {
+		r.firstSeen[key] = time.Now().UTC()
+	}
 	record := &RemoteRecord{
 		Domain:     domain,
 		Hostname:   hostname,
@@ -208,6 +214,7 @@ func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 		RecordType: recordType,
 		TTL:        ttl,
 		Source:     source,
+		CreatedAt:  r.firstSeen[key],
 	}
 
 	r.records[key] = record
@@ -218,6 +225,7 @@ func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 
 func (r *RemoteFormat) RemoveRecord(domain, hostname, recordType string) error {
 	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
+	delete(r.firstSeen, key)
 	if rec, exists := r.records[key]; exists {
 		delete(r.records, key)
 		r.removals[key] = rec

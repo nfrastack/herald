@@ -216,6 +216,7 @@ type BaseRecord struct {
 	Target    string    `json:"target" yaml:"target"`
 	TTL       uint32    `json:"ttl" yaml:"ttl"`
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
+	UpdatedAt time.Time `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
 	Source    string    `json:"source" yaml:"source"`
 	Comment   string    `json:"comment,omitempty" yaml:"comment,omitempty"`
 }
@@ -288,6 +289,41 @@ func NewCommonFormat(domain, formatName string, config map[string]interface{}) (
 	return format, nil
 }
 
+func RecordComment(createdAt, updatedAt time.Time, source string) string {
+	if createdAt.IsZero() {
+		return fmt.Sprintf("input: %s", source)
+	}
+	if updatedAt.IsZero() {
+		updatedAt = createdAt
+	}
+	return fmt.Sprintf("created_at: %s last_modified: %s input: %s",
+		createdAt.Format(time.RFC3339), updatedAt.Format(time.RFC3339), source)
+}
+
+func ParseRecordComment(comment string) (createdAt, updatedAt time.Time) {
+	createdAt = parseCommentTime(comment, "created_at:")
+	updatedAt = parseCommentTime(comment, "last_modified:")
+	if updatedAt.IsZero() {
+		updatedAt = createdAt
+	}
+	return createdAt, updatedAt
+}
+
+func parseCommentTime(comment, marker string) time.Time {
+	idx := strings.Index(comment, marker)
+	if idx == -1 {
+		return time.Time{}
+	}
+	rest := strings.TrimSpace(comment[idx+len(marker):])
+	if i := strings.Index(rest, " "); i != -1 {
+		rest = rest[:i]
+	}
+	if t, err := time.Parse(time.RFC3339, rest); err == nil {
+		return t.UTC()
+	}
+	return time.Time{}
+}
+
 func NormalizeHostname(hostname, domain string) string {
 	if hostname == "" || hostname == "@" {
 		return "@"
@@ -311,8 +347,19 @@ func (c *CommonFormat) WriteRecord(domain, hostname, target, recordType string, 
 }
 
 func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
+	return c.WriteRecordWithSourceAt(domain, hostname, target, recordType, ttl, source, time.Time{}, time.Time{})
+}
+
+func (c *CommonFormat) WriteRecordWithSourceAt(domain, hostname, target, recordType string, ttl int, source string, createdAt, updatedAt time.Time) error {
 	c.Lock()
 	defer c.Unlock()
+
+	if !createdAt.IsZero() {
+		createdAt = createdAt.UTC()
+	}
+	if !updatedAt.IsZero() {
+		updatedAt = updatedAt.UTC()
+	}
 
 	hostname = NormalizeHostname(hostname, domain)
 	key := RecordKey(domain, hostname, recordType)
@@ -326,13 +373,23 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 
 	existingRecord := c.records[key]
 	if existingRecord != nil {
+		if !createdAt.IsZero() && (existingRecord.CreatedAt.IsZero() || createdAt.Before(existingRecord.CreatedAt)) {
+			existingRecord.CreatedAt = createdAt
+		}
 		if existingRecord.Target != target {
 			oldTarget := existingRecord.Target
 			existingRecord.Target = target
+			existingRecord.UpdatedAt = time.Now().UTC()
 			existingRecord.TTL = uint32(ttl)
 			existingRecord.Source = source
 			c.logger.With("action", "record.update").Info("target: %s.%s (%s) %s -> %s (TTL: %d, source: %s)", hostname, domain, recordType, oldTarget, target, ttl, source)
 		} else {
+			if !updatedAt.IsZero() && updatedAt.After(existingRecord.UpdatedAt) {
+				existingRecord.UpdatedAt = updatedAt
+			}
+			if existingRecord.UpdatedAt.IsZero() {
+				existingRecord.UpdatedAt = existingRecord.CreatedAt
+			}
 			if existingRecord.TTL != uint32(ttl) {
 				oldTTL := existingRecord.TTL
 				existingRecord.TTL = uint32(ttl)
@@ -344,12 +401,20 @@ func (c *CommonFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 			}
 		}
 	} else {
+		now := time.Now().UTC()
+		if createdAt.IsZero() {
+			createdAt = now
+		}
+		if updatedAt.IsZero() {
+			updatedAt = createdAt
+		}
 		record := &BaseRecord{
 			Hostname:  hostname,
 			Type:      recordType,
 			Target:    target,
 			TTL:       uint32(ttl),
-			CreatedAt: time.Now().UTC(),
+			CreatedAt: createdAt,
+			UpdatedAt: updatedAt,
 			Source:    source,
 		}
 

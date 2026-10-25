@@ -3,6 +3,7 @@
    ### Added
     - add allow_missing_outputs to warn + skip domains with unknown outputs instead of exiting
     - (api) state tracking to assist in detecting stale records
+    - (api) add created_at and last_modified_at state entries
     - (input/docker) add api_auth_user/api_auth_pass basic auth support
     - (input/docker) and api_header_* custom headers
     - (input/docker) add resync_interval for periodic output resync
@@ -26,6 +27,7 @@
     - (output/dns/google) add provider
     - (output/dns/route53) add provider
     - (output/dns/external) add provider
+    - (output/file/*) add created_at and last_modified_at state comment entries
     - (output/remote) add mTLS support
 
    ### Changed
@@ -39,6 +41,7 @@
     - (api) gracefully stop server and flush states on shutdown
     - (api) scope client uploads to allowed domains
     - (api) scope clients to allowed hostnames
+    - (input/*) avoid unneccessary rewrites of records if in known state
     - (input/docker) reconnect event stream with backoff instead of dying on first error
     - (input/docker) widen event filter to create/restart/unpause/pause/kill/destroy
     - (output/dns) rework provider format
