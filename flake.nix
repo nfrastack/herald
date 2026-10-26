@@ -82,7 +82,7 @@
               "-s"
               "-w"
               "-X main.Version=${version}"
-              "-X main.buildChannel=stable"
+              "-X main.buildChannel=develop"
               "-X main.buildCommit=${buildCommit}"
               "-X main.BuildTime=${buildDateStr}"
             ];
