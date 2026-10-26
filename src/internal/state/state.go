@@ -24,6 +24,7 @@ type Entry struct {
 	FirstSeen    time.Time `json:"first_seen"`
 	LastModified time.Time `json:"last_modified"`
 	LastSeen     time.Time `json:"last_seen"`
+	RemovedAt    time.Time `json:"removed_at,omitempty"`
 }
 
 type Tracker struct {
@@ -87,6 +88,10 @@ func (t *Tracker) Touch(domain, hostname, recordType, target, source, client str
 	defer t.mu.Unlock()
 	k := key(domain, hostname, recordType)
 	if e, ok := t.entries[k]; ok {
+		if !e.RemovedAt.IsZero() {
+			e.RemovedAt = time.Time{}
+			e.LastModified = now
+		}
 		e.LastSeen = now
 		if e.FirstSeen.IsZero() {
 			e.FirstSeen = now
@@ -137,10 +142,31 @@ func (t *Tracker) Remove(domain, hostname, recordType string) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if _, ok := t.entries[key(domain, hostname, recordType)]; ok {
-		delete(t.entries, key(domain, hostname, recordType))
+	if e, ok := t.entries[key(domain, hostname, recordType)]; ok {
+		e.RemovedAt = time.Now().UTC()
 		t.dirty = true
 	}
+}
+
+func (t *Tracker) PurgeRemoved() int {
+	if t == nil || t.staleAfter <= 0 {
+		return 0
+	}
+	cutoff := time.Now().UTC().Add(-t.staleAfter)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := 0
+	for k, e := range t.entries {
+		if e != nil && !e.RemovedAt.IsZero() && e.RemovedAt.Before(cutoff) {
+			delete(t.entries, k)
+			n++
+		}
+	}
+	if n > 0 {
+		t.dirty = true
+		t.logger.With("action", "state.purge").Debug("purged %d tombstoned records older than %v", n, t.staleAfter)
+	}
+	return n
 }
 
 func (t *Tracker) Stale() []*Entry {
@@ -152,6 +178,9 @@ func (t *Tracker) Stale() []*Entry {
 	defer t.mu.RUnlock()
 	var out []*Entry
 	for _, e := range t.entries {
+		if !e.RemovedAt.IsZero() {
+			continue
+		}
 		if e.LastSeen.Before(cutoff) {
 			out = append(out, e)
 		}
@@ -229,6 +258,7 @@ func (t *Tracker) Start(reportInterval time.Duration) {
 			case <-flush.C:
 				t.Save()
 			case <-report.C:
+				t.PurgeRemoved()
 				t.reportStale()
 			}
 		}
