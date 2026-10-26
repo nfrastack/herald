@@ -4,7 +4,7 @@
   inputs = { nixpkgs.url = "nixpkgs/nixos-unstable"; };
   outputs = { self, nixpkgs }:
     let
-      version = "3.0.0beta";
+      heraldVersion = "3.0.0beta";
 
       goVersion = "1.26.10";
 
@@ -60,7 +60,7 @@
         {
           herald = pkgs.buildGoModule {
             pname = "herald";
-            version = "${version}";
+            version = "${heraldVersion}-${buildCommit}";
             src = self;
             modRoot = "src";
 
@@ -81,8 +81,7 @@
             ldflags = [
               "-s"
               "-w"
-              "-X main.Version=${version}"
-              "-X main.buildChannel=develop"
+              "-X main.Version=${heraldVersion}"
               "-X main.buildCommit=${buildCommit}"
               "-X main.BuildTime=${buildDateStr}"
             ];

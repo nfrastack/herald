@@ -34,8 +34,6 @@ var (
 
 	BuildTime = "unknown"
 
-	buildChannel = "auto"
-
 	buildCommit = "unknown"
 
 	_ = providers.PowerDNSProviderName
@@ -73,7 +71,7 @@ func resolveDevVersion() {
 
 func versionString(showBuild bool) string {
 	if showBuild {
-		return fmt.Sprintf("%s-%s-%s (built: %s)", Version, buildChannel, buildCommit, BuildTime)
+		return fmt.Sprintf("%s-%s (built: %s)", Version, buildCommit, BuildTime)
 	}
 	return Version
 }
@@ -132,7 +130,7 @@ func main() {
 
 	util.Version = Version
 
-	fmt.Printf("Starting Herald version: %s \n", versionString(false))
+	fmt.Printf("Starting Herald version: %s \n", versionString(true))
 	fmt.Printf("© 2026 Nfrastack https://nfrastack.com - BSD-3-Clause License\n")
 	fmt.Println("For implementation support and consulting visit: https://nfrastack.com")
 	fmt.Println()
