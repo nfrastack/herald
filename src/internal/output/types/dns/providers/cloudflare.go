@@ -153,7 +153,7 @@ func isOccupantConflict(cerrStr string) bool {
 	return strings.Contains(lower, "already exists") || strings.Contains(cerrStr, "81054")
 }
 
-func (c *CloudflareProvider) resolveOccupantConflict(ctx context.Context, zoneID, fullName, domain, recordType, target string, ttl int, proxied bool, overwrite bool, recordParams cloudflare.CreateDNSRecordParams, rc *cloudflare.ResourceContainer) error {
+func (c *CloudflareProvider) resolveOccupantConflict(ctx context.Context, _, fullName, domain, recordType, target string, _ int, _ bool, overwrite bool, recordParams cloudflare.CreateDNSRecordParams, rc *cloudflare.ResourceContainer) error {
 	logPrefix := getDomainLogPrefix(c.ProfileName, domain)
 	occupants, _, err := c.client.ListDNSRecords(ctx, rc, cloudflare.ListDNSRecordsParams{Name: fullName})
 	if err != nil {
@@ -234,61 +234,6 @@ func (c *CloudflareProvider) checkExistingRecord(ctx context.Context, zoneID, na
 
 	c.Logger.With("action", "record.sync").Trace("%s completed %d attempts, no records found", logPrefix, maxAttempts)
 	return nil, nil
-}
-
-func (c *CloudflareProvider) fetchRecordsClientOnly(ctx context.Context, zoneID, name, recordType string) []cloudflare.DNSRecord {
-	rc := cloudflare.ZoneIdentifier(zoneID)
-	var merged []cloudflare.DNSRecord
-
-	candidates := []string{name}
-	nameNoDot := strings.TrimSuffix(name, ".")
-	if nameNoDot != name {
-		candidates = append(candidates, nameNoDot)
-	} else {
-		candidates = append(candidates, name+".")
-	}
-	lower := strings.ToLower(name)
-	if lower != name {
-		candidates = append(candidates, lower)
-	}
-	if strings.Contains(nameNoDot, ".") {
-		hostOnly := strings.SplitN(nameNoDot, ".", 2)[0]
-		if hostOnly != "" && hostOnly != nameNoDot {
-			candidates = append(candidates, hostOnly)
-			candidates = append(candidates, hostOnly+".")
-		}
-	}
-
-	if recordType != "" {
-		for _, cName := range candidates {
-			params := cloudflare.ListDNSRecordsParams{Name: cName, Type: recordType}
-			recs, _, err := c.client.ListDNSRecords(ctx, rc, params)
-			if err == nil && len(recs) > 0 {
-				merged = append(merged, recs...)
-			}
-		}
-		if len(merged) > 0 {
-			return merged
-		}
-	}
-
-	for _, cName := range candidates {
-		params := cloudflare.ListDNSRecordsParams{Name: cName}
-		recs, _, err := c.client.ListDNSRecords(ctx, rc, params)
-		if err == nil && len(recs) > 0 {
-			merged = append(merged, recs...)
-		}
-	}
-
-	unique := make(map[string]cloudflare.DNSRecord)
-	for _, r := range merged {
-		unique[r.ID] = r
-	}
-	out := make([]cloudflare.DNSRecord, 0, len(unique))
-	for _, r := range unique {
-		out = append(out, r)
-	}
-	return out
 }
 
 func (c *CloudflareProvider) DeleteRecord(domain, recordType, name string) error {

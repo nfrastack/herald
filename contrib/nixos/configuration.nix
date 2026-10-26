@@ -322,6 +322,9 @@
           server1 = {
             token = "server1-secret-token";
             output_profile = "zone_files";
+            #   "example.com" = "zone_files";
+            #   "internal.example.com" = "local_only";
+            # };
           };
           server2 = {
             token = "server2-secret-token";

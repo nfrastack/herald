@@ -6,13 +6,17 @@ package dns
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/nfrastack/herald/internal/log"
 	state "github.com/nfrastack/herald/internal/state"
 )
+
+var dnsLog = log.NewScopedLogger("[dns]", "")
 
 type Provider interface {
 	CreateOrUpdateRecord(domain, recordType, hostname, target string, ttl int, proxied bool, overwrite bool) error
@@ -61,7 +65,85 @@ func GetProvider(name string, config map[string]string) (Provider, error) {
 
 	processedConfig := ProcessConfigValues(config)
 
-	return constructor(processedConfig)
+	provider, err := constructor(processedConfig)
+	if err != nil {
+		return nil, err
+	}
+	return guardedProvider{Provider: provider, config: processedConfig}, nil
+}
+
+var extraNonRoutablePrefixes = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("2001:db8::/32"),
+}
+
+type guardedProvider struct {
+	Provider
+	config map[string]string
+}
+
+func (g guardedProvider) denyPrivateTargets() bool {
+	v := strings.ToLower(strings.TrimSpace(g.config["deny_private_ips"]))
+	return v == "true" || v == "1" || v == "yes"
+}
+
+func (g guardedProvider) nonRoutableTarget(target string) bool {
+	var extra []netip.Prefix
+	for _, raw := range strings.Split(g.config["deny_cidrs"], ",") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(raw)
+		if err != nil {
+			dnsLog.With("action", "config.load").Warn("ignoring invalid deny_cidrs entry %q: %v", raw, err)
+			continue
+		}
+		extra = append(extra, p)
+	}
+	addr, err := netip.ParseAddr(strings.Trim(strings.TrimSuffix(target, "."), "[]"))
+	if err != nil {
+		return false
+	}
+	if addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() {
+		return true
+	}
+	for _, p := range extraNonRoutablePrefixes {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	for _, p := range extra {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+func (g guardedProvider) checkTarget(recordType, hostname, target string) bool {
+	if g.denyPrivateTargets() && (recordType == "A" || recordType == "AAAA") && g.nonRoutableTarget(target) {
+		dnsLog.With("action", "record.reject").Warn("refusing to publish private target %s %s -> %s on public DNS", hostname, recordType, target)
+		return false
+	}
+	return true
+}
+
+func (g guardedProvider) CreateOrUpdateRecord(domain, recordType, hostname, target string, ttl int, proxied bool, overwrite bool) error {
+	if !g.checkTarget(recordType, hostname, target) {
+		return nil
+	}
+	return g.Provider.CreateOrUpdateRecord(domain, recordType, hostname, target, ttl, proxied, overwrite)
+}
+
+func (g guardedProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostname, target string, ttl int, proxied bool, comment, source string, overwrite bool) error {
+	if !g.checkTarget(recordType, hostname, target) {
+		return nil
+	}
+	return g.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, proxied, comment, source, overwrite)
 }
 
 func GetAvailableProviders() []string {

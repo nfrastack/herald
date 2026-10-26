@@ -435,6 +435,8 @@ api:
       token: "server1-secret-token"
       output_profile: "zone_file"
       # domains: ["example.com"]  # reject uploads for other domains
+      #   example.com: "zone_file"
+      #   internal.example.com: "local_only"
     server2:
       # token: env://SERVER2_API_TOKEN
       token: "server2-secret-token"

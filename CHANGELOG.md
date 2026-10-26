@@ -4,12 +4,14 @@
     - add allow_missing_outputs to warn + skip domains with unknown outputs instead of exiting
     - (api) state tracking to assist in detecting stale records
     - (api) add created_at and last_modified_at state entries
+    - (api) isolate domains to their own profiles
     - use nfrastack/herald as user agent for all http operations
     - (input/docker) add api_auth_user/api_auth_pass basic auth support
     - (input/docker) and api_header_* custom headers
     - (input/docker) add resync_interval for periodic output resync
     - (input/tailscale) support additional_domains
     - (input/zerotier) support additional_domains
+    - (output/dns) allow blocking private ip ranges records from registering on public dns
     - (output/dns) skip provider calls for identical records with optional reassert_interval
     - (output/dns/cloudflare) cache zone IDs, compare before update, quiet cross type conflicts
     - (output/dns/cloudflare) add allow_replace during reconciliation

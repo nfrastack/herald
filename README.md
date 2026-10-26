@@ -1184,6 +1184,8 @@ Shared options for every DNS provider:
 - `api_host` / `endpoint`: Override the API base URL where the provider supports it.
 - `options` (object): Provider-specific extra options, passed through as `options.<key>`.
 - `allow_replace` (bool): Permits destructive cross-type replace (delete + recreate, resets `created_on`). Default false. Currently enforced by the `cloudflare` provider; also settable as `options.allow_replace`.
+- `deny_private_ips` (bool): Refuse A/AAAA targets in private/non-routable space (RFC1918, ULA, loopback, link-local, CGNAT, documentation ranges) with a `record.reject` warning, so they never reach public DNS. 
+                             Default false. Extra CIDRs can be added via `deny_cidrs: "cidr1,cidr2".
 - `reassert_interval` (duration): re-assert identical records after this interval to resolve drift.
                                   Accepts `24h`, `30m`, etc -  `0`/`off`/`never` disables.
                                   Default off. identical target/TTL/proxied writes skip the provider call entirely.
@@ -1224,6 +1226,8 @@ outputs:
     provider: cloudflare
     token: "your-cloudflare-token"
     log_level: info
+    # deny_private_ips: true  # refuse RFC1918/ULA/loopback/link-local/CGNAT A/AAAA targets (default false)
+    # deny_cidrs: "100.64.0.0/10"  # optional extra CIDRs to refuse (comma-separated, guard must be on)
 
   # External hook - Runs command per write. 
   # Placeholders: {action} (upsert/delete) {domain}, {name} (relative, @ for apex),
@@ -1511,6 +1515,8 @@ api:
       token: "file:///var/run/secrets/server2_token"  # Load token from file
       output_profile: "special_zones"
       # domains: ["example.net", "example.org"]
+      #   example.net: "special_zones"
+      #   internal.example.net: "local_zone_file"
   tls:
     cert: "/etc/ssl/certs/herald.crt"
     key: "/etc/ssl/private/herald.key"
