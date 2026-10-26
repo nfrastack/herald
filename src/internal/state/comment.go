@@ -9,7 +9,11 @@ import (
 	"time"
 )
 
-const CommentPrefix = "managed by herald"
+const CommentPrefix = "herald"
+const CloudflareCommentLimit = 100
+const LegacyCommentPrefix = "managed by herald"
+const commentOverhead = len("herald ") + len(" seen:") + len("2006-01-02T15:04:05Z") + len(" mod:") + len("2006-01-02T15:04:05Z")
+const maxCommentSource = CloudflareCommentLimit - commentOverhead
 
 func BuildComment(source string, firstSeen, lastModified time.Time) string {
 	if firstSeen.IsZero() {
@@ -23,14 +27,48 @@ func BuildComment(source string, firstSeen, lastModified time.Time) string {
 	if source == "" {
 		source = "herald"
 	}
+	if len(source) > maxCommentSource {
+		source = source[:maxCommentSource]
+	}
 	return CommentPrefix +
-		" | source: " + source +
-		" | first seen: " + firstSeen.Format(time.RFC3339) +
-		" | last modified: " + lastModified.Format(time.RFC3339)
+		" " + source +
+		" seen:" + firstSeen.Format(time.RFC3339) +
+		" mod:" + lastModified.Format(time.RFC3339)
+}
+
+func ClampComment(comment string) string {
+	if len(comment) > CloudflareCommentLimit {
+		return comment[:CloudflareCommentLimit]
+	}
+	return comment
 }
 
 func ParseCommentTimestamps(comment string) (source string, firstSeen, lastModified time.Time, ok bool) {
-	if !strings.HasPrefix(comment, CommentPrefix) {
+	if s, first, modified, ok := parseShortComment(comment); ok {
+		return s, first, modified, true
+	}
+	return parseLegacyComment(comment)
+}
+
+func parseShortComment(comment string) (source string, firstSeen, lastModified time.Time, ok bool) {
+	parts := strings.Fields(comment)
+	if len(parts) != 4 || parts[0] != CommentPrefix {
+		return "", time.Time{}, time.Time{}, false
+	}
+	source = parts[1]
+	seen, err := time.Parse(time.RFC3339, strings.TrimPrefix(parts[2], "seen:"))
+	if err != nil || parts[2] == "seen:" {
+		return "", time.Time{}, time.Time{}, false
+	}
+	modified, err := time.Parse(time.RFC3339, strings.TrimPrefix(parts[3], "mod:"))
+	if err != nil || parts[3] == "mod:" {
+		return "", time.Time{}, time.Time{}, false
+	}
+	return source, seen.UTC(), modified.UTC(), true
+}
+
+func parseLegacyComment(comment string) (source string, firstSeen, lastModified time.Time, ok bool) {
+	if !strings.HasPrefix(comment, LegacyCommentPrefix) {
 		return "", time.Time{}, time.Time{}, false
 	}
 	for _, part := range strings.Split(comment, "|") {
