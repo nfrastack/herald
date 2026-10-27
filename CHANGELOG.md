@@ -2,10 +2,10 @@
 
    ### Added
     - add allow_missing_outputs to warn + skip domains with unknown outputs instead of exiting
+    - use nfrastack/herald as user agent for all http operations
     - (api) state tracking to assist in detecting stale records
     - (api) add created_at and last_modified_at state entries
     - (api) isolate domains to their own profiles
-    - use nfrastack/herald as user agent for all http operations
     - (input/docker) add api_auth_user/api_auth_pass basic auth support
     - (input/docker) and api_header_* custom headers
     - (input/docker) add resync_interval for periodic output resync

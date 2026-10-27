@@ -222,6 +222,7 @@ Here are the available options for the NixOS module (services.herald):
   * `endpoint` (str): HTTP endpoint path (default: "/api/dns").
   * `client_expiry` (str): How long to keep client data (default: "10m").
   * `log_level` (str): API server log level override.
+  * `profiles` (attrs): Client authentication profiles (`token`, `output_profile`, optional `domains`/`hostnames` allowlists, `shared_writes`, optional `source_outputs` to route records by sender input, and optional `internal_output` fallback for private A/AAAA targets).
   * `tls` (attrs): TLS configuration for HTTPS.
 * `include` (str or list): Additional YAML configuration files to include.
 

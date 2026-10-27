@@ -1515,8 +1515,7 @@ api:
       token: "file:///var/run/secrets/server2_token"  # Load token from file
       output_profile: "special_zones"
       # domains: ["example.net", "example.org"]
-      #   example.net: "special_zones"
-      #   internal.example.net: "local_zone_file"
+      # internal_output / source_outputs: split-tunnel routing, see "Split-Tunnel Routing" below.
   tls:
     cert: "/etc/ssl/certs/herald.crt"
     key: "/etc/ssl/private/herald.key"
@@ -1553,6 +1552,38 @@ api:
 ```
 
 Within an allowed scope, the first writer owns each name: a different client overwriting or deleting it is rejected and logged. Set `shared_writes: true` on purpose for boxes that legitimately share names (eg failover pairs) - domain and hostname lists still apply.
+
+#### Split-Tunnel Routing
+
+When senders push both public and internal records for the same domain through the API (eg a host whose containers match both a public and an internal input), the server splits them per record. Each uploaded record carries the name of the sender input that built it (`source`), and routing is resolved in this order:
+
+1. `source_outputs` - exact input name match first, then glob (`docker_int`, `docker_*_int`). The sender's origin decides.
+2. `internal_output` - fallback for A/AAAA records with private/non-routable targets (RFC1918, ULA, loopback, link-local, CGNAT).
+3. `output_profile` - the default for everything else.
+
+Removals are cleaned from every profile the record could have landed in.
+
+Example: A host runs two docker inputs over the same containers, split by label. A container labelled `any` matches both, so one container produces two records. Each record carries the input name as its `source`:
+
+| uploaded record               | source       | routed to         |
+| ----------------------------- | ------------ | ----------------- |
+| `ha` CNAME `apal.example.com` | `docker_pub` | `cloudflare_dns`  |
+| `ha` A `10.0.0.5`             | `docker_int` | `local_zone_file` |
+
+
+```yaml
+# On edge01 (sender): inputs docker_pub + docker_int, one remote output with client_id edge01 pointing at the API server.
+
+# On the API server:
+api:
+  profiles:
+    edge01:
+      token: "file:///run/secrets/edge01_token"
+      output_profile: cloudflare_dns     # default: docker_pub records land here
+      source_outputs:
+        docker_int: local_zone_file      # docker_int records land here instead
+      internal_output: local_zone_file   # fallback for unlabeled private A/AAAA
+```
 
 #### Security Features
 

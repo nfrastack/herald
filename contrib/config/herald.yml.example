@@ -434,9 +434,10 @@ api:
       # token: file:///var/run/secrets/server1_token
       token: "server1-secret-token"
       output_profile: "zone_file"
-      # domains: ["example.com"]  # reject uploads for other domains
-      #   example.com: "zone_file"
-      #   internal.example.com: "local_only"
+      # domains: ["example.com"]       # reject uploads for other domains
+      # internal_output: "local_only"  # split-tunnel fallback: A/AAAA with private/non routable targets go here
+      # source_outputs:                # split-tunnel primary: keys are input names on the SENDING host
+      #   docker_int: "local_only"     # (eg its docker_int input) globs allowed. See README "Split-Tunnel Routing".
     server2:
       # token: env://SERVER2_API_TOKEN
       token: "server2-secret-token"

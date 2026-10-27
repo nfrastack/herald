@@ -95,11 +95,13 @@ type APITLSConfig struct {
 }
 
 type APIClientProfile struct {
-	Token         string   `yaml:"token" json:"token"`
-	OutputProfile string   `yaml:"output_profile" json:"output_profile"`
-	Domains       []string `yaml:"domains" json:"domains"`
-	Hostnames     []string `yaml:"hostnames" json:"hostnames"`
-	SharedWrites  bool     `yaml:"shared_writes" json:"shared_writes"`
+	Token          string            `yaml:"token" json:"token"`
+	OutputProfile  string            `yaml:"output_profile" json:"output_profile"`
+	InternalOutput string            `yaml:"internal_output" json:"internal_output"`
+	SourceOutputs  map[string]string `yaml:"source_outputs" json:"source_outputs"`
+	Domains        []string          `yaml:"domains" json:"domains"`
+	Hostnames      []string          `yaml:"hostnames" json:"hostnames"`
+	SharedWrites   bool              `yaml:"shared_writes" json:"shared_writes"`
 }
 
 type GeneralConfig struct {

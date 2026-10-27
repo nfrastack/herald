@@ -9,6 +9,7 @@ import (
 	"github.com/nfrastack/herald/internal/log"
 	"github.com/nfrastack/herald/internal/output"
 	"github.com/nfrastack/herald/internal/output/types/common"
+	"github.com/nfrastack/herald/internal/output/types/dns"
 	"github.com/nfrastack/herald/internal/state"
 	"github.com/nfrastack/herald/internal/util"
 
@@ -131,10 +132,6 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 		if !exists {
 			continue
 		}
-		outputProfile := prof.OutputProfile
-		if outputProfile == "" {
-			outputProfile = "default"
-		}
 		hostPatterns[clientID] = prof.Hostnames
 		sharedWrites[clientID] = prof.SharedWrites
 		allowed := make(map[string]bool, len(prof.Domains))
@@ -156,7 +153,8 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 				if record == nil {
 					continue
 				}
-				snapshotsByProfile[outputProfile] = append(snapshotsByProfile[outputProfile], snapshotRecord{
+				routedProfile := outputProfileForRecord(prof, domainName, record.Type, record.Target, record.Source)
+				snapshotsByProfile[routedProfile] = append(snapshotsByProfile[routedProfile], snapshotRecord{
 					domain:    domainName,
 					hostname:  record.Hostname,
 					target:    record.Target,
@@ -179,6 +177,80 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 		}
 	}
 
+	var uploadAllowed map[string]bool
+	var uploadHosts []string
+	var uploadShared bool
+	var uploadProf config.APIClientProfile
+	uploadHasProf := false
+	s.mutex.RLock()
+	if prof, exists := s.profiles[uploadClientID]; exists {
+		uploadProf = prof
+		uploadHasProf = true
+		if len(prof.Domains) > 0 {
+			uploadAllowed = make(map[string]bool, len(prof.Domains))
+			for _, d := range prof.Domains {
+				uploadAllowed[d] = true
+			}
+		}
+		uploadHosts = prof.Hostnames
+		uploadShared = prof.SharedWrites
+	}
+	s.mutex.RUnlock()
+	if removalsSnapshot != nil {
+		for domain, recs := range removalsSnapshot {
+			if uploadAllowed != nil && !uploadAllowed[domain] {
+				s.logger.With("action", "record.reject", "conn", connID, "client", uploadClientID).Warn("removal(s) for domain '%s' outside allowed list", domain)
+				continue
+			}
+			for _, pair := range recs {
+				hostname := pair[0]
+				recordType := pair[1]
+				if !hostAllowed(uploadHosts, hostname) {
+					s.logger.With("action", "record.reject", "conn", connID, "client", uploadClientID).Warn("removal of %s.%s outside hostname scope", hostname, domain)
+					continue
+				}
+				if !uploadShared && s.ownedByOther(domain, hostname, recordType, uploadClientID) {
+					s.logger.With("action", "record.reject", "conn", connID, "client", uploadClientID).Warn("removal of %s.%s owned by another client", hostname, domain)
+					continue
+				}
+				if outputManager == nil {
+					aggLog.With("action", "output.write").Error("manager not available, skipping removal of %s.%s", hostname, domain)
+					continue
+				}
+				if uploadHasProf {
+					routedName := outputProfileFor(uploadProf, domain)
+					if rp := outputManager.GetProfile(routedName); rp != nil {
+						_ = rp.RemoveRecord(domain, hostname, recordType)
+					} else {
+						aggLog.With("action", "output.write").Error("profile '%s' not found in configuration, skipping removal of %s.%s", routedName, hostname, domain)
+						continue
+					}
+					if uploadProf.InternalOutput != "" && uploadProf.InternalOutput != routedName && (recordType == "A" || recordType == "AAAA") {
+						if ip := outputManager.GetProfile(uploadProf.InternalOutput); ip != nil {
+							_ = ip.RemoveRecord(domain, hostname, recordType)
+						}
+					}
+					for _, sourceRouted := range uploadProf.SourceOutputs {
+						if sourceRouted == "" || sourceRouted == routedName || sourceRouted == uploadProf.InternalOutput {
+							continue
+						}
+						if sp := outputManager.GetProfile(sourceRouted); sp != nil {
+							_ = sp.RemoveRecord(domain, hostname, recordType)
+						}
+					}
+				} else {
+					for outputProfile := range snapshotsByProfile {
+						if p := outputManager.GetProfile(outputProfile); p != nil {
+							_ = p.RemoveRecord(domain, hostname, recordType)
+						}
+					}
+				}
+				state.Remove(domain, hostname, recordType)
+				s.unown(domain, hostname, recordType)
+			}
+		}
+	}
+
 	for outputProfile, records := range snapshotsByProfile {
 		if outputManager == nil {
 			aggLog.With("action", "output.write").Error("manager not available for profile '%s'", outputProfile)
@@ -188,45 +260,6 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 		if profile == nil {
 			aggLog.With("action", "output.write").Error("profile '%s' not found in configuration", outputProfile)
 			continue
-		}
-
-		var uploadAllowed map[string]bool
-		var uploadHosts []string
-		var uploadShared bool
-		s.mutex.RLock()
-		if prof, exists := s.profiles[uploadClientID]; exists {
-			if len(prof.Domains) > 0 {
-				uploadAllowed = make(map[string]bool, len(prof.Domains))
-				for _, d := range prof.Domains {
-					uploadAllowed[d] = true
-				}
-			}
-			uploadHosts = prof.Hostnames
-			uploadShared = prof.SharedWrites
-		}
-		s.mutex.RUnlock()
-		if removalsSnapshot != nil {
-			for domain, recs := range removalsSnapshot {
-				if uploadAllowed != nil && !uploadAllowed[domain] {
-					s.logger.With("action", "record.reject", "conn", connID, "client", uploadClientID).Warn("removal(s) for domain '%s' outside allowed list", domain)
-					continue
-				}
-				for _, pair := range recs {
-					hostname := pair[0]
-					recordType := pair[1]
-					if !hostAllowed(uploadHosts, hostname) {
-						s.logger.With("action", "record.reject", "conn", connID, "client", uploadClientID).Warn("removal of %s.%s outside hostname scope", hostname, domain)
-						continue
-					}
-					if !uploadShared && s.ownedByOther(domain, hostname, recordType, uploadClientID) {
-						s.logger.With("action", "record.reject", "conn", connID, "client", uploadClientID).Warn("removal of %s.%s owned by another client", hostname, domain)
-						continue
-					}
-					_ = profile.RemoveRecord(domain, hostname, recordType)
-					state.Remove(domain, hostname, recordType)
-					s.unown(domain, hostname, recordType)
-				}
-			}
 		}
 
 		var writeErrors []string
@@ -556,6 +589,41 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+func outputProfileFor(prof config.APIClientProfile, domain string) string {
+	if prof.OutputProfile != "" {
+		return prof.OutputProfile
+	}
+	return "default"
+}
+
+func sourceProfileFor(prof config.APIClientProfile, source string) string {
+	if source == "" || len(prof.SourceOutputs) == 0 {
+		return ""
+	}
+	if routed, ok := prof.SourceOutputs[source]; ok && routed != "" {
+		return routed
+	}
+	for pattern, routed := range prof.SourceOutputs {
+		if routed == "" {
+			continue
+		}
+		if ok, err := path.Match(pattern, source); err == nil && ok {
+			return routed
+		}
+	}
+	return ""
+}
+
+func outputProfileForRecord(prof config.APIClientProfile, domain, recordType, target, source string) string {
+	if routed := sourceProfileFor(prof, source); routed != "" {
+		return routed
+	}
+	if (recordType == "A" || recordType == "AAAA") && prof.InternalOutput != "" && dns.InternalTarget(target) {
+		return prof.InternalOutput
+	}
+	return outputProfileFor(prof, domain)
+}
+
 func hostAllowed(patterns []string, hostname string) bool {
 	if len(patterns) == 0 {
 		return true
@@ -573,6 +641,14 @@ func (s *APIServer) initializeAPIOutputProfiles(outputConfigs map[string]interfa
 	for _, profile := range s.profiles {
 		if profile.OutputProfile != "" {
 			profilesNeeded[profile.OutputProfile] = true
+		}
+		if profile.InternalOutput != "" {
+			profilesNeeded[profile.InternalOutput] = true
+		}
+		for _, routed := range profile.SourceOutputs {
+			if routed != "" {
+				profilesNeeded[routed] = true
+			}
 		}
 	}
 
@@ -766,11 +842,13 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 				return fmt.Errorf("client '%s' has empty token", clientID)
 			}
 			resolvedProfiles[clientID] = config.APIClientProfile{
-				Token:         token,
-				OutputProfile: profile.OutputProfile,
-				Domains:       expandSecretList(profile.Domains),
-				Hostnames:     expandSecretList(profile.Hostnames),
-				SharedWrites:  profile.SharedWrites,
+				Token:          token,
+				OutputProfile:  profile.OutputProfile,
+				InternalOutput: profile.InternalOutput,
+				SourceOutputs:  profile.SourceOutputs,
+				Domains:        expandSecretList(profile.Domains),
+				Hostnames:      expandSecretList(profile.Hostnames),
+				SharedWrites:   profile.SharedWrites,
 			}
 
 			server.logger.With("action", "client.connect").Debug("profile: %s -> %s (token: %s)", clientID, profile.OutputProfile, util.MaskSensitiveValue(token))
@@ -931,13 +1009,6 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 	return nil
 }
 
-func (s *APIServer) syncNonRemoteOutputs(outputManager *output.OutputManager) error {
-	s.logger.With("action", "sync.skip").Debug("syncing non-remote outputs only to prevent loops")
-
-	s.logger.With("action", "sync.skip").Debug("sync for API aggregation to prevent infinite loops with remote outputs")
-	return nil
-}
-
 var (
 	activeServersMu sync.RWMutex
 	activeServers   []*http.Server
@@ -964,21 +1035,4 @@ func VerifyZoneRecord(zoneFilePath, hostname, recordType, target string) (bool, 
 		}
 	}
 	return false, nil // Record not found
-}
-
-func (s *APIServer) writeToSpecificProfile(outputManager *output.OutputManager, profileName, domain, hostname, target, recordType string, ttl int, source string) error {
-	profile := outputManager.GetProfile(profileName)
-	if profile == nil {
-		return fmt.Errorf("output profile '%s' not found", profileName)
-	}
-
-	err := profile.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
-	if err != nil {
-		return fmt.Errorf("failed to write to profile '%s': %v", profileName, err)
-	}
-
-	s.logger.With("action", "zone.write").Debug("record to zone file: %s.%s (%s) -> %s (TTL: %d)",
-		hostname, domain, recordType, target, ttl)
-
-	return nil
 }

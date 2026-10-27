@@ -90,6 +90,22 @@ func (g guardedProvider) denyPrivateTargets() bool {
 	return v == "true" || v == "1" || v == "yes"
 }
 
+func InternalTarget(target string) bool {
+	addr, err := netip.ParseAddr(strings.Trim(strings.TrimSuffix(target, "."), "[]"))
+	if err != nil {
+		return false
+	}
+	if addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() {
+		return true
+	}
+	for _, p := range extraNonRoutablePrefixes {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
 func (g guardedProvider) nonRoutableTarget(target string) bool {
 	var extra []netip.Prefix
 	for _, raw := range strings.Split(g.config["deny_cidrs"], ",") {
@@ -104,17 +120,12 @@ func (g guardedProvider) nonRoutableTarget(target string) bool {
 		}
 		extra = append(extra, p)
 	}
+	if InternalTarget(target) {
+		return true
+	}
 	addr, err := netip.ParseAddr(strings.Trim(strings.TrimSuffix(target, "."), "[]"))
 	if err != nil {
 		return false
-	}
-	if addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() {
-		return true
-	}
-	for _, p := range extraNonRoutablePrefixes {
-		if p.Contains(addr) {
-			return true
-		}
 	}
 	for _, p := range extra {
 		if p.Contains(addr) {

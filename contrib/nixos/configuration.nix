@@ -322,8 +322,9 @@
           server1 = {
             token = "server1-secret-token";
             output_profile = "zone_files";
-            #   "example.com" = "zone_files";
-            #   "internal.example.com" = "local_only";
+            # internal_output = "local_only";
+            # source_outputs = {  # keys are input names on the client host (globs allowed)
+            #   "docker_int" = "local_only";
             # };
           };
           server2 = {
