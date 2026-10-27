@@ -188,6 +188,17 @@
           log_level = "info";
         };
 
+        # RFC2136 dynamic DNS
+        rfc2136_dns = {
+          type = "dns";
+          provider = "rfc2136";
+          server = "127.0.0.1:53";
+          # key_name = "herald-key";
+          # key_secret = "file:///run/secrets/rfc2136_key";
+          # key_algorithm = "hmac-sha256";
+          log_level = "info";
+        };
+
         # Live PowerDNS API
         powerdns_dns = {
           type = "dns";

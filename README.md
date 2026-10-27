@@ -1296,6 +1296,7 @@ Shared options for every DNS provider:
 | `powerdns`     | api_host, api_token,                 |                                            |
 |                | server_id,                           |                                            |
 |                | tls.ca/cert/key/skip_verify          |                                            |
+| `rfc2136`      | server, key_name + key_secret        | RFC 2136 dynamic updates always UPDATEs    |
 | `route53`      | access_key, secret_key,              |                                            |
 |                | session_token, region                |                                            |
 | `spaceship`    | api_key, api_secret                  |                                            |
@@ -1416,6 +1417,16 @@ outputs:
     access_key: env://AWS_ACCESS_KEY_ID
     secret_key: file:///run/secrets/aws_secret
     region: "us-east-1"  # Optional
+
+  # RFC2136 dynamic DNS
+  rfc2136_dns:
+    type: dns
+    provider: rfc2136
+    server: "127.0.0.1:53"            # DNS server accepting UPDATEs (host or host:port)
+    # key_name: "herald-key"          # TSIG key name (optional)
+    # key_secret: file:///run/secrets/rfc2136_key  # base64 TSIG secret (required with key_name)
+    # key_algorithm: hmac-sha256      # hmac-sha256 (default), hmac-sha384, hmac-sha512, hmac-md5
+    log_level: info
 
   # Spaceship
   spaceship_dns:

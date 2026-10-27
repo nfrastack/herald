@@ -29,6 +29,7 @@
     - (output/dns/godaddy) add provider
     - (output/dns/azure) add provider
     - (output/dns/google) add provider
+    - (output/dns/rfc2136) add provider
     - (output/dns/route53) add provider
     - (output/dns/external) add provider
     - (output/file/*) add created_at and last_modified_at state comment entries

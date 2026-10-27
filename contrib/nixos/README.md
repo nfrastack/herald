@@ -47,7 +47,7 @@ Here are the available options for the NixOS module (services.herald):
     * `api_auth_user` (str): Username for HTTP basic auth (http(s) endpoints only)
     * `api_auth_pass` (str): Password for HTTP basic auth (http(s) endpoints only)
     * `api_header_<Name>` (str): Extra HTTP header sent with every Docker API request (http(s) endpoints only)
-    * `interval` (str): Poll interval (e.g., "60s").
+    * `interval` (str): Poll interval (eg "60s").
     * `process_existing` (bool): Process existing containers on startup.
     * `expose_containers` (bool): Expose containers without labels.
     * `swarm_mode` (bool): Enable Docker Swarm mode support.
@@ -59,7 +59,7 @@ Here are the available options for the NixOS module (services.herald):
     * `api_url` (str): Traefik API URL.
     * `api_auth_user` (str): Username for Traefik API authentication.
     * `api_auth_pass` (str): Password for Traefik API authentication.
-    * `interval` (str): Poll interval (e.g., "60s").
+    * `interval` (str): Poll interval (eg "60s").
     * `process_existing` (bool): Process existing routers on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when routers are removed.
     * `filter` (list): Advanced filtering configuration.
@@ -68,7 +68,7 @@ Here are the available options for the NixOS module (services.herald):
     * `api_url` (str): Caddy Admin API URL.
     * `api_auth_user` (str): Username for Caddy API authentication.
     * `api_auth_pass` (str): Password for Caddy API authentication.
-    * `interval` (str): Poll interval (e.g., "60s").
+    * `interval` (str): Poll interval (eg "60s").
     * `process_existing` (bool): Process existing routes on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when routes are removed.
     * `filter` (list): Advanced filtering configuration.
@@ -84,7 +84,7 @@ Here are the available options for the NixOS module (services.herald):
     * `type` (str): "remote"
     * `remote_url` (str): URL to fetch remote DNS records.
     * `format` (str): Remote file format ("yaml", "json", "hosts").
-    * `interval` (str): Poll interval (e.g., "30s").
+    * `interval` (str): Poll interval (eg "30s").
     * `process_existing` (bool): Process all records on startup.
     * `record_remove_on_stop` (bool): Remove DNS records when removed from remote.
     * `remote_auth_user` (str): Username for HTTP Basic Auth.
@@ -126,7 +126,7 @@ Here are the available options for the NixOS module (services.herald):
     * `api_url` (str): ZeroTier Central or ZT-Net API base URL.
     * `api_token` (str): API token for authentication.
     * `api_type` (str): API type ("zerotier" or "ztnet", autodetects if omitted).
-    * `interval` (str): Polling interval (e.g., "60s").
+    * `interval` (str): Polling interval (eg "60s").
     * `network_id` (str): ZeroTier network ID.
     * `domain` (str): Domain to append to hostnames.
     * `additional_domains` (str or list): Extra domain suffixes from the same poll.
@@ -154,13 +154,21 @@ Here are the available options for the NixOS module (services.herald):
       * `key` (str): Path to client private key file.
       * `skip_verify` (bool): Skip TLS certificate verification.
     * `log_level` (str): Provider-specific log level override.
+  * `rfc2136_dns` (attrs):
+    * `type` (str): "dns"
+    * `provider` (str): "rfc2136"
+    * `server` (str): DNS server accepting UPDATEs.
+    * `key_name` (str): TSIG key name.
+    * `key_secret` (str): base64 TSIG secret.
+    * `key_algorithm` (str): key algorithm.
+    * `log_level` (str): Provider-specific log level override.
   * `hosts_export` (attrs):
     * `type` (str): "file"
     * `format` (str): "hosts"
     * `path` (str): Path to the hosts file output.
     * `user` (str): File owner (username or UID).
     * `group` (str): File group (group name or GID).
-    * `mode` (int): File permissions (e.g., 420 for 0644).
+    * `mode` (int): File permissions (eg 420 for 0644).
     * `enable_ipv4` (bool): Write IPv4 A records.
     * `enable_ipv6` (bool): Write IPv6 AAAA records.
     * `header_comment` (str): Custom header comment.
@@ -211,7 +219,7 @@ Here are the available options for the NixOS module (services.herald):
     * `url` (str): Remote aggregator URL (supports `file://`/`env://`).
     * `client_id` (str): Unique client identifier (supports `file://`/`env://`).
     * `token` (str): Bearer authentication token (supports `file://`/`env://`).
-    * `timeout` (str): HTTP request timeout (e.g. `"30s"`, default 30s).
+    * `timeout` (str): HTTP request timeout (eg `"30s"`, default 30s).
     * `data_format` (str): Data format ("json" or "yaml").
     * `log_level` (str): Output-specific log level override.
     * `tls` (attrs): TLS configuration for HTTPS.
