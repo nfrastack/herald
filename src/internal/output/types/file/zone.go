@@ -246,6 +246,9 @@ func extractStaticRawLines(content string) []string {
 		if !inStatic {
 			continue
 		}
+		if strings.HasPrefix(trimmed, "; CONFLICT") {
+			continue
+		}
 		lines = append(lines, line)
 	}
 	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
