@@ -175,16 +175,30 @@ general:
   log_level: verbose
   log_timestamps: true
   dry_run: false
-
-# Operational state lives here
-state_dir: /var/lib/herald
-# Records unseen longer than this are logged for manual review. Unset disables stale reporting.
-stale_after: 720h
 ```
 
-#### Record Presence Tracking
+### State & Presence Tracking
 
-Herald tracks when each DNS record was first and last confirmed present (poll hits, container events, API uploads) in `state_dir/lastseen.json`. Heartbeats only touch that file. Docker also runs a lightweight list only reconcile every 15 minutes so quiet containers stay fresh without DNS writes. Stale records log a `WARN` with first/last seen dates for you to review by hand
+Herald tracks when each DNS record was first and last confirmed present (poll hits, container events, API uploads) in `state_dir/lastseen.json`. Heartbeats only touch that file. Stale records log as `WARN` with first/last seen dates for you to review manually.
+
+```yaml
+state_dir: /var/lib/herald   # Operational state lives here
+
+stale_after: 720h            # Records unseen longer than this are logged for manual review. Tombstoned (removed) records are purged from state after this duration.
+                             # Unset disables both stale reporting and tombstone purging.
+```
+
+Three separate timeouts affect how long records are remembered.
+
+| Setting                   | Applies to          | Effect                                                                                                                     |
+|---------------------------|---------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `client_expiry`           | api server memory   | how long an clients last upload is kept. After that the client is treated as gone until it uploads again. (default: `10m`) |
+| `state_dir/lastseen.json` | every host on disk  | first and last seen history for every record  Deleted records are kept as tombstones until `stale_after` purges them.      |
+| `stale_after`             | every host on disk  | how long before unseen records log a `WARN` for manual review, and when tombstoned records are purged from state.          | 
+
+> DNS records themselves are never deleted automatically.
+
+> An uploader that stops pushing for longer than `client_expiry` drops out of the API server's view, but its on disk history stays. The next upload resumes normally..
 
 #### Scoped Logging
 
@@ -1574,7 +1588,7 @@ api:
     - "!lo"                                   # Exclude loopback interface
     - "!docker*"                              # Exclude all Docker interfaces
   endpoint: "/api/dns"
-  client_expiry: "10m"
+  client_expiry: "10m"  # how long the aggregator remembers an idle uploader (in-memory only, not history — see State & Presence Tracking)
   log_level: "info"
   profiles:
     server1:
