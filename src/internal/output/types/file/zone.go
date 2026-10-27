@@ -281,14 +281,47 @@ func extractStaticLines(content string) []string {
 	return normalizeManagedLines(extractStaticRawLines(content))
 }
 
+func zoneRecordTriple(line string) (host, rtype, target string) {
+	fields := strings.Fields(line)
+	if len(fields) < 5 {
+		return "", "", ""
+	}
+	switch fields[3] {
+	case "A", "AAAA", "CNAME":
+		return fields[0], fields[3], fields[4]
+	default:
+		return "", "", ""
+	}
+}
+
+func dedupeZoneLines(lines []string) []string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if host, rtype, target := zoneRecordTriple(line); host != "" {
+			key := host + "\x00" + rtype + "\x00" + target
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
 func filterStaticCollisions(z *ZoneFormat, domain string, staticLines, managedLines []string) []string {
 	managedHosts := make(map[string]map[string]bool) // hostname -> type -> true
+	managedTriples := make(map[string]bool)
 	for _, line := range managedLines {
 		if host, rtype, _ := parseZoneRecordLine(line); host != "" {
 			if managedHosts[host] == nil {
 				managedHosts[host] = make(map[string]bool)
 			}
 			managedHosts[host][rtype] = true
+		}
+		if host, rtype, target := zoneRecordTriple(line); host != "" {
+			managedTriples[host+"\x00"+rtype+"\x00"+target] = true
 		}
 	}
 
@@ -306,6 +339,9 @@ func filterStaticCollisions(z *ZoneFormat, domain string, staticLines, managedLi
 		host, rtype, _ := parseZoneRecordLine(line)
 		if host == "" {
 			out = append(out, line)
+			continue
+		}
+		if sh, sr, st := zoneRecordTriple(line); sh != "" && managedTriples[sh+"\x00"+sr+"\x00"+st] {
 			continue
 		}
 		if managedHosts[host] != nil {
@@ -493,6 +529,7 @@ func (z *ZoneFormat) generateZoneFileContent(domain string, staticLines, managed
 	lines = append(lines, nsRecords...)
 	lines = append(lines, "")
 
+	managedRecords = dedupeZoneLines(managedRecords)
 	emittedStatic := filterStaticCollisions(z, domain, staticLines, managedRecords)
 	if len(emittedStatic) > 0 {
 		lines = append(lines, "; Static Records")
@@ -516,6 +553,7 @@ func (z *ZoneFormat) generateSOARecord(domain string, serial string) ([]string, 
 	z.GetLogger().With("action", "zone.serial").Trace("serial new=%s", newSerial)
 
 	soa := z.expandSOAConfig(domain)
+	soa.PrimaryNS = fqdnOrApex(soa.PrimaryNS)
 
 	adminEmail := strings.Replace(soa.AdminEmail, "@", ".", 1)
 	if !strings.HasSuffix(adminEmail, ".") {
@@ -626,11 +664,18 @@ func (z *ZoneFormat) incrementSerial(currentSerial string) string {
 	return newSerial
 }
 
+func fqdnOrApex(name string) string {
+	if name == "@" || strings.HasSuffix(name, ".") {
+		return name
+	}
+	return name + "."
+}
+
 func (z *ZoneFormat) generateNSRecords(domain string) []string {
 	var lines []string
 	for _, ns := range z.nsRaw {
 		expandedNS := expandTags(ns, domain, z.CommonFormat.GetProfile())
-		lines = append(lines, fmt.Sprintf("%-20s %-6d %-4s %-5s %s", "@", 300, "IN", "NS", expandedNS))
+		lines = append(lines, fmt.Sprintf("%-20s %-6d %-4s %-5s %s", "@", 300, "IN", "NS", fqdnOrApex(expandedNS)))
 	}
 	return lines
 }
