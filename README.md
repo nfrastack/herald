@@ -340,6 +340,7 @@ Input providers discover services that need DNS records. Each input provider is 
 - **zerotier**: Monitors ZeroTier networks and creates DNS records for network members
 - **file**: Reads DNS records from local files in YAML, JSON, hosts, or zone file formats
 - **remote**: Fetches DNS records from remote files over HTTP(S)
+- **system**: Publishes the host's own addresses (interface IPs, a configured address, or a discovered public IP) as DNS records
 
 #### Caddy Input Provider
 
@@ -840,6 +841,75 @@ filter:
   - `ca`: Path to custom CA certificate file (optional).
   - `cert`: Path to client certificate file for mutual TLS (optional).
   - `key`: Path to client private key file for mutual TLS (optional).
+
+#### System Input Provider
+
+The system provider publishes the host's own addresses as DNS records, acting as a dynamic DNS client for the machine herald runs on. Four address modes, first match wins:
+
+1. `address`: a literal IP (or `file://`/`env://` reference). Always published when set.
+2. `address_file`: path to a file containing an IP, re-read every poll (for an external updater script). Unreadable or unparseable content keeps the last known address.
+3. `discover_url`: an HTTP endpoint returning the machine's public IP as plain text (eg `https://api.ipify.org`), for hosts behind NAT whose interface holds a private address. Failures keep the last known address.
+4. Interfaces: the literal addresses of matching local interfaces (default when nothing above is set).
+
+```yaml
+inputs:
+  sys_pub:
+    type: system
+    hostname: host01                    # defaults to the OS hostname
+    domain: example.com
+    additional_domains: "example.org"   # optional extra suffixes
+    address: 185.239.111.102            # mode 1: explicit (overrides everything)
+    #address_file: /tmp/ip.txt          # mode 2: read from file
+    interval: 300s
+    process_existing: true
+    record_remove_on_stop: true
+  sys_wan:
+    type: system
+    hostname: host01alt
+    domain: public.com
+    discover_url: https://api.ipify.org  # mode 3: public IP from behind NAT
+    families: [ipv4]
+  sys_zt:
+    type: system
+    hostname: host01zt
+    domain: internal.com
+    interfaces: ["zt*"]                  # mode 4: ZeroTier interface(s)
+    families: [ipv4, ipv6]
+```
+
+**Configuration Options:**
+
+- `type` (required): Must be `system`
+- `hostname`: Short hostname to publish (default: OS hostname up to the first dot)
+- `domain`: Domain suffix for DNS records (required)
+- `additional_domains`: Extra domain suffixes to publish under from the same poll (comma/space separated or YAML list)
+- `address`: Literal IP address to publish (supports `file://` and `env://` references). Takes precedence over everything below.
+- `address_file`: Path to a file containing an IP address, re-read every poll. Failures keep the last known address.
+- `discover_url`: HTTP(S) URL returning the public IP as plain text (supports `file://` and `env://` references). Failures keep the last known address.
+- `interfaces`: Interface name patterns to read addresses from (exact names or globs, `!` prefix excludes, eg `["eth0", "!docker*"]`). Default: all interfaces except well-known virtual ones (`docker*`, `veth*`, `br-*`, `tun*`, `tap*`, `wg*`, `lo`). An explicitly named interface is always used.
+- `families`: Address families to publish (`ipv4`, `ipv6`, or both. Default: `ipv4` only). Loopback, link-local, and unspecified addresses are never published.
+- `interval`: Polling interval (default: 300s)
+- `timeout`: HTTP timeout for `discover_url` (default: 10s)
+- `process_existing`: Publish on startup (default: true)
+- `record_remove_on_stop`: Remove the record when the address disappears (default: true)
+- `log_level`: Provider-specific log level override
+
+> The system input publishes address records (`A`/`AAAA`) only!
+
+Only the first address per family is published, so multi homed hosts stay deterministic. Pair a public and an internal input on the same host (eg `sys_pub` on `eth0` plus `sys_zt` on `zt*`) and the API server splits them with `source_outputs` — see [Split-Tunnel Routing](#split-tunnel-routing).
+
+**Public IP collectors:**
+
+Any endpoint returning the IP as plain text works. Some popular services:
+
+| URL                                        |
+|--------------------------------------------|
+| `https://api.ipify.org`                    |
+| `https://icanhazip.com`                    |
+| `https://wtfismyip.com`                    |
+| `https://ident.me`                         |
+| `https://checkip.amazonaws.com`            |
+| `https://www.cloudflare.com/cdn-cgi/trace` |
 
 #### Tailscale Input Provider
 

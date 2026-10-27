@@ -91,6 +91,21 @@ Here are the available options for the NixOS module (services.herald):
     * `remote_auth_pass` (str): Password for HTTP Basic Auth.
     * `filter` (list): Advanced filtering configuration.
     * `tls` (attrs): TLS configuration for HTTPS requests.
+  * `system_example` (attrs):
+    * `type` (str): "system"
+    * `hostname` (str): Short hostname to publish (default: OS hostname)
+    * `domain` (str): Domain suffix for DNS records
+    * `additional_domains` (str or list): Extra domain suffixes from the same poll
+    * `address` (str): Literal IP to publish (overrides everything)
+    * `address_file` (str): Path to a file containing an IP, re-read every poll
+    * `discover_url` (str): HTTP URL returning the public IP as plain text (for NAT hosts)
+    * `interfaces` (list): Interface name patterns (`eth0`, `zt*`, `!docker*`)
+    * `families` (list): `ipv4` and/or `ipv6` (default: `ipv4` only)
+    * `interval` (str): Poll interval (default: `"300s"`)
+    * `timeout` (str): HTTP timeout for `discover_url` (default: `"10s"`)
+    * `process_existing` (bool): Publish on startup
+    * `record_remove_on_stop` (bool): Remove the record when the address disappears
+    * `log_level` (str): Provider-specific log level override
   * `tailscale_example` (attrs):
     * `type` (str): "tailscale"
     * `api_key` (str): Tailscale API key or personal access token.

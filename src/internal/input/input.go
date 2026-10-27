@@ -10,6 +10,7 @@ import (
 	"github.com/nfrastack/herald/internal/input/types/docker"
 	"github.com/nfrastack/herald/internal/input/types/file"
 	"github.com/nfrastack/herald/internal/input/types/remote"
+	"github.com/nfrastack/herald/internal/input/types/system"
 	"github.com/nfrastack/herald/internal/input/types/tailscale"
 	"github.com/nfrastack/herald/internal/input/types/traefik"
 	"github.com/nfrastack/herald/internal/input/types/zerotier"
@@ -81,6 +82,12 @@ func NewInputProvider(inputProviderType string, providerOptions map[string]strin
 			config[k] = v
 		}
 		return docker.NewProvider(profileName, config, outputWriter, outputSyncer)
+	case "system":
+		config := make(map[string]interface{})
+		for k, v := range providerOptions {
+			config[k] = v
+		}
+		return system.NewProvider(profileName, config, outputWriter, outputSyncer)
 	case "file":
 		return file.NewProvider(providerOptions, outputWriter, outputSyncer)
 	case "remote":
@@ -92,13 +99,13 @@ func NewInputProvider(inputProviderType string, providerOptions map[string]strin
 	case "zerotier":
 		return zerotier.NewProvider(providerOptions, outputWriter, outputSyncer)
 	default:
-		availableTypes := []string{"caddy", "docker", "file", "remote", "tailscale", "traefik", "zerotier"}
+		availableTypes := []string{"caddy", "docker", "file", "remote", "system", "tailscale", "traefik", "zerotier"}
 		return nil, fmt.Errorf("unknown input provider type '%s'. Available types: %v", inputProviderType, availableTypes)
 	}
 }
 
 func GetAvailableTypes() []string {
-	return []string{"caddy", "docker", "file", "remote", "tailscale", "traefik", "zerotier"}
+	return []string{"caddy", "docker", "file", "remote", "system", "tailscale", "traefik", "zerotier"}
 }
 
 func CreateAndStartProvider(name string, inputConfig config.InputProviderConfig, domains map[string]config.DomainConfig, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {

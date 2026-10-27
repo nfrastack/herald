@@ -110,6 +110,27 @@
           ];
         };
 
+        # Host's own addresses (dynamic DNS for this machine)
+        sys_pub = {
+          type = "system";
+          hostname = "myhost";
+          domain = "example.com";
+          interfaces = [ "eth0" ];
+          families = [ "ipv4" ];
+          interval = "300s";
+          process_existing = true;
+          record_remove_on_stop = true;
+        };
+
+        # Host's public IP from behind NAT (WAN discovery)
+        sys_wan = {
+          type = "system";
+          hostname = "myhost";
+          domain = "example.com";
+          discover_url = "https://api.ipify.org";
+          families = [ "ipv4" ];
+        };
+
         # ZeroTier network members
         zerotier_network = {
           type = "zerotier";

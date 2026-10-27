@@ -9,6 +9,7 @@
     - (input/docker) add api_auth_user/api_auth_pass basic auth support
     - (input/docker) and api_header_* custom headers
     - (input/docker) add resync_interval for periodic output resync
+    - (input/system) add new provider to collect system interface addresses
     - (input/tailscale) support additional_domains
     - (input/zerotier) support additional_domains
     - (output/dns) allow blocking private ip ranges records from registering on public dns
