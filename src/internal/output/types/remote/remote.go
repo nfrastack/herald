@@ -18,10 +18,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type RemoteFormat struct {
+	mu         sync.Mutex
 	url        string
 	clientID   string
 	token      string
@@ -204,6 +206,8 @@ func (r *RemoteFormat) WriteRecord(domain, hostname, target, recordType string, 
 func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
 	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if _, ok := r.firstSeen[key]; !ok {
 		r.firstSeen[key] = time.Now().UTC()
 	}
@@ -225,6 +229,8 @@ func (r *RemoteFormat) WriteRecordWithSource(domain, hostname, target, recordTyp
 
 func (r *RemoteFormat) RemoveRecord(domain, hostname, recordType string) error {
 	key := fmt.Sprintf("%s:%s:%s", domain, hostname, recordType)
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	delete(r.firstSeen, key)
 	if rec, exists := r.records[key]; exists {
 		delete(r.records, key)
@@ -242,6 +248,8 @@ func (r *RemoteFormat) RemoveRecord(domain, hostname, recordType string) error {
 }
 
 func (r *RemoteFormat) Sync() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	additionsByDomain := make(map[string][]*RemoteRecord)
 	for _, record := range r.records {
