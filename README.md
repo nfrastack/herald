@@ -1297,6 +1297,7 @@ Shared options for every DNS provider:
 |                | server_id,                           |                                            |
 |                | tls.ca/cert/key/skip_verify          |                                            |
 | `rfc2136`      | server, key_name + key_secret        | RFC 2136 dynamic updates always UPDATEs    |
+|                |                                      | `update_existing` `overwrite` do not work  |
 | `route53`      | access_key, secret_key,              |                                            |
 |                | session_token, region                |                                            |
 | `spaceship`    | api_key, api_secret                  |                                            |
