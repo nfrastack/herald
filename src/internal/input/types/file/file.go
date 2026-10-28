@@ -82,7 +82,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	logPrefix := common.BuildLogPrefix("file", parsed.Name)
 	source := common.ReadFileValue(options["source"])
 	if source == "" {
-		log.NewScopedLogger("", "").With("action", "config.error", "provider", parsed.Name).Error("option (file path) is required")
+		log.NewScopedLogger("[input/file]", "").With("action", "config.error", "provider", parsed.Name).Error("option (file path) is required")
 		return nil, fmt.Errorf("%s source option (file path) is required", logPrefix)
 	}
 
@@ -95,7 +95,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		log.NewScopedLogger("", "").With("action", "input.filter", "provider", parsed.Name).Debug("creating filter configuration: %v, using default", err)
+		log.NewScopedLogger("[input/file]", "").With("action", "input.filter", "provider", parsed.Name).Debug("creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
@@ -126,15 +126,15 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 				finalInterval = d
 				watchMode = false
 			} else {
-				log.NewScopedLogger("", "").With("action", "config.load", "provider", parsed.Name).Warn("interval '%s', using default: watchMode=true", v)
+				log.NewScopedLogger("[input/file]", "").With("action", "config.load", "provider", parsed.Name).Warn("interval '%s', using default: watchMode=true", v)
 			}
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if watchMode {
-		log.NewScopedLogger("", "").With("action", "provider.init", "provider", parsed.Name).Info("file provider: source=%s, format=%s, watchMode=%v", source, format, watchMode)
+		log.NewScopedLogger("[input/file]", "").With("action", "provider.init", "provider", parsed.Name).Info("file provider: source=%s, format=%s, watchMode=%v", source, format, watchMode)
 	} else {
-		log.NewScopedLogger("", "").With("action", "provider.init", "provider", parsed.Name).Info("file provider: source=%s, format=%s, interval=%v, watchMode=%v", source, format, finalInterval, watchMode)
+		log.NewScopedLogger("[input/file]", "").With("action", "provider.init", "provider", parsed.Name).Info("file provider: source=%s, format=%s, interval=%v, watchMode=%v", source, format, finalInterval, watchMode)
 	}
 	logLevel := options["log_level"] // Get provider-specific log level
 

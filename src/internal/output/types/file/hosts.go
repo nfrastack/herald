@@ -92,7 +92,7 @@ func NewHostsFormat(domainArg, profileName string, config map[string]interface{}
 		enableIPv4:   hostsConfig.EnableIPv4,
 		enableIPv6:   hostsConfig.EnableIPv6,
 	}
-	log.NewScopedLogger("", "").With("action", "provider.init").Debug("[output/hosts/%s] hosts format: %s (domain=%s)", profileName, h.GetFilePath(), h.domain)
+	log.NewScopedLogger("[output/file]", "").With("action", "provider.init").Debug("[output/hosts/%s] hosts format: %s (domain=%s)", profileName, h.GetFilePath(), h.domain)
 
 	return h, nil
 }
@@ -118,18 +118,18 @@ func (h *HostsFormat) WriteRecord(domain, hostname, target, recordType string, t
 
 func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
 	start := time.Now().UnixMilli()
-	log.NewScopedLogger("", "").With("action", "record.create").Debug("%s domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", h.getHostsLogPrefix(), domain, hostname, target, recordType, ttl, source)
+	log.NewScopedLogger("[output/file]", "").With("action", "record.create").Debug("%s domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", h.getHostsLogPrefix(), domain, hostname, target, recordType, ttl, source)
 	defer func() {
 		dur := time.Now().UnixMilli() - start
-		log.NewScopedLogger("", "").With("action", "record.create").Debug("%s domain=%s, hostname=%s, type=%s, records_now=%d, dur_ms=%d", h.getHostsLogPrefix(), domain, hostname, recordType, len(h.records), dur)
+		log.NewScopedLogger("[output/file]", "").With("action", "record.create").Debug("%s domain=%s, hostname=%s, type=%s, records_now=%d, dur_ms=%d", h.getHostsLogPrefix(), domain, hostname, recordType, len(h.records), dur)
 		if dur > 5000 {
-			log.NewScopedLogger("", "").With("action", "record.create").Warn("%s took too long: %d ms (>5s)", h.getHostsLogPrefix(), dur)
+			log.NewScopedLogger("[output/file]", "").With("action", "record.create").Warn("%s took too long: %d ms (>5s)", h.getHostsLogPrefix(), dur)
 		}
 	}()
 
 	if recordType == "CNAME" {
 		if !h.config.FlattenCNAMEs {
-			log.NewScopedLogger("", "").With("action", "record.skip").Debug("%s CNAME flattening (disabled): %s.%s -> %s", h.getHostsLogPrefix(), hostname, domain, target)
+			log.NewScopedLogger("[output/file]", "").With("action", "record.skip").Debug("%s CNAME flattening (disabled): %s.%s -> %s", h.getHostsLogPrefix(), hostname, domain, target)
 			return nil
 		}
 		ip, err := h.resolveCNAMEOutsideLock(domain, hostname, target, ttl, source)
@@ -141,7 +141,7 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 			key := fmt.Sprintf("%s:%s", hostname, ip.Type)
 			h.records[key] = ip
 			h.Unlock()
-			log.NewScopedLogger("", "").With("action", "record.create").Verbose("%s CNAME: %s.%s -> %s (%s)", h.getHostsLogPrefix(), hostname, domain, ip.Target, ip.Type)
+			log.NewScopedLogger("[output/file]", "").With("action", "record.create").Verbose("%s CNAME: %s.%s -> %s (%s)", h.getHostsLogPrefix(), hostname, domain, ip.Target, ip.Type)
 		}
 		return nil
 	}
@@ -190,7 +190,7 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 	if h.CommonFormat != nil {
 		err := h.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
 		if err != nil {
-			log.NewScopedLogger("", "").With("action", "output.write").Warn("[output/hosts] CommonFormat export update failed: %v", err)
+			log.NewScopedLogger("[output/file]", "").With("action", "output.write").Warn("[output/hosts] CommonFormat export update failed: %v", err)
 		}
 	}
 
@@ -290,7 +290,7 @@ func (h *HostsFormat) resolveCNAMEOutsideLock(domain, hostname, target string, t
 }
 
 func (h *HostsFormat) resolveWithExternalDNS(target, dnsServer string) (net.IP, error) {
-	log.NewScopedLogger("", "").With("action", "domain.route").Debug("%s resolving %s using external DNS server %s", h.getHostsLogPrefix(), target, dnsServer)
+	log.NewScopedLogger("[output/file]", "").With("action", "domain.route").Debug("%s resolving %s using external DNS server %s", h.getHostsLogPrefix(), target, dnsServer)
 
 	c := new(dns.Client)
 	m := new(dns.Msg)
@@ -312,7 +312,7 @@ func (h *HostsFormat) resolveWithExternalDNS(target, dnsServer string) (net.IP, 
 			}
 		}
 	}
-	log.NewScopedLogger("", "").With("action", "domain.route").Warn("%s external DNS lookup failed, falling back to system resolver", h.getHostsLogPrefix())
+	log.NewScopedLogger("[output/file]", "").With("action", "domain.route").Warn("%s external DNS lookup failed, falling back to system resolver", h.getHostsLogPrefix())
 	ips, err := net.LookupIP(target)
 	if err != nil {
 		return nil, err
@@ -329,15 +329,15 @@ func (h *HostsFormat) resolveWithExternalDNS(target, dnsServer string) (net.IP, 
 
 func (h *HostsFormat) RemoveRecord(domain, hostname, recordType string) error {
 	start := time.Now().UnixMilli()
-	log.NewScopedLogger("", "").With("action", "output.remove").Debug("%s acquiring lock in RemoveRecord", h.getHostsLogPrefix())
+	log.NewScopedLogger("[output/file]", "").With("action", "output.remove").Debug("%s acquiring lock in RemoveRecord", h.getHostsLogPrefix())
 	h.Lock()
-	log.NewScopedLogger("", "").With("action", "output.remove").Debug("%s lock acquired in RemoveRecord", h.getHostsLogPrefix())
+	log.NewScopedLogger("[output/file]", "").With("action", "output.remove").Debug("%s lock acquired in RemoveRecord", h.getHostsLogPrefix())
 	defer func() {
 		h.Unlock()
 		dur := time.Now().UnixMilli() - start
-		log.NewScopedLogger("", "").With("action", "output.remove").Trace("%s lock released in RemoveRecord (lock_held_ms=%d)", h.getHostsLogPrefix(), dur)
+		log.NewScopedLogger("[output/file]", "").With("action", "output.remove").Trace("%s lock released in RemoveRecord (lock_held_ms=%d)", h.getHostsLogPrefix(), dur)
 		if dur > 5000 {
-			log.NewScopedLogger("", "").With("action", "output.remove").Warn("%s lock held for %d ms (>5s)!", h.getHostsLogPrefix(), dur)
+			log.NewScopedLogger("[output/file]", "").With("action", "output.remove").Warn("%s lock held for %d ms (>5s)!", h.getHostsLogPrefix(), dur)
 		}
 	}()
 
@@ -347,12 +347,12 @@ func (h *HostsFormat) RemoveRecord(domain, hostname, recordType string) error {
 		if _, exists := h.records[key]; exists {
 			delete(h.records, key)
 			fqdn := hostname + "." + domain
-			log.NewScopedLogger("", "").With("action", "output.remove").Verbose("%s record: %s (%s)", h.getHostsLogPrefix(), fqdn, t)
+			log.NewScopedLogger("[output/file]", "").With("action", "output.remove").Verbose("%s record: %s (%s)", h.getHostsLogPrefix(), fqdn, t)
 			removed = true
 		}
 	}
 	if !removed {
-		log.NewScopedLogger("", "").With("action", "output.remove").Debug("%s no record to remove for hostname=%s, domain=%s", h.getHostsLogPrefix(), hostname, domain)
+		log.NewScopedLogger("[output/file]", "").With("action", "output.remove").Debug("%s no record to remove for hostname=%s, domain=%s", h.getHostsLogPrefix(), hostname, domain)
 	}
 
 	return nil
@@ -361,19 +361,19 @@ func (h *HostsFormat) RemoveRecord(domain, hostname, recordType string) error {
 func (h *HostsFormat) Sync() error {
 	key := h.domain + "|" + h.profileName + "|hosts" // Use profileName for re-entrancy guard
 	if _, loaded := hostsReentrancyGuard.LoadOrStore(key, true); loaded {
-		log.NewScopedLogger("", "").With("action", "sync.skip").Warn("%s re-entrancy detected for key=%s, skipping", h.getHostsLogPrefix(), key)
+		log.NewScopedLogger("[output/file]", "").With("action", "sync.skip").Warn("%s re-entrancy detected for key=%s, skipping", h.getHostsLogPrefix(), key)
 		return nil
 	}
 	defer hostsReentrancyGuard.Delete(key)
 
-	log.NewScopedLogger("", "").With("action", "sync.start").Debug("%s sync: domain=%s, profile=%s, file=%s, records=%d", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), len(h.records))
-	log.NewScopedLogger("", "").With("action", "output.write").Debug("%s writing file: %s", h.getHostsLogPrefix(), h.GetFilePath())
+	log.NewScopedLogger("[output/file]", "").With("action", "sync.start").Debug("%s sync: domain=%s, profile=%s, file=%s, records=%d", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), len(h.records))
+	log.NewScopedLogger("[output/file]", "").With("action", "output.write").Debug("%s writing file: %s", h.getHostsLogPrefix(), h.GetFilePath())
 
 	err := h.CommonFormat.SyncWithSerializer(h.serializeHosts, h.domain)
 	if err != nil {
-		log.NewScopedLogger("", "").With("action", "sync.fail").Error("%s sync failed for domain=%s, profile=%s, file=%s: %v", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), err)
+		log.NewScopedLogger("[output/file]", "").With("action", "sync.fail").Error("%s sync failed for domain=%s, profile=%s, file=%s: %v", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), err)
 	} else {
-		log.NewScopedLogger("", "").With("action", "sync.done").Info("%s sync done for domain=%s, profile=%s, file=%s, records=%d", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), len(h.records))
+		log.NewScopedLogger("[output/file]", "").With("action", "sync.done").Info("%s sync done for domain=%s, profile=%s, file=%s, records=%d", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), len(h.records))
 	}
 	return err
 }
@@ -392,7 +392,7 @@ func (h *HostsFormat) generateHostsFile(domain string, export *common.ExportData
 	if export != nil && export.Domains != nil {
 		domainsLen = len(export.Domains)
 	}
-	log.NewScopedLogger("", "").With("action", "output.write").Debug("[output/hosts] generate file for domain=%s, export.Domains.len=%d, h.records.len=%d", domain, domainsLen, recordsLen)
+	log.NewScopedLogger("[output/file]", "").With("action", "output.write").Debug("[output/hosts] generate file for domain=%s, export.Domains.len=%d, h.records.len=%d", domain, domainsLen, recordsLen)
 	var content strings.Builder
 	estimatedSize := len(h.records)*80 + 500 // Rough estimate
 	content.Grow(estimatedSize)

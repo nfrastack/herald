@@ -64,20 +64,20 @@ func NewProvider(profileName string, config map[string]interface{}, outputWriter
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		log.NewScopedLogger("", "").With("action", "config.error", "provider", parsed.Name).Debug("filter configuration: %v, using default", err)
+		log.NewScopedLogger("[input/caddy]", "").With("action", "config.error", "provider", parsed.Name).Debug("filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 
 	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone)
 
 	if hasActiveFilters {
-		log.NewScopedLogger("", "").With("action", "input.filter", "provider", parsed.Name).Debug("configuration: %d active filters", len(filterConfig.Filters))
+		log.NewScopedLogger("[input/caddy]", "").With("action", "input.filter", "provider", parsed.Name).Debug("configuration: %d active filters", len(filterConfig.Filters))
 		for i, f := range filterConfig.Filters {
-			log.NewScopedLogger("", "").With("action", "input.filter", "provider", parsed.Name).Debug("filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v",
+			log.NewScopedLogger("[input/caddy]", "").With("action", "input.filter", "provider", parsed.Name).Debug("filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v",
 				i, f.Type, f.Value, f.Operation, f.Negate)
 		}
 	} else {
-		log.NewScopedLogger("", "").With("action", "input.filter", "provider", parsed.Name).Debug("no filters configured, processing all routes")
+		log.NewScopedLogger("[input/caddy]", "").With("action", "input.filter", "provider", parsed.Name).Debug("no filters configured, processing all routes")
 	}
 
 	scopedLogger := common.CreateScopedLogger("caddy", parsed.Name, options)

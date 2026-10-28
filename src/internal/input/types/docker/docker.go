@@ -408,9 +408,9 @@ func NewProviderFromStructured(options map[string]interface{}, outputWriter doma
 	}
 
 	if tlsConfig.HasCustomCerts() {
-		log.NewScopedLogger("", "").With("action", "tls.load", "provider", profileName).Debug("custom TLS certificates configured (verify=%t)", tlsConfig.Verify)
+		log.NewScopedLogger("[input/docker]", "").With("action", "tls.load", "provider", profileName).Debug("custom TLS certificates configured (verify=%t)", tlsConfig.Verify)
 	} else if !tlsConfig.Verify {
-		log.NewScopedLogger("", "").With("action", "tls.skip", "provider", profileName).Warn("verification disabled - ensure your Docker daemon is secure")
+		log.NewScopedLogger("[input/docker]", "").With("action", "tls.skip", "provider", profileName).Warn("verification disabled - ensure your Docker daemon is secure")
 	}
 
 	scopedLogger := common.CreateScopedLogger("docker", profileName, stringOptions)

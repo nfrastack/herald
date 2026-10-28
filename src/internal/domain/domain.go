@@ -57,16 +57,16 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 				domainConfig = config
 				domainConfigKey = key
 				found = true
-				log.NewScopedLogger("", "").With("action", "domain.match", "domain", domain, "config", key, "input", inputProviderName).Debug("domain config for input provider")
+				log.NewScopedLogger("[domain]", "").With("action", "domain.match", "domain", domain, "config", key, "input", inputProviderName).Debug("domain config for input provider")
 				break
 			} else {
-				log.NewScopedLogger("", "").With("action", "domain.skip", "domain", domain, "config", key, "input", inputProviderName).Debug("config does not allow input provider")
+				log.NewScopedLogger("[domain]", "").With("action", "domain.skip", "domain", domain, "config", key, "input", inputProviderName).Debug("config does not allow input provider")
 			}
 		}
 	}
 
 	if !found {
-		log.NewScopedLogger("", "").With("action", "domain.skip", "domain", domain, "input", inputProviderName).Debug("no domain config for input provider on domain '%s'", fqdn)
+		log.NewScopedLogger("[domain]", "").With("action", "domain.skip", "domain", domain, "input", inputProviderName).Debug("no domain config for input provider on domain '%s'", fqdn)
 		return nil // Not an error - just filtered out
 	}
 
@@ -79,7 +79,7 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 
 	recordType := state.RecordType
 	target := ""
-	dlog := log.NewScopedLogger("", "").With("domain", domain, "config", domainConfigKey, "input", inputProviderName)
+	dlog := log.NewScopedLogger("[domain]", "").With("domain", domain, "config", domainConfigKey, "input", inputProviderName)
 
 	dlog.With("action", "state.load").Debug("state: RecordType='%s', Service='%s'", recordType, state.Service)
 
@@ -195,16 +195,16 @@ func EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn string, state Router
 				domainConfig = config
 				domainConfigKey = key
 				found = true
-				log.NewScopedLogger("", "").With("action", "record.delete", "domain", domain, "config", key, "input", inputProviderName).Debug("domain config for input provider (removal)")
+				log.NewScopedLogger("[domain]", "").With("action", "record.delete", "domain", domain, "config", key, "input", inputProviderName).Debug("domain config for input provider (removal)")
 				break
 			} else {
-				log.NewScopedLogger("", "").With("action", "record.skip", "domain", domain, "config", key, "input", inputProviderName).Debug("config does not allow input provider (removal)")
+				log.NewScopedLogger("[domain]", "").With("action", "record.skip", "domain", domain, "config", key, "input", inputProviderName).Debug("config does not allow input provider (removal)")
 			}
 		}
 	}
 
 	if !found {
-		log.NewScopedLogger("", "").With("action", "record.skip", "domain", domain, "input", inputProviderName).Error("no domain config for '%s'", fqdn)
+		log.NewScopedLogger("[domain]", "").With("action", "record.skip", "domain", domain, "input", inputProviderName).Error("no domain config for '%s'", fqdn)
 		return fmt.Errorf("no domain config for %s", fqdn)
 	}
 

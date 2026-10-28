@@ -94,7 +94,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
 	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
 	if err != nil {
-		log.NewScopedLogger("", "").With("action", "input.filter", "provider", parsed.Name).Debug("creating filter configuration: %v, using default", err)
+		log.NewScopedLogger("[input/remote]", "").With("action", "input.filter", "provider", parsed.Name).Debug("creating filter configuration: %v, using default", err)
 		filterConfig = common.DefaultFilterConfig()
 	}
 

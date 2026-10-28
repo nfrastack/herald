@@ -40,32 +40,32 @@ func parseStringArray(value interface{}) []string {
 }
 
 func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles, outputProfiles, dnsProviders map[string]interface{}, allowMissingOutputs bool) error {
-	log.NewScopedLogger("", "").With("action", "config.load").Debug("domain configs received: %+v", domainConfigs)
+	log.NewScopedLogger("[domain]", "").With("action", "config.load").Debug("domain configs received: %+v", domainConfigs)
 
 	domains := make(map[string]*DomainConfig)
 	for domainName, configRaw := range domainConfigs {
-		log.NewScopedLogger("", "").With("action", "config.load", "domain", domainName).Debug("raw config: %+v", configRaw)
+		log.NewScopedLogger("[domain]", "").With("action", "config.load", "domain", domainName).Debug("raw config: %+v", configRaw)
 
 		domainConfig := &DomainConfig{
 			Name: domainName,
 		}
 
 		if configMap, ok := configRaw.(map[string]interface{}); ok {
-			log.NewScopedLogger("", "").With("action", "config.load", "domain", domainName).Debug("config is map: %+v", configMap)
+			log.NewScopedLogger("[domain]", "").With("action", "config.load", "domain", domainName).Debug("config is map: %+v", configMap)
 
 			if name, ok := configMap["name"].(string); ok {
 				domainConfig.Name = name
-				log.NewScopedLogger("", "").With("action", "config.load", "domain", domainName).Debug("name: %s", name)
+				log.NewScopedLogger("[domain]", "").With("action", "config.load", "domain", domainName).Debug("name: %s", name)
 			}
 
 			if provider, ok := configMap["provider"].(string); ok {
 				domainConfig.Provider = provider
-				log.NewScopedLogger("", "").With("action", "config.load", "domain", domainName).Debug("provider: %s", provider)
+				log.NewScopedLogger("[domain]", "").With("action", "config.load", "domain", domainName).Debug("provider: %s", provider)
 			}
 
 			if logLevel, ok := configMap["log_level"].(string); ok {
 				domainConfig.LogLevel = logLevel
-				log.NewScopedLogger("", "").With("action", "config.load", "domain", domainName).Debug("log_level: %s", logLevel)
+				log.NewScopedLogger("[domain]", "").With("action", "config.load", "domain", domainName).Debug("log_level: %s", logLevel)
 			}
 
 			if profilesRaw, ok := configMap["profiles"]; ok {
@@ -73,17 +73,17 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 					domainConfig.Profiles = &DomainProfiles{}
 					if inputsRaw, ok := profilesMap["inputs"]; ok {
 						domainConfig.Profiles.Inputs = parseStringArray(inputsRaw)
-						log.NewScopedLogger("", "").With("action", "config.load", "domain", domainName).Debug("profiles.inputs: %v", domainConfig.Profiles.Inputs)
+						log.NewScopedLogger("[domain]", "").With("action", "config.load", "domain", domainName).Debug("profiles.inputs: %v", domainConfig.Profiles.Inputs)
 					}
 					if outputsRaw, ok := profilesMap["outputs"]; ok {
 						domainConfig.Profiles.Outputs = parseStringArray(outputsRaw)
-						log.NewScopedLogger("", "").With("action", "config.load", "domain", domainName).Debug("profiles.outputs: %v", domainConfig.Profiles.Outputs)
+						log.NewScopedLogger("[domain]", "").With("action", "config.load", "domain", domainName).Debug("profiles.outputs: %v", domainConfig.Profiles.Outputs)
 					}
 				}
 			}
 
 			if recordRaw, ok := configMap["record"].(map[string]interface{}); ok {
-				log.NewScopedLogger("", "").With("action", "config.load", "domain", domainName).Debug("record config: %+v", recordRaw)
+				log.NewScopedLogger("[domain]", "").With("action", "config.load", "domain", domainName).Debug("record config: %+v", recordRaw)
 				if recordType, ok := recordRaw["type"].(string); ok {
 					domainConfig.Record.Type = recordType
 				} else {
@@ -106,11 +106,11 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 				}
 			}
 		} else {
-			log.NewScopedLogger("", "").With("action", "config.error", "domain", domainName).Debug("not a map, type: %T, value: %+v", configRaw, configRaw)
+			log.NewScopedLogger("[domain]", "").With("action", "config.error", "domain", domainName).Debug("not a map, type: %T, value: %+v", configRaw, configRaw)
 		}
 
 		domains[domainName] = domainConfig
-		log.NewScopedLogger("", "").With("action", "config.load").Debug("parsed domain '%s': provider='%s', profiles.inputs=%v, profiles.outputs=%v",
+		log.NewScopedLogger("[domain]", "").With("action", "config.load").Debug("parsed domain '%s': provider='%s', profiles.inputs=%v, profiles.outputs=%v",
 			domainName, domainConfig.Provider,
 			func() []string {
 				if domainConfig.Profiles != nil {
@@ -124,7 +124,7 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 				}
 				return nil
 			}())
-		log.NewScopedLogger("", "").With("action", "config.load").Verbose("domain config for '%s' (provider: %s, effective_inputs: %v, effective_outputs: %v)",
+		log.NewScopedLogger("[domain]", "").With("action", "config.load").Verbose("domain config for '%s' (provider: %s, effective_inputs: %v, effective_outputs: %v)",
 			domainName, domainConfig.Provider, domainConfig.GetInputProfiles(), domainConfig.GetOutputs())
 	}
 
@@ -159,28 +159,28 @@ func ProcessRecordWithDomainValidation(inputProviderName, domainName, hostname, 
 	}
 
 	if !found {
-		log.NewScopedLogger("", "").With("action", "domain.skip", "domain", domainName, "input", inputProviderName).Trace("no domain config for input provider")
+		log.NewScopedLogger("[domain]", "").With("action", "domain.skip", "domain", domainName, "input", inputProviderName).Trace("no domain config for input provider")
 		return nil // Not an error, just filtered out
 	}
 
 	if !GlobalDomainManager.ValidateInputProviderAccess(domainConfigKey, inputProviderName) {
-		log.NewScopedLogger("", "").With("action", "domain.skip", "domain", domainName, "input", inputProviderName, "config", domainConfigKey).Trace("not allowed for domain config key")
+		log.NewScopedLogger("[domain]", "").With("action", "domain.skip", "domain", domainName, "input", inputProviderName, "config", domainConfigKey).Trace("not allowed for domain config key")
 		return nil // Not an error, just filtered out
 	}
 
-	log.NewScopedLogger("", "").With("action", "record.sync", "domain", domainName, "input", inputProviderName).Trace("record: %s.%s (%s) -> %s", hostname, domainName, recordType, target)
+	log.NewScopedLogger("[domain]", "").With("action", "record.sync", "domain", domainName, "input", inputProviderName).Trace("record: %s.%s (%s) -> %s", hostname, domainName, recordType, target)
 	proxiedFlag := domainConfig.Record.Proxied
 	if domainConfig.Record.Proxied {
-		log.NewScopedLogger("", "").With("action", "record.sync", "config", domainConfigKey).Debug("set from record config (record.proxied=true)")
+		log.NewScopedLogger("[domain]", "").With("action", "record.sync", "config", domainConfigKey).Debug("set from record config (record.proxied=true)")
 	} else {
-		log.NewScopedLogger("", "").With("action", "record.sync", "config", domainConfigKey).Trace("not set for this domain/record")
+		log.NewScopedLogger("[domain]", "").With("action", "record.sync", "config", domainConfigKey).Trace("not set for this domain/record")
 	}
 
 	outputManager := output.GetOutputManager()
 	if outputManager != nil {
 		err := outputManager.WriteRecordWithSourceAndDomainFilter(domainConfigKey, domainName, hostname, target, recordType, ttl, inputProviderName, proxiedFlag, false, GlobalDomainManager)
 		if err != nil {
-			log.NewScopedLogger("", "").With("action", "output.write", "domain", domainName, "input", inputProviderName).Error("to output profiles: %v", err)
+			log.NewScopedLogger("[domain]", "").With("action", "output.write", "domain", domainName, "input", inputProviderName).Error("to output profiles: %v", err)
 			return err
 		}
 	}
@@ -242,14 +242,14 @@ func ValidateAllDomainReferences() error {
 
 	allDomains := GlobalDomainManager.GetAllDomains()
 	for domainKey, domainConfig := range allDomains {
-		log.NewScopedLogger("", "").With("action", "config.validate", "domain", domainKey).Debug("domain with name '%s'", domainConfig.Name)
+		log.NewScopedLogger("[domain]", "").With("action", "config.validate", "domain", domainKey).Debug("domain with name '%s'", domainConfig.Name)
 
 		for _, inputProvider := range domainConfig.GetInputProfiles() {
-			log.NewScopedLogger("", "").With("action", "domain.route", "domain", domainKey).Debug("references input provider '%s'", inputProvider)
+			log.NewScopedLogger("[domain]", "").With("action", "domain.route", "domain", domainKey).Debug("references input provider '%s'", inputProvider)
 		}
 
 		for _, outputProfile := range domainConfig.GetOutputs() {
-			log.NewScopedLogger("", "").With("action", "domain.route", "domain", domainKey).Debug("references output profile '%s'", outputProfile)
+			log.NewScopedLogger("[domain]", "").With("action", "domain.route", "domain", domainKey).Debug("references output profile '%s'", outputProfile)
 		}
 	}
 

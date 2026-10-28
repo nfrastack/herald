@@ -133,6 +133,9 @@ func NewScopedLogger(prefix, logLevel string) *ScopedLogger {
 }
 
 func newScoped(prefix string, level *slog.LevelVar) *ScopedLogger {
+	if len(prefix) > 2 && strings.HasPrefix(prefix, "[") && strings.HasSuffix(prefix, "]") {
+		prefix = prefix[1 : len(prefix)-1]
+	}
 	logger := GetLogger().slogLogger()
 	var attrs []slog.Attr
 	if prefix != "" {
@@ -144,7 +147,7 @@ func newScoped(prefix string, level *slog.LevelVar) *ScopedLogger {
 
 func (sl *ScopedLogger) With(keyvals ...interface{}) *ScopedLogger {
 	if sl == nil {
-		return NewScopedLogger("", "")
+		return NewScopedLogger("[log]", "")
 	}
 	return &ScopedLogger{
 		prefix: sl.prefix,
@@ -383,7 +386,9 @@ func (h *plainHandler) Handle(_ context.Context, r slog.Record) error {
 	})
 	if scope != "" {
 		b.WriteByte(' ')
+		b.WriteByte('[')
 		b.WriteString(scope)
+		b.WriteByte(']')
 	}
 	if action != "" {
 		b.WriteByte(' ')
