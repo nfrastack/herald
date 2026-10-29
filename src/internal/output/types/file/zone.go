@@ -469,8 +469,8 @@ func (z *ZoneFormat) loadManagedRecordsFromFile(domain, filePath string) error {
 			Source:   "manual", // Default source for records without comments
 		}
 
-		if idx := strings.Index(line, "; input: "); idx != -1 {
-			source := strings.TrimSpace(line[idx+9:])
+		if idx := strings.LastIndex(line, "input: "); idx != -1 {
+			source := strings.TrimSpace(line[idx+7:])
 			if i := strings.Index(source, " "); i != -1 {
 				source = source[:i]
 			}
