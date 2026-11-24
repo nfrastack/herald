@@ -6,13 +6,13 @@
     let
       heraldVersion = "3.0.0beta";
 
-      goVersion = "1.26.10";
+      goVersion = "1.27.4";
 
       goMajorMinor = nixpkgs.lib.versions.majorMinor goVersion;
       goAttr = "go_${nixpkgs.lib.replaceStrings ["."] ["_"] goMajorMinor}";
       goBuilder = "buildGo${nixpkgs.lib.replaceStrings ["."] [""] goMajorMinor}Module";
 
-      goOverrideHash = "sha256-/WPog7ovK/ypPBZGsx6+9j4rHk0rMXyXidl2po2B828=";
+      goOverrideHash = "sha256-c8+4VxrsDAEXdofbhxY9Rqog6XeWcncokaoXZU2aYJk=";
 
       supportedSystems = [
         "x86_64-linux"
@@ -86,7 +86,7 @@
               "-X main.BuildTime=${buildDateStr}"
             ];
 
-            vendorHash = "sha256-lrD26rsri9Rzw7ddi1WACUq0NvBc+fr0f7I1K/OV9Co=";
+            vendorHash = "sha256-ZfPOxr/FV45tuH44O/ZzbD+1jeJ4VXpBvK+AFAULpmc=";
           };
           default = self.packages.${system}.herald;
         });

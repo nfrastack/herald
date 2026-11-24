@@ -10,7 +10,7 @@ permissions:
   packages: write
 
 env:
-  GO_VERSION: '1.26.10'
+  GO_VERSION: '1.27.4'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,8 +26,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { goos: linux, goarch: amd64 }
-          - { goos: linux, goarch: arm64 }
+          - {goos: linux, goarch: amd64}
+          - {goos: linux, goarch: arm64}
           #- { goos: darwin, goarch: amd64 }
           #- { goos: darwin, goarch: arm64 }
           #- { goos: freebsd, goarch: amd64 }
@@ -53,14 +53,21 @@ jobs:
           CHANNEL=stable
           SUFFIX=""
           if [ "${{ matrix.goos }}" = "windows" ]; then SUFFIX=".exe"; fi
-          if echo "${{ github.ref_name }}" | grep -qiE '[-._]?(beta|rc|pre|preview)[-._]?[0-9]*$|(b|rc)[0-9]+$'; then
+          if echo "${{ github.ref_name }}" | grep -qiE \
+            '[-._]?(beta|rc|pre|preview)[-._]?[0-9]*$|(b|rc)[0-9]+$'; then
             CHANNEL=beta
           fi
           COMMIT=$(git rev-parse --short=7 HEAD)
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            go build -trimpath -ldflags "-s -w -X main.Version=${{ github.ref_name }} -X main.buildChannel=${CHANNEL} -X main.buildCommit=${COMMIT} -X main.BuildTime=${BUILD_DATE}" \
-            -o ../herald_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}${SUFFIX} ./cmd/herald
+            OUT=../herald_${{ github.ref_name }}
+            OUT=${OUT}_${{ matrix.goos }}_${{ matrix.goarch }}${SUFFIX}
+            go build -trimpath \
+              -ldflags "-s -w -X main.Version=${{ github.ref_name }} \
+              -X main.buildChannel=${CHANNEL} -X main.buildCommit=${COMMIT} \
+              -X main.BuildTime=${BUILD_DATE}" \
+              -o "$OUT" \
+              ./cmd/herald
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v7
@@ -106,6 +113,6 @@ jobs:
     needs: [build]
     uses: ./.github/workflows/container-build.yml
     with:
-      base_image: docker.io/nfrastack/base:alpine_3.23
+      base_image: docker.io/nfrastack/base:alpine_3.24
       platforms: linux/amd64,linux/arm64
     secrets: inherit
