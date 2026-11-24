@@ -469,7 +469,9 @@ func expandSecretList(values []string) []string {
 
 func generateConnectionID() string {
 	bytes := make([]byte, 4)
-	rand.Read(bytes)
+	if n, err := rand.Read(bytes); err != nil || n != len(bytes) {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
 	return hex.EncodeToString(bytes)
 }
 
@@ -950,7 +952,9 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 			return fmt.Errorf("TLS configuration requires both cert and key")
 		}
 
-		tlsConfig := &tls.Config{}
+		tlsConfig := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
 
 		if apiConfig.TLS.CA != "" {
 			caCert, err := os.ReadFile(apiConfig.TLS.CA)

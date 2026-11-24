@@ -153,6 +153,7 @@ func buildRemoteTLSConfig(value any) (*tls.Config, error) {
 
 	cfg := &tls.Config{
 		InsecureSkipVerify: !verify,
+		MinVersion:         tls.VersionTLS12,
 	}
 
 	if raw, ok := tlsMap["ca"]; ok && raw != nil {

@@ -42,6 +42,7 @@
     - properly parse ipv6 addresses
     - structured logging
     - fix --dry-run from ever writing
+    - stop supporting tls<1.2
     - (api) add shareable_writes capability to write to whole zone
     - (api) gracefully stop server and flush states on shutdown
     - (api) scope client uploads to allowed domains
