@@ -109,7 +109,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		profileName = "zerotier"
 	}
 
-	structuredOptions := make(map[string]interface{})
+	structuredOptions := make(map[string]any)
 	for key, value := range options {
 		structuredOptions[key] = value
 	}
@@ -331,12 +331,12 @@ func shortHostname(entry DNSEntry, primaryDomain string) string {
 		if name == primaryDomain {
 			return "@"
 		}
-		if strings.HasSuffix(name, "."+primaryDomain) {
-			return strings.TrimSuffix(name, "."+primaryDomain)
+		if before, ok := strings.CutSuffix(name, "."+primaryDomain); ok {
+			return before
 		}
 	}
-	if idx := strings.Index(name, "."); idx != -1 {
-		return name[:idx]
+	if before, _, ok := strings.Cut(name, "."); ok {
+		return before
 	}
 	return name
 }
@@ -742,7 +742,7 @@ func (sa *StringArray) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 
-	var arr []interface{}
+	var arr []any
 	if err := json.Unmarshal(b, &arr); err == nil {
 		out := make([]string, 0, len(arr))
 		for _, el := range arr {
@@ -755,7 +755,7 @@ func (sa *StringArray) UnmarshalJSON(b []byte) error {
 				} else {
 					out = append(out, fmt.Sprintf("%v", v))
 				}
-			case []interface{}:
+			case []any:
 				if len(v) >= 2 {
 					a := formatInterfaceValue(v[0])
 					b := formatInterfaceValue(v[1])
@@ -774,7 +774,7 @@ func (sa *StringArray) UnmarshalJSON(b []byte) error {
 	return fmt.Errorf("invalid tags field: %s", string(b))
 }
 
-func formatInterfaceValue(v interface{}) string {
+func formatInterfaceValue(v any) string {
 	switch x := v.(type) {
 	case string:
 		return x
@@ -801,13 +801,13 @@ type ZTNetMember struct {
 	PhysicalAddress string      `json:"physicalAddress"`
 }
 
-func EvaluateZerotierFilters(filterConfig common.FilterConfig, member interface{}) bool {
+func EvaluateZerotierFilters(filterConfig common.FilterConfig, member any) bool {
 	return filterConfig.Evaluate(member, func(filter common.Filter, entry any) bool {
 		return evaluateZerotierFilter(filter, entry)
 	})
 }
 
-func evaluateZerotierFilter(filter common.Filter, member interface{}) bool {
+func evaluateZerotierFilter(filter common.Filter, member any) bool {
 	switch filter.Type {
 	case common.FilterTypeOnline:
 		for _, condition := range filter.Conditions {

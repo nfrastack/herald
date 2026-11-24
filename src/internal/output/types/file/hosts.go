@@ -48,7 +48,7 @@ type HostsRecord struct {
 
 var hostsReentrancyGuard sync.Map
 
-func NewHostsFormat(domainArg, profileName string, config map[string]interface{}) (OutputFormat, error) {
+func NewHostsFormat(domainArg, profileName string, config map[string]any) (OutputFormat, error) {
 	commonFormat, err := common.NewCommonFormat(profileName, "hosts", config)
 	if err != nil {
 		return nil, err

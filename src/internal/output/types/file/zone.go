@@ -25,8 +25,8 @@ var (
 
 type ZoneFormat struct {
 	*common.CommonFormat
-	soaRaw        map[string]interface{} // store raw SOA config for per-domain expansion
-	nsRaw         []string               // store raw NS config for per-domain expansion
+	soaRaw        map[string]any // store raw SOA config for per-domain expansion
+	nsRaw         []string       // store raw NS config for per-domain expansion
 	staticMu      sync.Mutex
 	staticLines   map[string][]string
 	migratedFiles map[string]bool
@@ -42,7 +42,7 @@ type SOARecord struct {
 	Minimum    int
 }
 
-func NewZoneFormat(profileName, domain string, config map[string]interface{}) (OutputFormat, error) {
+func NewZoneFormat(profileName, domain string, config map[string]any) (OutputFormat, error) {
 	commonFormat, err := common.NewCommonFormat(profileName, "zone", config)
 	if err != nil {
 		return nil, err
@@ -65,8 +65,8 @@ func NewZoneFormat(profileName, domain string, config map[string]interface{}) (O
 	return format, nil
 }
 
-func (z *ZoneFormat) parseSOAConfig(config map[string]interface{}) error {
-	soaConfig, ok := config["soa"].(map[string]interface{})
+func (z *ZoneFormat) parseSOAConfig(config map[string]any) error {
+	soaConfig, ok := config["soa"].(map[string]any)
 	if !ok {
 		return fmt.Errorf("soa configuration is required")
 	}
@@ -74,13 +74,13 @@ func (z *ZoneFormat) parseSOAConfig(config map[string]interface{}) error {
 	return nil
 }
 
-func (z *ZoneFormat) parseNSConfig(config map[string]interface{}) error {
+func (z *ZoneFormat) parseNSConfig(config map[string]any) error {
 	nsRecordsInterface, ok := config["ns_records"]
 	if !ok {
 		return fmt.Errorf("ns_records configuration is required")
 	}
 
-	nsRecordsSlice, ok := nsRecordsInterface.([]interface{})
+	nsRecordsSlice, ok := nsRecordsInterface.([]any)
 	if !ok {
 		return fmt.Errorf("ns_records must be a list")
 	}
@@ -234,7 +234,7 @@ func parseZoneRecordLine(line string) (hostname, recordType, source string) {
 func extractStaticRawLines(content string) []string {
 	var lines []string
 	inStatic := false
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "; Static Records" {
 			inStatic = true
@@ -263,7 +263,7 @@ func extractStaticRawLines(content string) []string {
 func extractManagedRawLines(content string) []string {
 	var lines []string
 	inManaged := false
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "; Managed Records" {
 			inManaged = true
@@ -383,7 +383,7 @@ func filterStaticCollisions(z *ZoneFormat, domain string, staticLines, managedLi
 func extractManagedLines(content string) []string {
 	var lines []string
 	inManaged := false
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "; Managed Records" {
 			inManaged = true
@@ -742,7 +742,7 @@ func (z *ZoneFormat) collectManagedRecords(domain string) []*common.BaseRecord {
 	sortKey := "host"
 	sortOrder := "asc"
 	if z.CommonFormat != nil && z.CommonFormat.GetConfig() != nil {
-		if sortCfg, ok := z.CommonFormat.GetConfig()["sort"].(map[string]interface{}); ok {
+		if sortCfg, ok := z.CommonFormat.GetConfig()["sort"].(map[string]any); ok {
 			if k, ok := sortCfg["key"].(string); ok && k != "" {
 				sortKey = k
 			}

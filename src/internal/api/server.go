@@ -5,6 +5,8 @@
 package api
 
 import (
+	"slices"
+
 	"github.com/nfrastack/herald/internal/config"
 	"github.com/nfrastack/herald/internal/log"
 	"github.com/nfrastack/herald/internal/output"
@@ -32,6 +34,15 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+)
+
+const (
+	// maxAPIRequestBody caps API upload bodies (DoS protection).
+	// Go 1.27.4 fixed the net/http MaxBytesReader header race, making
+	// this the safe way to bound request bodies.
+	maxAPIRequestBody = 10 << 20 // 10 MiB
+	// apiReadHeaderTimeout mitigates Slowloris-style attacks.
+	apiReadHeaderTimeout = 10 * time.Second
 )
 
 type ClientData struct {
@@ -77,8 +88,8 @@ type APIServer struct {
 	mutex          sync.RWMutex
 	profiles       map[string]config.APIClientProfile // client_id -> profile config
 	clientExpiry   time.Duration
-	outputProfiles map[string]interface{} // Available output profiles from config
-	outputManager  *output.OutputManager  // API server's own output manager
+	outputProfiles map[string]any        // Available output profiles from config
+	outputManager  *output.OutputManager // API server's own output manager
 	logger         *log.ScopedLogger
 	failedAttempts map[string]*FailedAttemptTracker // Track failed authentication attempts by IP
 	attemptsMutex  sync.RWMutex                     // Separate mutex for failed attempts
@@ -340,8 +351,8 @@ func (s *APIServer) authenticateClient(r *http.Request) (string, bool) {
 			if authHeader == "" {
 				return "(missing)"
 			}
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token := strings.TrimPrefix(authHeader, "Bearer ")
+			if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				token := after
 				return "Bearer " + util.MaskSensitiveValue(token)
 			}
 			return util.MaskSensitiveValue(authHeader)
@@ -490,7 +501,7 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	reqLog := s.logger.With("conn", connID, "client", clientID)
 	reqLog.With("action", "client.upload").Verbose("upload")
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxAPIRequestBody))
 	if err != nil {
 		reqLog.With("action", "api.reject").Error("read body: %v", err)
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
@@ -509,17 +520,17 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	switch {
 	default:
 		if err := json.Unmarshal(body, &clientData); err == nil {
-			var raw map[string]interface{}
+			var raw map[string]any
 			if err := json.Unmarshal(body, &raw); err == nil {
-				if removals, ok := raw["removals"].(map[string]interface{}); ok {
+				if removals, ok := raw["removals"].(map[string]any); ok {
 					removalsFromPayload = make(map[string][][2]string)
 					for domain, recs := range removals {
-						recList, ok := recs.([]interface{})
+						recList, ok := recs.([]any)
 						if !ok {
 							continue
 						}
 						for _, r := range recList {
-							rec, ok := r.(map[string]interface{})
+							rec, ok := r.(map[string]any)
 							if !ok {
 								continue
 							}
@@ -636,7 +647,7 @@ func hostAllowed(patterns []string, hostname string) bool {
 	return false
 }
 
-func (s *APIServer) initializeAPIOutputProfiles(outputConfigs map[string]interface{}) error {
+func (s *APIServer) initializeAPIOutputProfiles(outputConfigs map[string]any) error {
 	profilesNeeded := make(map[string]bool)
 	for _, profile := range s.profiles {
 		if profile.OutputProfile != "" {
@@ -714,7 +725,7 @@ func (s *APIServer) LoadClientProfiles(profiles map[string]config.APIClientProfi
 	}())
 }
 
-func NewAPIServer(outputProfiles map[string]interface{}, apiConfig *config.APIConfig) *APIServer {
+func NewAPIServer(outputProfiles map[string]any, apiConfig *config.APIConfig) *APIServer {
 	logLevel := ""
 	if apiConfig != nil && apiConfig.LogLevel != "" {
 		logLevel = apiConfig.LogLevel
@@ -963,6 +974,10 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 				Addr:      address,
 				Handler:   mux,
 				TLSConfig: tlsConfig,
+				// Go 1.27: MaxHeaderValueCount bounds header values;
+				// ReadHeaderTimeout mitigates Slowloris attacks.
+				ReadHeaderTimeout:   apiReadHeaderTimeout,
+				MaxHeaderValueCount: http.DefaultMaxHeaderValueCount,
 			}
 			servers = append(servers, httpServer)
 
@@ -979,6 +994,10 @@ func StartAPIServer(apiConfig *config.APIConfig) error {
 			httpServer := &http.Server{
 				Addr:    address,
 				Handler: mux,
+				// Go 1.27: MaxHeaderValueCount bounds header values;
+				// ReadHeaderTimeout mitigates Slowloris attacks.
+				ReadHeaderTimeout:   apiReadHeaderTimeout,
+				MaxHeaderValueCount: http.DefaultMaxHeaderValueCount,
 			}
 			servers = append(servers, httpServer)
 
@@ -1029,10 +1048,8 @@ func VerifyZoneRecord(zoneFilePath, hostname, recordType, target string) (bool, 
 	lines := strings.Split(string(data), "\n")
 	pattern := fmt.Sprintf(`^\s*%s\s+\d+\s+IN\s+%s\s+%s`, regexp.QuoteMeta(hostname), regexp.QuoteMeta(recordType), regexp.QuoteMeta(target))
 	re := regexp.MustCompile(pattern)
-	for _, line := range lines {
-		if re.MatchString(line) {
-			return true, nil // Record exists
-		}
+	if slices.ContainsFunc(lines, re.MatchString) {
+		return true, nil // Record exists
 	}
 	return false, nil // Record not found
 }

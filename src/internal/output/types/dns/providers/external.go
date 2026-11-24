@@ -23,7 +23,7 @@ type ExternalProvider struct {
 	env     []string
 }
 
-func NewExternalProvider(config map[string]string) (interface{}, error) {
+func NewExternalProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("external", config["profile_name"], config)
 
 	command := base.Option("command", "")
@@ -49,10 +49,10 @@ func NewExternalProvider(config map[string]string) (interface{}, error) {
 
 	var names []string
 	for k := range config {
-		if strings.HasPrefix(k, "env.") {
-			names = append(names, strings.TrimPrefix(k, "env."))
-		} else if strings.HasPrefix(k, "options.env.") {
-			names = append(names, strings.TrimPrefix(k, "options.env."))
+		if after, ok := strings.CutPrefix(k, "env."); ok {
+			names = append(names, after)
+		} else if after, ok := strings.CutPrefix(k, "options.env."); ok {
+			names = append(names, after)
 		}
 	}
 	sort.Strings(names)

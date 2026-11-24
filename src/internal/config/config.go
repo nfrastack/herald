@@ -5,6 +5,8 @@
 package config
 
 import (
+	"slices"
+
 	"github.com/nfrastack/herald/internal/log"
 	"github.com/nfrastack/herald/internal/output"
 
@@ -21,7 +23,7 @@ type ConfigFile struct {
 	Defaults   DefaultsConfig                 `yaml:"defaults"`
 	Inputs     map[string]InputProviderConfig `yaml:"inputs"`
 	Domains    map[string]DomainConfig        `yaml:"domains"`
-	Outputs    map[string]interface{}         `yaml:"outputs" json:"outputs"`
+	Outputs    map[string]any                 `yaml:"outputs" json:"outputs"`
 	API        *APIConfig                     `yaml:"api" json:"api"`
 	StateDir   string                         `yaml:"state_dir" json:"state_dir"`
 	StaleAfter string                         `yaml:"stale_after" json:"stale_after"`
@@ -42,13 +44,7 @@ func ExtractDomainAndSubdomainForProvider(fqdn, providerName, logPrefix string) 
 			continue
 		}
 
-		providerAllowed := false
-		for _, inputProfile := range domainConfig.Profiles.Inputs {
-			if inputProfile == providerName {
-				providerAllowed = true
-				break
-			}
-		}
+		providerAllowed := slices.Contains(domainConfig.Profiles.Inputs, providerName)
 
 		if !providerAllowed {
 			log.NewScopedLogger("[config]", "").With("action", "domain.skip").Trace("%s Provider '%s' not allowed for domain config '%s' (inputs: %v)",
@@ -61,8 +57,8 @@ func ExtractDomainAndSubdomainForProvider(fqdn, providerName, logPrefix string) 
 			log.NewScopedLogger("[config]", "").With("action", "domain.match").Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
 				logPrefix, providerName, domain, configKey)
 			return configKey, "@"
-		} else if strings.HasSuffix(fqdn, "."+domain) {
-			subdomain := strings.TrimSuffix(fqdn, "."+domain)
+		} else if before, ok := strings.CutSuffix(fqdn, "."+domain); ok {
+			subdomain := before
 			log.NewScopedLogger("[config]", "").With("action", "domain.match").Debug("%s Provider '%s' allowed for domain '%s' via config '%s'",
 				logPrefix, providerName, domain, configKey)
 			return configKey, subdomain
@@ -130,10 +126,10 @@ type RecordConfig struct {
 }
 
 type InputProviderConfig struct {
-	Type             string                 `yaml:"type"`
-	ExposeContainers bool                   `yaml:"expose_containers"`
-	DefaultTTL       int                    `yaml:"default_ttl"`
-	Options          map[string]interface{} `yaml:",inline"`
+	Type             string         `yaml:"type"`
+	ExposeContainers bool           `yaml:"expose_containers"`
+	DefaultTTL       int            `yaml:"default_ttl"`
+	Options          map[string]any `yaml:",inline"`
 }
 
 type DomainConfig struct {
@@ -296,7 +292,7 @@ func InitializeOutputManager() error {
 	return InitializeOutputManagerWithProfiles(GlobalConfig.Outputs, GlobalConfig.General.OutputProfiles)
 }
 
-func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, enabledProfiles []string) error {
+func InitializeOutputManagerWithProfiles(outputConfigs map[string]any, enabledProfiles []string) error {
 	outputManager := output.NewOutputManager()
 
 	log.NewScopedLogger("[config]", "").With("action", "provider.init").Trace("[config/output] output manager initialization")
@@ -322,7 +318,7 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 			log.NewScopedLogger("[config]", "").With("action", "config.load").Debug("[config/output] profile: %s", profileName)
 			log.NewScopedLogger("[config]", "").With("action", "config.load").Debug("[config/output] Raw config for %s: %+v", profileName, profileConfig)
 
-			if configMap, ok := profileConfig.(map[string]interface{}); ok {
+			if configMap, ok := profileConfig.(map[string]any); ok {
 				log.NewScopedLogger("[config]", "").With("action", "config.load").Debug("[config/output] Available keys for %s: %v", profileName, func() []string {
 					keys := make([]string, 0, len(configMap))
 					for k := range configMap {
@@ -377,7 +373,7 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 					} else {
 						domains = []string{v}
 					}
-				case []interface{}:
+				case []any:
 					for _, d := range v {
 						if ds, ok := d.(string); ok {
 							domains = append(domains, ds)
@@ -385,7 +381,7 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 					}
 				}
 
-				profileConfigCopy := make(map[string]interface{})
+				profileConfigCopy := make(map[string]any)
 				for k, v := range configMap {
 					if k != "format" && k != "path" && k != "domains" && k != "type" {
 						profileConfigCopy[k] = v
@@ -482,7 +478,7 @@ func ValidateConfiguration(cfg *ConfigFile) error {
 	return nil
 }
 
-func ValidateDomainConfiguration(domains map[string]DomainConfig, inputProfiles map[string]InputProviderConfig, outputProfiles map[string]interface{}) error {
+func ValidateDomainConfiguration(domains map[string]DomainConfig, inputProfiles map[string]InputProviderConfig, outputProfiles map[string]any) error {
 	var errors []string
 
 	for domainName, domain := range domains {
@@ -540,7 +536,7 @@ func ValidateInputProviderReferences(domains map[string]DomainConfig, inputProfi
 	return nil
 }
 
-func ValidateOutputProfileReferences(domains map[string]DomainConfig, outputProfiles map[string]interface{}) error {
+func ValidateOutputProfileReferences(domains map[string]DomainConfig, outputProfiles map[string]any) error {
 	var errors []string
 
 	for domainName, domain := range domains {

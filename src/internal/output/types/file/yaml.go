@@ -25,7 +25,7 @@ type YAMLFormat struct {
 	*common.CommonFormat
 }
 
-func NewYAMLFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
+func NewYAMLFormat(profileName string, config map[string]any) (OutputFormat, error) {
 	commonFormat, err := common.NewCommonFormat(profileName, "yaml", config)
 	if err != nil {
 		return nil, err

@@ -72,7 +72,7 @@ type DockerProvider struct {
 	filterConfig       common.FilterConfig
 	lastContainerIDs   map[string]bool
 	logPrefix          string
-	options            map[string]interface{}
+	options            map[string]any
 	profileName        string
 	recordRemoveOnStop bool
 	running            bool
@@ -350,12 +350,12 @@ func collectCustomHeaders(stringOptions map[string]string) map[string]string {
 	return headers
 }
 
-func NewProvider(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
+func NewProvider(profileName string, config map[string]any, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	options := make(map[string]string)
 	for k, v := range config {
 		options[k] = fmt.Sprintf("%v", v)
 	}
-	structuredOptions := make(map[string]interface{})
+	structuredOptions := make(map[string]any)
 	for key, value := range options {
 		structuredOptions[key] = value
 	}
@@ -363,7 +363,7 @@ func NewProvider(profileName string, config map[string]interface{}, outputWriter
 	return NewProviderFromStructured(structuredOptions, outputWriter, outputSyncer)
 }
 
-func NewProviderFromStructured(options map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
+func NewProviderFromStructured(options map[string]any, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	profileName := ""
 	if v, ok := options["name"].(string); ok && v != "" {
 		profileName = v
@@ -1701,7 +1701,7 @@ func (p *DockerProvider) getServiceVIPs(service swarm.Service) []string {
 	if service.Endpoint.VirtualIPs != nil {
 		for _, vip := range service.Endpoint.VirtualIPs {
 			if strings.Contains(vip.Addr, "/") {
-				ip := strings.Split(vip.Addr, "/")[0]
+				ip, _, _ := strings.Cut(vip.Addr, "/")
 				vips = append(vips, ip)
 			} else {
 				vips = append(vips, vip.Addr)
@@ -1716,7 +1716,7 @@ func (dp *DockerProvider) GetName() string {
 	return "docker"
 }
 
-func (dp *DockerProvider) GetContainerState(containerID string) (map[string]interface{}, error) {
-	state := make(map[string]interface{})
+func (dp *DockerProvider) GetContainerState(containerID string) (map[string]any, error) {
+	state := make(map[string]any)
 	return state, nil
 }

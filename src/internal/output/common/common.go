@@ -42,7 +42,7 @@ func expandTagsWithUnderscore(s, domain, profile string) string {
 	return replacer.Replace(s)
 }
 
-func setFileOwnership(filePath string, config map[string]interface{}, logger *log.ScopedLogger) error {
+func setFileOwnership(filePath string, config map[string]any, logger *log.ScopedLogger) error {
 	if userConfig, ok := config["user"].(string); ok && userConfig != "" {
 		var uid int
 		var gid int = -1 // Keep existing group by default
@@ -96,7 +96,7 @@ func setFileOwnership(filePath string, config map[string]interface{}, logger *lo
 	return nil
 }
 
-func AddScopedLogging(provider interface{}, formatType, name string, options map[string]interface{}) *log.ScopedLogger {
+func AddScopedLogging(provider any, formatType, name string, options map[string]any) *log.ScopedLogger {
 	logLevel := ""
 	if val, ok := options["log_level"].(string); ok {
 		logLevel = val
@@ -115,7 +115,7 @@ func AddScopedLogging(provider interface{}, formatType, name string, options map
 
 type CommonFormat struct {
 	profileName string
-	config      map[string]interface{}
+	config      map[string]any
 	path        string
 	user        string
 	group       string
@@ -130,7 +130,7 @@ type CommonFormat struct {
 	realDomain  string            // the real DNS domain for file naming/tag expansion
 }
 
-func (c *CommonFormat) GetConfig() map[string]interface{} {
+func (c *CommonFormat) GetConfig() map[string]any {
 	return c.config
 }
 
@@ -216,7 +216,7 @@ type BaseRecord struct {
 	Target    string    `json:"target" yaml:"target"`
 	TTL       uint32    `json:"ttl" yaml:"ttl"`
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
-	UpdatedAt time.Time `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at,omitempty"`
 	Source    string    `json:"source" yaml:"source"`
 	Comment   string    `json:"comment,omitempty" yaml:"comment,omitempty"`
 }
@@ -237,7 +237,7 @@ type ExportData struct {
 	Domains  map[string]*BaseDomain `json:"domains" yaml:"domains"`
 }
 
-func NewCommonFormat(domain, formatName string, config map[string]interface{}) (*CommonFormat, error) {
+func NewCommonFormat(domain, formatName string, config map[string]any) (*CommonFormat, error) {
 	path, ok := config["path"].(string)
 	if !ok || path == "" {
 		return nil, fmt.Errorf("output format requires 'path' field")
@@ -310,11 +310,11 @@ func ParseRecordComment(comment string) (createdAt, updatedAt time.Time) {
 }
 
 func parseCommentTime(comment, marker string) time.Time {
-	idx := strings.Index(comment, marker)
-	if idx == -1 {
+	_, after, ok := strings.Cut(comment, marker)
+	if !ok {
 		return time.Time{}
 	}
-	rest := strings.TrimSpace(comment[idx+len(marker):])
+	rest := strings.TrimSpace(after)
 	if i := strings.Index(rest, " "); i != -1 {
 		rest = rest[:i]
 	}
@@ -329,8 +329,8 @@ func NormalizeHostname(hostname, domain string) string {
 		return "@"
 	}
 	suffix := "." + domain
-	if strings.HasSuffix(hostname, suffix) {
-		hostname = strings.TrimSuffix(hostname, suffix)
+	if before, ok := strings.CutSuffix(hostname, suffix); ok {
+		hostname = before
 	}
 	if hostname == "" {
 		return "@"
@@ -470,7 +470,7 @@ func (c *CommonFormat) GetExportData() *ExportData {
 	}
 }
 
-func (c *CommonFormat) LoadExistingData(unmarshalFunc func([]byte, interface{}) error) error {
+func (c *CommonFormat) LoadExistingData(unmarshalFunc func([]byte, any) error) error {
 	if _, err := os.Stat(c.GetFilePath()); os.IsNotExist(err) {
 		return nil // File doesn't exist, that's okay
 	}

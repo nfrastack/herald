@@ -24,7 +24,7 @@ type OVHProvider struct {
 	deltaKnown bool
 }
 
-func NewOVHProvider(config map[string]string) (interface{}, error) {
+func NewOVHProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("ovh", config["profile_name"], config)
 
 	appKey := base.Secret("app_key", "application_key")
@@ -92,7 +92,7 @@ func (p *OVHProvider) headers(method, url, body string) map[string]string {
 	}
 }
 
-func (p *OVHProvider) call(method, path string, payload map[string]interface{}) (int, []byte, error) {
+func (p *OVHProvider) call(method, path string, payload map[string]any) (int, []byte, error) {
 	var raw []byte
 	if payload != nil {
 		var err error
@@ -158,7 +158,7 @@ func (p *OVHProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostnam
 				return nil
 			}
 		}
-		payload := map[string]interface{}{"target": target, "ttl": ttl}
+		payload := map[string]any{"target": target, "ttl": ttl}
 		status, respBody, err := p.call("PUT", fmt.Sprintf("/domain/zone/%s/record/%d", domain, ids[0]), payload)
 		if err != nil {
 			return err
@@ -179,7 +179,7 @@ func (p *OVHProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostnam
 		}
 	}
 
-	payload := map[string]interface{}{"fieldType": recordType, "subDomain": sub, "target": target, "ttl": ttl}
+	payload := map[string]any{"fieldType": recordType, "subDomain": sub, "target": target, "ttl": ttl}
 	status, respBody, err := p.call("POST", "/domain/zone/"+domain+"/record", payload)
 	if err != nil {
 		return err

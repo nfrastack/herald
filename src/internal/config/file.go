@@ -5,6 +5,8 @@
 package config
 
 import (
+	"maps"
+
 	"github.com/nfrastack/herald/internal/log"
 	"github.com/nfrastack/herald/internal/util"
 
@@ -71,13 +73,13 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	return &cfg, nil
 }
 
-func deepMergeSectionMap(dst, src map[string]interface{}) map[string]interface{} {
+func deepMergeSectionMap(dst, src map[string]any) map[string]any {
 	if dst == nil {
-		dst = map[string]interface{}{}
+		dst = map[string]any{}
 	}
 	for k, v := range src {
-		if vMap, ok := v.(map[string]interface{}); ok {
-			if dstMap, ok := dst[k].(map[string]interface{}); ok {
+		if vMap, ok := v.(map[string]any); ok {
+			if dstMap, ok := dst[k].(map[string]any); ok {
 				dst[k] = deepMergeSectionMap(dstMap, vMap)
 			} else {
 				dst[k] = deepMergeSectionMap(nil, vMap)
@@ -100,7 +102,7 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 	}
 	seen[basePath] = true
 
-	var raw map[string]interface{}
+	var raw map[string]any
 	err := yaml.Unmarshal(data, &raw)
 	if err != nil {
 		return nil, err
@@ -118,7 +120,7 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 		switch v := inc.(type) {
 		case string:
 			includeFiles = []string{v}
-		case []interface{}:
+		case []any:
 			for _, f := range v {
 				if s, ok := f.(string); ok {
 					includeFiles = append(includeFiles, s)
@@ -141,7 +143,7 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 				log.NewScopedLogger("[config]", "").With("action", "config.error").Error("[config/file] process includes in %s: %v", incPath, err)
 				return nil, err
 			}
-			var incRaw map[string]interface{}
+			var incRaw map[string]any
 			yaml.Unmarshal(incProcessed, &incRaw)
 			topKeys := make([]string, 0, len(incRaw))
 			for k := range incRaw {
@@ -149,12 +151,12 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 			}
 			log.NewScopedLogger("[config]", "").With("action", "config.load").Trace("[config/file] keys from %s: %v", incPath, topKeys)
 			for _, k := range topKeys {
-				log.NewScopedLogger("[config]", "").With("action", "config.load").Trace("[config/file] Key '%s' from %s: %v", k, incPath, util.MaskSensitiveMapRecursive(map[string]interface{}{k: incRaw[k]})[k])
+				log.NewScopedLogger("[config]", "").With("action", "config.load").Trace("[config/file] Key '%s' from %s: %v", k, incPath, util.MaskSensitiveMapRecursive(map[string]any{k: incRaw[k]})[k])
 			}
 			for _, section := range []string{"inputs", "domains", "defaults", "general", "outputs", "api"} {
 				if v, ok := incRaw[section]; ok {
-					if dstMap, ok := raw[section].(map[string]interface{}); ok {
-						if srcMap, ok := v.(map[string]interface{}); ok {
+					if dstMap, ok := raw[section].(map[string]any); ok {
+						if srcMap, ok := v.(map[string]any); ok {
 							raw[section] = deepMergeSectionMap(dstMap, srcMap)
 						}
 					} else {
@@ -176,9 +178,13 @@ func preprocessIncludes(data []byte, basePath string, seen map[string]bool) ([]b
 }
 
 func getIncludePath(basePath, incFile string) string {
-	dir := basePath
-	if idx := strings.LastIndex(basePath, "/"); idx != -1 {
-		dir = basePath[:idx]
+	// Go 1.27: strings.CutLast slices around the last separator.
+	dir, rest, found := strings.CutLast(basePath, "/")
+	if !found {
+		return basePath + "/" + incFile
+	}
+	if dir == "" && rest == "" {
+		return "/" + incFile
 	}
 	return dir + "/" + incFile
 }
@@ -216,11 +222,11 @@ func FieldSetInConfigFile(configFilePath, field string) bool {
 	if err != nil {
 		return false
 	}
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return false
 	}
-	general, ok := raw["general"].(map[string]interface{})
+	general, ok := raw["general"].(map[string]any)
 	if !ok {
 		return false
 	}
@@ -232,8 +238,8 @@ func processConfigFileSecrets(content string) string {
 	processedContent := SecretRegex.ReplaceAllStringFunc(content, func(match string) string {
 		varName := match[2 : len(match)-1]
 
-		if strings.HasPrefix(varName, "file:") {
-			filePath := strings.TrimPrefix(varName, "file:")
+		if after, ok := strings.CutPrefix(varName, "file:"); ok {
+			filePath := after
 
 			fileData, err := os.ReadFile(filePath)
 			if err != nil {
@@ -244,8 +250,8 @@ func processConfigFileSecrets(content string) string {
 			return strings.TrimSpace(string(fileData))
 		}
 
-		if strings.HasPrefix(varName, "env:") {
-			envVar := strings.TrimPrefix(varName, "env:")
+		if after, ok := strings.CutPrefix(varName, "env:"); ok {
+			envVar := after
 
 			if value, exists := os.LookupEnv(envVar); exists {
 				return value
@@ -313,14 +319,10 @@ func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
 	if dst.Inputs == nil {
 		dst.Inputs = map[string]InputProviderConfig{}
 	}
-	for k, v := range src.Inputs {
-		dst.Inputs[k] = v
-	}
+	maps.Copy(dst.Inputs, src.Inputs)
 	if dst.Domains == nil {
 		dst.Domains = map[string]DomainConfig{}
 	}
-	for k, v := range src.Domains {
-		dst.Domains[k] = v
-	}
+	maps.Copy(dst.Domains, src.Domains)
 	return dst
 }

@@ -24,7 +24,7 @@ type JSONFormat struct {
 	logger *log.ScopedLogger
 }
 
-func NewJSONFormat(profileName string, config map[string]interface{}) (OutputFormat, error) {
+func NewJSONFormat(profileName string, config map[string]any) (OutputFormat, error) {
 	commonFormat, err := common.NewCommonFormat(profileName, "json", config)
 	if err != nil {
 		return nil, err

@@ -85,7 +85,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	logPrefix := common.BuildLogPrefix("remote", parsed.Name)
 	logLevel := options["log_level"]
 
-	structuredOptions := make(map[string]interface{})
+	structuredOptions := make(map[string]any)
 	for key, value := range options {
 		structuredOptions[key] = value
 	}

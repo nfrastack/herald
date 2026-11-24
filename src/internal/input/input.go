@@ -30,7 +30,7 @@ type Provider interface {
 
 type ProviderWithContainer interface {
 	Provider
-	GetContainerState(containerID string) (map[string]interface{}, error)
+	GetContainerState(containerID string) (map[string]any, error)
 }
 
 type DNSEntry struct {
@@ -71,19 +71,19 @@ func NewInputProvider(inputProviderType string, providerOptions map[string]strin
 
 	switch inputProviderType {
 	case "caddy":
-		config := make(map[string]interface{})
+		config := make(map[string]any)
 		for k, v := range providerOptions {
 			config[k] = v
 		}
 		return caddy.NewProvider(profileName, config, outputWriter, outputSyncer)
 	case "docker":
-		config := make(map[string]interface{})
+		config := make(map[string]any)
 		for k, v := range providerOptions {
 			config[k] = v
 		}
 		return docker.NewProvider(profileName, config, outputWriter, outputSyncer)
 	case "system":
-		config := make(map[string]interface{})
+		config := make(map[string]any)
 		for k, v := range providerOptions {
 			config[k] = v
 		}

@@ -103,7 +103,7 @@ func (b *BaseProvider) Option(key, def string) string {
 	return def
 }
 
-func (b *BaseProvider) DoJSON(method, url string, headers map[string]string, body interface{}) (int, []byte, error) {
+func (b *BaseProvider) DoJSON(method, url string, headers map[string]string, body any) (int, []byte, error) {
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)

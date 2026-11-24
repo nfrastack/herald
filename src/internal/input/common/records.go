@@ -103,7 +103,7 @@ func ParseUnifiedFile(data []byte, isYAML bool) ([]FileRecord, error) {
 
 func ParseRecordsYAML(data []byte) ([]FileRecord, error) {
 	var heraldMetadataFormat struct {
-		Metadata map[string]interface{} `yaml:"metadata"`
+		Metadata map[string]any `yaml:"metadata"`
 		Domains  map[string]struct {
 			Comment string `yaml:"comment"`
 			Records []struct {
@@ -173,7 +173,7 @@ func ParseRecordsYAML(data []byte) ([]FileRecord, error) {
 
 func ParseRecordsJSON(data []byte) ([]FileRecord, error) {
 	var heraldMetadataFormat struct {
-		Metadata map[string]interface{} `json:"metadata"`
+		Metadata map[string]any `json:"metadata"`
 		Domains  map[string]struct {
 			Comment string `json:"comment"`
 			Records []struct {

@@ -45,7 +45,7 @@ type googleRRSet struct {
 	Rrdatas []string `json:"rrdatas"`
 }
 
-func NewGoogleDNSProvider(config map[string]string) (interface{}, error) {
+func NewGoogleDNSProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("google", config["profile_name"], config)
 
 	project := base.Option("project", "")
@@ -115,7 +115,7 @@ func (p *GoogleDNSProvider) signJWT() (string, error) {
 
 	now := time.Now().Unix()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	claims, err := json.Marshal(map[string]interface{}{
+	claims, err := json.Marshal(map[string]any{
 		"iss":   sa.ClientEmail,
 		"scope": "https://www.googleapis.com/auth/ndev.clouddns.readwrite",
 		"aud":   p.tokenURI,
@@ -176,10 +176,7 @@ func (p *GoogleDNSProvider) accessToken() (string, error) {
 		if out.AccessToken == "" {
 			return "", time.Time{}, fmt.Errorf("google token exchange returned no access token")
 		}
-		ttl := out.ExpiresIn - 60
-		if ttl < 60 {
-			ttl = 60
-		}
+		ttl := max(out.ExpiresIn-60, 60)
 		return out.AccessToken, time.Now().Add(time.Duration(ttl) * time.Second), nil
 	})
 }
@@ -271,7 +268,7 @@ func (p *GoogleDNSProvider) applyChange(zone string, additions, deletions []goog
 	if err != nil {
 		return err
 	}
-	body := map[string]interface{}{}
+	body := map[string]any{}
 	if additions != nil {
 		body["additions"] = additions
 	}

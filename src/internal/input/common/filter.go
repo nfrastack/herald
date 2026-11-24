@@ -64,7 +64,7 @@ func DefaultFilterConfig() FilterConfig {
 	}
 }
 
-func NewFilterFromStructuredOptions(options map[string]interface{}, logger *log.ScopedLogger) (FilterConfig, error) {
+func NewFilterFromStructuredOptions(options map[string]any, logger *log.ScopedLogger) (FilterConfig, error) {
 	logger.With("action", "input.filter").Debug("called with: %+v", options)
 
 	if filterInterface, exists := options["filter"]; exists {
@@ -72,7 +72,7 @@ func NewFilterFromStructuredOptions(options map[string]interface{}, logger *log.
 
 		if filterStr, ok := filterInterface.(string); ok {
 
-			var filterArray []interface{}
+			var filterArray []any
 			if err := json.Unmarshal([]byte(filterStr), &filterArray); err != nil {
 				logger.With("action", "input.filter").Error("filter JSON string: %v", err)
 				return DefaultFilterConfig(), fmt.Errorf("invalid filter JSON: %v", err)
@@ -80,11 +80,11 @@ func NewFilterFromStructuredOptions(options map[string]interface{}, logger *log.
 
 			logger.With("action", "input.filter").Debug("JSON string into %d filter items", len(filterArray))
 
-			var filterMaps []map[string]interface{}
+			var filterMaps []map[string]any
 			for i, item := range filterArray {
 				logger.With("action", "input.filter").Debug("parsed filter item %d: %+v (type: %T)", i, item, item)
 
-				if filterMap, ok := item.(map[string]interface{}); ok {
+				if filterMap, ok := item.(map[string]any); ok {
 					logger.With("action", "input.filter").Debug("item %d is a map: %+v", i, filterMap)
 					filterMaps = append(filterMaps, filterMap)
 				} else {
@@ -100,14 +100,14 @@ func NewFilterFromStructuredOptions(options map[string]interface{}, logger *log.
 			}
 		}
 
-		if filterArray, ok := filterInterface.([]interface{}); ok {
+		if filterArray, ok := filterInterface.([]any); ok {
 			logger.With("action", "input.filter").Debug("[]interface{} with %d elements", len(filterArray))
 
-			var filterMaps []map[string]interface{}
+			var filterMaps []map[string]any
 			for i, item := range filterArray {
 				logger.With("action", "input.filter").Debug("filter array item %d: %+v (type: %T)", i, item, item)
 
-				if filterMap, ok := item.(map[string]interface{}); ok {
+				if filterMap, ok := item.(map[string]any); ok {
 					logger.With("action", "input.filter").Debug("item %d is a map: %+v", i, filterMap)
 					filterMaps = append(filterMaps, filterMap)
 				} else {
@@ -124,7 +124,7 @@ func NewFilterFromStructuredOptions(options map[string]interface{}, logger *log.
 		}
 
 		switch filterArray := filterInterface.(type) {
-		case []map[string]interface{}:
+		case []map[string]any:
 			return ParseFilterFromYAML(filterArray, logger)
 		}
 	}
@@ -133,7 +133,7 @@ func NewFilterFromStructuredOptions(options map[string]interface{}, logger *log.
 	return DefaultFilterConfig(), nil
 }
 
-func ParseFilterFromYAML(filterConfigs []map[string]interface{}, logger *log.ScopedLogger) (FilterConfig, error) {
+func ParseFilterFromYAML(filterConfigs []map[string]any, logger *log.ScopedLogger) (FilterConfig, error) {
 	logger.With("action", "input.filter").Debug("with %d filter configs: %+v", len(filterConfigs), filterConfigs)
 
 	config := FilterConfig{}
@@ -168,12 +168,12 @@ func ParseFilterFromYAML(filterConfigs []map[string]interface{}, logger *log.Sco
 			logger.With("action", "input.filter").Debug("%d conditions: %+v (type: %T)", i, conditionsInterface, conditionsInterface)
 
 			switch conditionsArray := conditionsInterface.(type) {
-			case []interface{}:
+			case []any:
 				logger.With("action", "input.filter").Debug("%d conditions is []interface{} with %d items", i, len(conditionsArray))
 				for j, conditionItem := range conditionsArray {
 					logger.With("action", "input.filter").Debug("condition %d: %+v", j, conditionItem)
 
-					if conditionMap, ok := conditionItem.(map[string]interface{}); ok {
+					if conditionMap, ok := conditionItem.(map[string]any); ok {
 						filterCondition := FilterCondition{}
 
 						if key, ok := conditionMap["key"].(string); ok {
@@ -196,7 +196,7 @@ func ParseFilterFromYAML(filterConfigs []map[string]interface{}, logger *log.Sco
 						logger.With("action", "input.filter").Debug("condition %d to filter %d: %+v", j, i, filterCondition)
 					}
 				}
-			case []map[string]interface{}:
+			case []map[string]any:
 				logger.With("action", "input.filter").Debug("%d conditions is []map[string]interface{} with %d items", i, len(conditionsArray))
 				for j, conditionMap := range conditionsArray {
 					filterCondition := FilterCondition{}

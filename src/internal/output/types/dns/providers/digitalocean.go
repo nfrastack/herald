@@ -25,7 +25,7 @@ type digitalOceanRecord struct {
 	TTL  int    `json:"ttl"`
 }
 
-func NewDigitalOceanProvider(config map[string]string) (interface{}, error) {
+func NewDigitalOceanProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("digitalocean", config["profile_name"], config)
 
 	token := base.Secret("token", "api_token")
@@ -91,7 +91,7 @@ func (p *DigitalOceanProvider) CreateOrUpdateRecordWithSource(domain, recordType
 			if r.Data == target && r.TTL == ttl {
 				return nil
 			}
-			body := map[string]interface{}{"data": target, "ttl": ttl}
+			body := map[string]any{"data": target, "ttl": ttl}
 			status, respBody, err := p.DoJSON("PUT", fmt.Sprintf("%s/v2/domains/%s/records/%d", p.apiHost, domain, r.ID), p.headers(), body)
 			if err != nil {
 				return err
@@ -103,7 +103,7 @@ func (p *DigitalOceanProvider) CreateOrUpdateRecordWithSource(domain, recordType
 		}
 	}
 
-	body := map[string]interface{}{"type": recordType, "name": name, "data": target, "ttl": ttl}
+	body := map[string]any{"type": recordType, "name": name, "data": target, "ttl": ttl}
 	status, respBody, err := p.DoJSON("POST", p.apiHost+"/v2/domains/"+domain+"/records", p.headers(), body)
 	if err != nil {
 		return err

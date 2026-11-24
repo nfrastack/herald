@@ -107,22 +107,22 @@ func (p *PowerDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, ho
 
 	p.Logger.With("action", "record.sync").Trace("record name: %s, content: %s", recordName, recordContent)
 
-	rrset := map[string]interface{}{
+	rrset := map[string]any{
 		"name":       recordName + ".",
 		"type":       recordType,
 		"ttl":        ttl,
 		"changetype": "REPLACE",
-		"records": []map[string]interface{}{
+		"records": []map[string]any{
 			{"content": recordContent, "disabled": false},
 		},
 	}
 	if comment != "" {
-		rrset["comments"] = []map[string]interface{}{
+		rrset["comments"] = []map[string]any{
 			{"content": comment, "account": source},
 		}
 	}
-	body := map[string]interface{}{
-		"rrsets": []interface{}{rrset},
+	body := map[string]any{
+		"rrsets": []any{rrset},
 	}
 	return p.sendPowerDNSPatch(apiURL, body)
 }
@@ -136,13 +136,13 @@ func (p *PowerDNSProvider) DeleteRecord(domain, recordType, hostname string) err
 
 	p.Logger.With("action", "record.delete").Trace("record name for deletion: %s", recordName)
 
-	rrset := map[string]interface{}{
+	rrset := map[string]any{
 		"name":       recordName + ".",
 		"type":       recordType,
 		"changetype": "DELETE",
 	}
-	body := map[string]interface{}{
-		"rrsets": []interface{}{rrset},
+	body := map[string]any{
+		"rrsets": []any{rrset},
 	}
 	return p.sendPowerDNSPatch(apiURL, body)
 }
@@ -164,7 +164,7 @@ func NewPowerDNSProviderFromConfig(profileName string, config map[string]string)
 }
 
 func init() {
-	dns.RegisterProvider("powerdns", func(config map[string]string) (interface{}, error) {
+	dns.RegisterProvider("powerdns", func(config map[string]string) (any, error) {
 		profileName := "default"
 		if pn, ok := config["profile_name"]; ok {
 			profileName = pn
@@ -206,7 +206,7 @@ func (p *PowerDNSProvider) serverID() string {
 	return "localhost"
 }
 
-func (p *PowerDNSProvider) apiURL(format string, args ...interface{}) string {
+func (p *PowerDNSProvider) apiURL(format string, args ...any) string {
 	apiHost := strings.TrimSuffix(p.config.APIHost, "/")
 	format = strings.TrimPrefix(format, "/")
 	return fmt.Sprintf(apiHost+"/"+format, args...)
@@ -220,11 +220,11 @@ func (p *PowerDNSProvider) authHeaders() map[string]string {
 	return headers
 }
 
-func (p *PowerDNSProvider) patch(method, apiURL string, body map[string]interface{}) (int, []byte, error) {
+func (p *PowerDNSProvider) patch(method, apiURL string, body map[string]any) (int, []byte, error) {
 	return p.BaseProvider.DoJSON(method, apiURL, p.authHeaders(), body)
 }
 
-func (p *PowerDNSProvider) sendPowerDNSPatch(apiURL string, body map[string]interface{}) error {
+func (p *PowerDNSProvider) sendPowerDNSPatch(apiURL string, body map[string]any) error {
 	status, respBody, err := p.patch("PATCH", apiURL, body)
 	if err != nil {
 		return err

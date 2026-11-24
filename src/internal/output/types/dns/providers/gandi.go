@@ -24,7 +24,7 @@ type gandiRRSet struct {
 	Values []string `json:"rrset_values"`
 }
 
-func NewGandiProvider(config map[string]string) (interface{}, error) {
+func NewGandiProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("gandi", config["profile_name"], config)
 
 	apiKey := base.Secret("api_key", "token", "api_token")
@@ -63,7 +63,7 @@ func (p *GandiProvider) CreateOrUpdateRecord(domain, recordType, hostname, targe
 func (p *GandiProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostname, target string, ttl int, proxied bool, comment, source string, overwrite bool) error {
 	name := RelativeName(hostname, domain)
 
-	body := map[string]interface{}{"rrset_values": []string{target}, "rrset_ttl": ttl}
+	body := map[string]any{"rrset_values": []string{target}, "rrset_ttl": ttl}
 	status, respBody, err := p.DoJSON("PUT", fmt.Sprintf("%s/domains/%s/records/%s/%s", p.apiHost, domain, name, recordType), p.headers(), body)
 	if err != nil {
 		return err

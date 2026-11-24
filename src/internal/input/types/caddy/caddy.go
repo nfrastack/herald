@@ -37,7 +37,7 @@ type CaddyProvider struct {
 	outputSyncer  domain.OutputSyncer
 }
 
-func NewProvider(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
+func NewProvider(profileName string, config map[string]any, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
 	options := make(map[string]string)
 	for k, v := range config {
 		options[k] = fmt.Sprintf("%v", v)
@@ -55,7 +55,7 @@ func NewProvider(profileName string, config map[string]interface{}, outputWriter
 	}
 	logPrefix := common.BuildLogPrefix("caddy", parsed.Name)
 
-	structuredOptions := make(map[string]interface{})
+	structuredOptions := make(map[string]any)
 	for key, value := range options {
 		structuredOptions[key] = value
 	}
@@ -426,7 +426,7 @@ func inspectHandlers(handlers []caddyHandle, predicate func(caddyHandle) bool) b
 	return false
 }
 
-func (p *CaddyProvider) GetDNSEntries() ([]interface{}, error) {
+func (p *CaddyProvider) GetDNSEntries() ([]any, error) {
 	return nil, nil
 }
 

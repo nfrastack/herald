@@ -101,14 +101,14 @@ func logGen() uint64 {
 	return loggerGen.Load()
 }
 
-func keyvalsToAttrs(keyvals []interface{}) []slog.Attr {
+func keyvalsToAttrs(keyvals []any) []slog.Attr {
 	attrs := make([]slog.Attr, 0, len(keyvals)/2+1)
 	for i := 0; i < len(keyvals); i += 2 {
 		key, ok := keyvals[i].(string)
 		if !ok {
 			key = fmt.Sprintf("%v", keyvals[i])
 		}
-		var val interface{}
+		var val any
 		if i+1 < len(keyvals) {
 			val = keyvals[i+1]
 		}
@@ -145,7 +145,7 @@ func newScoped(prefix string, level *slog.LevelVar) *ScopedLogger {
 	return &ScopedLogger{prefix: prefix, level: level, logger: logger, attrs: attrs, gen: logGen()}
 }
 
-func (sl *ScopedLogger) With(keyvals ...interface{}) *ScopedLogger {
+func (sl *ScopedLogger) With(keyvals ...any) *ScopedLogger {
 	if sl == nil {
 		return NewScopedLogger("[log]", "")
 	}
@@ -180,7 +180,7 @@ func (sl *ScopedLogger) resolve() {
 	sl.gen = logGen()
 }
 
-func (sl *ScopedLogger) log(level slog.Level, format string, args ...interface{}) {
+func (sl *ScopedLogger) log(level slog.Level, format string, args ...any) {
 	if sl == nil {
 		return
 	}
@@ -195,27 +195,27 @@ func (sl *ScopedLogger) log(level slog.Level, format string, args ...interface{}
 	sl.logger.Log(context.Background(), level, msg)
 }
 
-func (sl *ScopedLogger) Debug(format string, args ...interface{}) {
+func (sl *ScopedLogger) Debug(format string, args ...any) {
 	sl.log(slogDebug, format, args...)
 }
 
-func (sl *ScopedLogger) Trace(format string, args ...interface{}) {
+func (sl *ScopedLogger) Trace(format string, args ...any) {
 	sl.log(slogTrace, format, args...)
 }
 
-func (sl *ScopedLogger) Verbose(format string, args ...interface{}) {
+func (sl *ScopedLogger) Verbose(format string, args ...any) {
 	sl.log(slogVerbose, format, args...)
 }
 
-func (sl *ScopedLogger) Info(format string, args ...interface{}) {
+func (sl *ScopedLogger) Info(format string, args ...any) {
 	sl.log(slogInfo, format, args...)
 }
 
-func (sl *ScopedLogger) Warn(format string, args ...interface{}) {
+func (sl *ScopedLogger) Warn(format string, args ...any) {
 	sl.log(slogWarn, format, args...)
 }
 
-func (sl *ScopedLogger) Error(format string, args ...interface{}) {
+func (sl *ScopedLogger) Error(format string, args ...any) {
 	sl.log(slogError, format, args...)
 }
 
@@ -356,10 +356,7 @@ func (h *plainHandler) Handle(_ context.Context, r slog.Record) error {
 		b.WriteByte(' ')
 	}
 	name := levelName(r.Level)
-	pad := 8 - len(name)
-	if pad < 0 {
-		pad = 0
-	}
+	pad := max(8-len(name), 0)
 	if h.mark != "" && pad > 0 {
 		b.WriteString(strings.Repeat(" ", pad-1))
 		b.WriteString(h.mark)
@@ -619,32 +616,32 @@ func (l *Logger) SetFormat(format string) {
 	l.format = format
 }
 
-func (l *Logger) Debug(format string, args ...interface{}) {
+func (l *Logger) Debug(format string, args ...any) {
 	l.slogLogger().Log(context.Background(), slogDebug, sprintf(format, args...))
 }
 
-func (l *Logger) Verbose(format string, args ...interface{}) {
+func (l *Logger) Verbose(format string, args ...any) {
 	l.slogLogger().Log(context.Background(), slogVerbose, sprintf(format, args...))
 }
 
-func (l *Logger) Info(format string, args ...interface{}) {
+func (l *Logger) Info(format string, args ...any) {
 	l.slogLogger().Log(context.Background(), slogInfo, sprintf(format, args...))
 }
 
-func (l *Logger) Warn(format string, args ...interface{}) {
+func (l *Logger) Warn(format string, args ...any) {
 	l.slogLogger().Log(context.Background(), slogWarn, sprintf(format, args...))
 }
 
-func (l *Logger) Error(format string, args ...interface{}) {
+func (l *Logger) Error(format string, args ...any) {
 	l.slogLogger().Log(context.Background(), slogError, sprintf(format, args...))
 }
 
-func (l *Logger) Fatal(format string, args ...interface{}) {
+func (l *Logger) Fatal(format string, args ...any) {
 	l.slogLogger().Log(context.Background(), slogError, sprintf(format, args...))
 	os.Exit(1)
 }
 
-func (l *Logger) Trace(format string, args ...interface{}) {
+func (l *Logger) Trace(format string, args ...any) {
 	l.slogLogger().Log(context.Background(), slogTrace, sprintf(format, args...))
 }
 
@@ -657,7 +654,7 @@ func (l *Logger) TraceFunction(funcName string) func() {
 	}
 }
 
-func sprintf(format string, args ...interface{}) string {
+func sprintf(format string, args ...any) string {
 	if len(args) == 0 {
 		return format
 	}
@@ -668,35 +665,35 @@ func GetTimestampsEnabled() bool {
 	return GetLogger().showTimestamps
 }
 
-func Debug(format string, args ...interface{}) {
+func Debug(format string, args ...any) {
 	GetLogger().Debug(format, args...)
 }
 
-func Verbose(format string, args ...interface{}) {
+func Verbose(format string, args ...any) {
 	GetLogger().Verbose(format, args...)
 }
 
-func Info(format string, args ...interface{}) {
+func Info(format string, args ...any) {
 	GetLogger().Info(format, args...)
 }
 
-func Warn(format string, args ...interface{}) {
+func Warn(format string, args ...any) {
 	GetLogger().Warn(format, args...)
 }
 
-func Error(format string, args ...interface{}) {
+func Error(format string, args ...any) {
 	GetLogger().Error(format, args...)
 }
 
-func Fatal(format string, args ...interface{}) {
+func Fatal(format string, args ...any) {
 	GetLogger().Fatal(format, args...)
 }
 
-func Trace(format string, args ...interface{}) {
+func Trace(format string, args ...any) {
 	GetLogger().Trace(format, args...)
 }
 
-func DumpState(prefix string, obj interface{}) {
+func DumpState(prefix string, obj any) {
 	details := fmt.Sprintf("%+v", obj)
 	if len(details) > 1000 {
 		details = details[:1000] + "... [truncated]"
@@ -712,7 +709,7 @@ func DumpState(prefix string, obj interface{}) {
 	}
 }
 
-func TracePath(path string, args ...interface{}) {
+func TracePath(path string, args ...any) {
 	message := sprintf(path, args...)
 	now := time.Now().Format("15:04:05.000")
 

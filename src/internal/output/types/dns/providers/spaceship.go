@@ -26,7 +26,7 @@ type spaceshipRecord struct {
 	TTL     int    `json:"ttl"`
 }
 
-func NewSpaceshipProvider(config map[string]string) (interface{}, error) {
+func NewSpaceshipProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("spaceship", config["profile_name"], config)
 
 	apiKey := base.Secret("api_key")
@@ -99,7 +99,7 @@ func (p *SpaceshipProvider) CreateOrUpdateRecord(domain, recordType, hostname, t
 func (p *SpaceshipProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostname, target string, ttl int, proxied bool, comment, source string, overwrite bool) error {
 	name := RelativeName(hostname, domain)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"force": true,
 		"items": []spaceshipRecord{{Type: recordType, Name: name, Address: target, TTL: ttl}},
 	}

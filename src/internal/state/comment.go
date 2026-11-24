@@ -71,7 +71,7 @@ func parseLegacyComment(comment string) (source string, firstSeen, lastModified 
 	if !strings.HasPrefix(comment, LegacyCommentPrefix) {
 		return "", time.Time{}, time.Time{}, false
 	}
-	for _, part := range strings.Split(comment, "|") {
+	for part := range strings.SplitSeq(comment, "|") {
 		part = strings.TrimSpace(part)
 		switch {
 		case strings.HasPrefix(part, "source:"):

@@ -37,7 +37,7 @@ type ProviderConstructor func(config map[string]string) (Provider, error)
 var providerRegistry = make(map[string]ProviderConstructor)
 var registryMutex sync.RWMutex
 
-func RegisterProvider(name string, constructor func(map[string]string) (interface{}, error)) {
+func RegisterProvider(name string, constructor func(map[string]string) (any, error)) {
 	registryMutex.Lock()
 	defer registryMutex.Unlock()
 	providerRegistry[name] = func(config map[string]string) (Provider, error) {
@@ -108,7 +108,7 @@ func InternalTarget(target string) bool {
 
 func (g guardedProvider) nonRoutableTarget(target string) bool {
 	var extra []netip.Prefix
-	for _, raw := range strings.Split(g.config["deny_cidrs"], ",") {
+	for raw := range strings.SplitSeq(g.config["deny_cidrs"], ",") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
 			continue
@@ -223,7 +223,7 @@ type writtenState struct {
 type DNSOutputFormat struct {
 	ProfileName string
 	Provider    Provider
-	Config      map[string]interface{}
+	Config      map[string]any
 
 	mu               sync.Mutex
 	lastWritten      map[string]writtenState
@@ -254,7 +254,7 @@ func (d *DNSOutputFormat) shouldWrite(domain, hostname, target, recordType strin
 	}
 	return true
 }
-func parseReassertInterval(v interface{}) time.Duration {
+func parseReassertInterval(v any) time.Duration {
 	switch t := v.(type) {
 	case nil:
 		return 0

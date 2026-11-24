@@ -20,9 +20,9 @@ func SetDNSProviders(providers map[string]dns.Provider) {
 	GlobalDNSProviders = providers
 }
 
-func parseStringArray(value interface{}) []string {
+func parseStringArray(value any) []string {
 	switch v := value.(type) {
-	case []interface{}:
+	case []any:
 		result := make([]string, 0, len(v))
 		for _, item := range v {
 			if str, ok := item.(string); ok {
@@ -39,7 +39,7 @@ func parseStringArray(value interface{}) []string {
 	}
 }
 
-func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles, outputProfiles, dnsProviders map[string]interface{}, allowMissingOutputs bool) error {
+func InitializeDomainSystem(domainConfigs map[string]any, inputProfiles, outputProfiles, dnsProviders map[string]any, allowMissingOutputs bool) error {
 	log.NewScopedLogger("[domain]", "").With("action", "config.load").Debug("domain configs received: %+v", domainConfigs)
 
 	domains := make(map[string]*DomainConfig)
@@ -50,7 +50,7 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 			Name: domainName,
 		}
 
-		if configMap, ok := configRaw.(map[string]interface{}); ok {
+		if configMap, ok := configRaw.(map[string]any); ok {
 			log.NewScopedLogger("[domain]", "").With("action", "config.load", "domain", domainName).Debug("config is map: %+v", configMap)
 
 			if name, ok := configMap["name"].(string); ok {
@@ -69,7 +69,7 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 			}
 
 			if profilesRaw, ok := configMap["profiles"]; ok {
-				if profilesMap, ok := profilesRaw.(map[string]interface{}); ok {
+				if profilesMap, ok := profilesRaw.(map[string]any); ok {
 					domainConfig.Profiles = &DomainProfiles{}
 					if inputsRaw, ok := profilesMap["inputs"]; ok {
 						domainConfig.Profiles.Inputs = parseStringArray(inputsRaw)
@@ -82,7 +82,7 @@ func InitializeDomainSystem(domainConfigs map[string]interface{}, inputProfiles,
 				}
 			}
 
-			if recordRaw, ok := configMap["record"].(map[string]interface{}); ok {
+			if recordRaw, ok := configMap["record"].(map[string]any); ok {
 				log.NewScopedLogger("[domain]", "").With("action", "config.load", "domain", domainName).Debug("record config: %+v", recordRaw)
 				if recordType, ok := recordRaw["type"].(string); ok {
 					domainConfig.Record.Type = recordType

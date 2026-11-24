@@ -5,6 +5,8 @@
 package traefik
 
 import (
+	"maps"
+
 	"github.com/nfrastack/herald/internal/config"
 	"github.com/nfrastack/herald/internal/domain"
 	"github.com/nfrastack/herald/internal/input/common"
@@ -91,7 +93,7 @@ func (p *TraefikProvider) getParentDomainForFQDN(fqdn string) string {
 }
 
 func evaluateTraefikFilter(filter common.Filter, entry any) bool {
-	router, ok := entry.(map[string]interface{})
+	router, ok := entry.(map[string]any)
 	if !ok {
 		return false
 	}
@@ -128,7 +130,7 @@ func evaluateTraefikFilter(filter common.Filter, entry any) bool {
 		return true
 	case common.FilterTypeEntrypoint:
 		for _, condition := range filter.Conditions {
-			if entryPoints, ok := router["entryPoints"].([]interface{}); ok {
+			if entryPoints, ok := router["entryPoints"].([]any); ok {
 				found := false
 				for _, ep := range entryPoints {
 					if epStr, ok := ep.(string); ok {
@@ -167,7 +169,7 @@ func evaluateTraefikFilter(filter common.Filter, entry any) bool {
 	}
 }
 
-func NewProviderFromStructured(options map[string]interface{}) (Provider, error) {
+func NewProviderFromStructured(options map[string]any) (Provider, error) {
 	filterLogPrefix := "[input/traefik/filter]"
 	if name, ok := options["name"]; ok && name != "" {
 		if strName, ok := name.(string); ok {
@@ -380,7 +382,7 @@ func NewProviderFromStructured(options map[string]interface{}) (Provider, error)
 }
 
 func NewProvider(options map[string]string, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
-	structuredOptions := make(map[string]interface{})
+	structuredOptions := make(map[string]any)
 	for key, value := range options {
 		structuredOptions[key] = value
 	}
@@ -663,18 +665,18 @@ func (t *TraefikProvider) processTraefikRouters() error {
 
 	t.logger.With("action", "provider.poll").Debug("JSON response")
 
-	var routersArray []map[string]interface{}
+	var routersArray []map[string]any
 	if err := json.Unmarshal(body, &routersArray); err != nil {
-		var routersMap map[string]interface{}
+		var routersMap map[string]any
 		if err := json.Unmarshal(body, &routersMap); err != nil {
 			t.logger.With("action", "provider.validate").Error("parse JSON response: %v", err)
 			return fmt.Errorf("%s failed to parse JSON: %w", t.logPrefix, err)
 		}
 		t.logger.With("action", "provider.poll").Debug("%d routers in API response (map format)", len(routersMap))
 
-		routersArray = make([]map[string]interface{}, 0, len(routersMap))
+		routersArray = make([]map[string]any, 0, len(routersMap))
 		for name, router := range routersMap {
-			if r, ok := router.(map[string]interface{}); ok {
+			if r, ok := router.(map[string]any); ok {
 				r["name"] = name
 				routersArray = append(routersArray, r)
 			}
@@ -683,7 +685,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 
 	t.logger.With("action", "provider.poll").Debug("%d routers in API response", len(routersArray))
 
-	filteredRouters := make([]map[string]interface{}, 0, len(routersArray))
+	filteredRouters := make([]map[string]any, 0, len(routersArray))
 	initialLog := !t.initialPollDone
 	for _, router := range routersArray {
 		shouldProcess := t.filterConfig.Evaluate(router, evaluateTraefikFilter)
@@ -716,7 +718,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 			routerName = name
 		}
 		entryPoints := []string{}
-		if eps, ok := router["entryPoints"].([]interface{}); ok {
+		if eps, ok := router["entryPoints"].([]any); ok {
 			for _, ep := range eps {
 				if epstr, ok := ep.(string); ok {
 					entryPoints = append(entryPoints, epstr)
@@ -875,9 +877,7 @@ func (p *TraefikProvider) pollRouters() error {
 	}
 
 	if len(p.routerCache) == 0 && p.opts.ProcessExisting {
-		for k, v := range currentMap {
-			p.routerCache[k] = v
-		}
+		maps.Copy(p.routerCache, currentMap)
 		p.logger.With("action", "sync.start").Info("poll: process_existing=true, populating cache only, not processing routers")
 		return nil
 	}
@@ -954,7 +954,7 @@ func extractHostsFromRule(rule string) []string {
 
 	parseHosts := func(arg string) []string {
 		var hosts []string
-		for _, h := range strings.Split(arg, ",") {
+		for h := range strings.SplitSeq(arg, ",") {
 			h = strings.TrimSpace(h)
 			h = strings.Trim(h, "'\"` ")
 			if h != "" {

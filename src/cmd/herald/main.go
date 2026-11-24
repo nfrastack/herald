@@ -5,6 +5,8 @@
 package main
 
 import (
+	"maps"
+
 	"github.com/nfrastack/herald/internal/api"
 	"github.com/nfrastack/herald/internal/config"
 	"github.com/nfrastack/herald/internal/domain"
@@ -222,13 +224,13 @@ func main() {
 		log.NewScopedLogger("", "").With("action", "state.load").Info("[state] record presence in %s", stateDir)
 	}
 
-	domainsInterface := make(map[string]interface{})
+	domainsInterface := make(map[string]any)
 	for k, v := range cfg.Domains {
-		domainMap := make(map[string]interface{})
+		domainMap := make(map[string]any)
 		domainMap["name"] = v.Name
 
 		if v.Profiles != nil && (len(v.Profiles.Inputs) > 0 || len(v.Profiles.Outputs) > 0) {
-			profilesMap := make(map[string]interface{})
+			profilesMap := make(map[string]any)
 			if len(v.Profiles.Inputs) > 0 {
 				profilesMap["inputs"] = v.Profiles.Inputs
 			}
@@ -245,7 +247,7 @@ func main() {
 		domainMap["output_profiles"] = outputs
 
 		if v.Record.Type != "" || v.Record.TTL != 0 || v.Record.Target != "" {
-			recordMap := make(map[string]interface{})
+			recordMap := make(map[string]any)
 			recordMap["type"] = v.Record.Type
 			recordMap["ttl"] = v.Record.TTL
 			recordMap["target"] = v.Record.Target
@@ -259,16 +261,14 @@ func main() {
 		log.NewScopedLogger("", "").With("action", "domain.route").Debug("[main] domain interface for '%s': input_profiles=%v, outputs=%v",
 			k, inputProfiles, outputs)
 	}
-	inputsInterface := make(map[string]interface{})
+	inputsInterface := make(map[string]any)
 	for k, v := range cfg.Inputs {
 		inputsInterface[k] = v
 	}
-	outputsInterface := make(map[string]interface{})
-	for k, v := range cfg.Outputs {
-		outputsInterface[k] = v
-	}
+	outputsInterface := make(map[string]any)
+	maps.Copy(outputsInterface, cfg.Outputs)
 
-	if err := domain.InitializeDomainSystem(domainsInterface, inputsInterface, outputsInterface, map[string]interface{}{}, cfg.General.AllowMissingOutputs); err != nil {
+	if err := domain.InitializeDomainSystem(domainsInterface, inputsInterface, outputsInterface, map[string]any{}, cfg.General.AllowMissingOutputs); err != nil {
 		log.NewScopedLogger("", "").With("action", "domain.route").Error("[domain] initialize domain system: %v", err)
 		os.Exit(1)
 	}

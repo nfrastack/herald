@@ -25,7 +25,7 @@ type linodeRecord struct {
 	TTL    int    `json:"ttl_sec"`
 }
 
-func NewLinodeProvider(config map[string]string) (interface{}, error) {
+func NewLinodeProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("linode", config["profile_name"], config)
 
 	token := base.Secret("token", "api_token")
@@ -125,7 +125,7 @@ func (p *LinodeProvider) CreateOrUpdateRecordWithSource(domain, recordType, host
 			if r.Target == target && r.TTL == ttl {
 				return nil
 			}
-			body := map[string]interface{}{"target": target, "ttl_sec": ttl}
+			body := map[string]any{"target": target, "ttl_sec": ttl}
 			status, respBody, err := p.DoJSON("PUT", fmt.Sprintf("%s/domains/%d/records/%d", p.apiHost, domainID, r.ID), p.headers(), body)
 			if err != nil {
 				return err
@@ -137,7 +137,7 @@ func (p *LinodeProvider) CreateOrUpdateRecordWithSource(domain, recordType, host
 		}
 	}
 
-	body := map[string]interface{}{"type": recordType, "name": name, "target": target, "ttl_sec": ttl}
+	body := map[string]any{"type": recordType, "name": name, "target": target, "ttl_sec": ttl}
 	status, respBody, err := p.DoJSON("POST", fmt.Sprintf("%s/domains/%d/records", p.apiHost, domainID), p.headers(), body)
 	if err != nil {
 		return err

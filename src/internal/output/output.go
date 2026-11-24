@@ -5,6 +5,8 @@
 package output
 
 import (
+	"slices"
+
 	"github.com/nfrastack/herald/internal/log"
 	"github.com/nfrastack/herald/internal/output/types/common"
 	"github.com/nfrastack/herald/internal/output/types/dns"
@@ -114,12 +116,12 @@ func registerAllCoreFormats() {
 }
 
 var (
-	outputFormatRegistry   = make(map[string]func(string, map[string]interface{}) (OutputFormat, error))
+	outputFormatRegistry   = make(map[string]func(string, map[string]any) (OutputFormat, error))
 	registryMutex          sync.RWMutex
 	outputManagerInitCount int // Track how many times output manager is initialized
 )
 
-func RegisterFormat(formatName string, createFunc func(string, map[string]interface{}) (OutputFormat, error)) {
+func RegisterFormat(formatName string, createFunc func(string, map[string]any) (OutputFormat, error)) {
 	registryMutex.Lock()
 	defer registryMutex.Unlock()
 	if _, exists := outputFormatRegistry[formatName]; exists {
@@ -169,7 +171,7 @@ func GetGlobalOutputManager() *OutputManager {
 	return globalOutputManager
 }
 
-func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool, domainManager interface{}) error {
+func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool, domainManager any) error {
 	var allowedOutputs []string
 
 	if dm, ok := domainManager.(interface {
@@ -248,7 +250,7 @@ func (om *OutputManager) GetProfile(profileName string) OutputFormat {
 	return om.profiles[profileName]
 }
 
-func (om *OutputManager) AddProfile(profileName, path string, domains []string, config map[string]interface{}) error {
+func (om *OutputManager) AddProfile(profileName, path string, domains []string, config map[string]any) error {
 	om.mutex.Lock()
 	defer om.mutex.Unlock()
 
@@ -275,11 +277,8 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 			globalConfig := getGlobalConfigForOutput()
 			if globalConfig != nil {
 				for _, domainConfig := range globalConfig.GetDomains() {
-					for _, output := range domainConfig.GetOutputs() {
-						if output == profileName {
-							domainArg = domainConfig.GetName()
-							break
-						}
+					if slices.Contains(domainConfig.GetOutputs(), profileName) {
+						domainArg = domainConfig.GetName()
 					}
 				}
 			}
@@ -302,11 +301,11 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 				providerConfig[k] = strconv.Itoa(t)
 			case float64:
 				providerConfig[k] = strconv.Itoa(int(t))
-			case map[string]interface{}:
+			case map[string]any:
 				for nk, nv := range t {
 					providerConfig[k+"."+nk] = fmt.Sprintf("%v", nv)
 				}
-			case []interface{}:
+			case []any:
 				for i, item := range t {
 					providerConfig[fmt.Sprintf("%s.%d", k, i)] = fmt.Sprintf("%v", item)
 				}
@@ -523,7 +522,7 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 	return nil
 }
 
-func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, enabledProfiles []string) error {
+func InitializeOutputManagerWithProfiles(outputConfigs map[string]any, enabledProfiles []string) error {
 	outputManagerInitCount++
 	outLog.With("action", "provider.init").Trace("called %d time(s)", outputManagerInitCount)
 
@@ -548,14 +547,14 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]interface{}, e
 		for profileName, profileConfig := range outputConfigs {
 			outLog.With("action", "provider.init", "profile", profileName).Debug("profile")
 
-			configMap, ok := profileConfig.(map[string]interface{})
+			configMap, ok := profileConfig.(map[string]any)
 			if !ok {
 				outLog.With("action", "config.error", "profile", profileName).Error("config for profile invalid, skipping")
 				continue
 			}
 			path, _ := configMap["path"].(string)
 			domains := []string{}
-			if d, ok := configMap["domains"].([]interface{}); ok {
+			if d, ok := configMap["domains"].([]any); ok {
 				for _, v := range d {
 					if s, ok := v.(string); ok {
 						domains = append(domains, s)

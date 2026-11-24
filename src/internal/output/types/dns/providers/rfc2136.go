@@ -27,7 +27,7 @@ type RFC2136Provider struct {
 	verified  map[string]bool
 }
 
-func NewRFC2136Provider(config map[string]string) (interface{}, error) {
+func NewRFC2136Provider(config map[string]string) (any, error) {
 	base := NewBaseProvider("rfc2136", config["profile_name"], config)
 
 	server := strings.TrimSpace(base.Option("server", "127.0.0.1:53"))

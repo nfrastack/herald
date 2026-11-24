@@ -24,7 +24,7 @@ type CloudflareProvider struct {
 	zoneIDs map[string]string
 }
 
-func NewCloudflareProviderWithProfile(profileName string, config map[string]string) (interface{}, error) {
+func NewCloudflareProviderWithProfile(profileName string, config map[string]string) (any, error) {
 	base := NewBaseProvider("cloudflare", profileName, config)
 
 	token := base.Secret("token", "api_token")
@@ -47,7 +47,7 @@ func NewCloudflareProviderWithProfile(profileName string, config map[string]stri
 	return provider, nil
 }
 
-func NewCloudflareProvider(config map[string]string) (interface{}, error) {
+func NewCloudflareProvider(config map[string]string) (any, error) {
 	return NewCloudflareProviderWithProfile("default", config)
 }
 

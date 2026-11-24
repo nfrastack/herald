@@ -5,6 +5,8 @@
 package domain
 
 import (
+	"slices"
+
 	"github.com/nfrastack/herald/internal/common"
 	"github.com/nfrastack/herald/internal/log"
 
@@ -75,7 +77,7 @@ func (dm *DomainManager) GetAllDomains() map[string]*DomainConfig {
 	return dm.domains
 }
 
-func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfiles, outputProfiles, dnsProviders map[string]interface{}, allowMissingOutputs bool) error {
+func ValidateDomainConfigurations(domains map[string]*DomainConfig, inputProfiles, outputProfiles, dnsProviders map[string]any, allowMissingOutputs bool) error {
 	var errors []string
 	validateLog := log.NewScopedLogger("[domain]", "")
 
@@ -154,10 +156,8 @@ func (dm *DomainManager) ValidateInputProviderAccess(domainName, inputProviderNa
 		return true
 	}
 
-	for _, allowedProvider := range inputProfiles {
-		if allowedProvider == inputProviderName {
-			return true
-		}
+	if slices.Contains(inputProfiles, inputProviderName) {
+		return true
 	}
 
 	dm.logger.With("action", "domain.skip").Debug("'%s' not allowed for domain '%s' (allowed: %s)",
@@ -178,10 +178,8 @@ func (dm *DomainManager) ValidateOutputProfileAccess(domainName, outputProfileNa
 		return false
 	}
 
-	for _, allowedProfile := range outputs {
-		if allowedProfile == outputProfileName {
-			return true
-		}
+	if slices.Contains(outputs, outputProfileName) {
+		return true
 	}
 
 	dm.logger.With("action", "domain.skip").Debug("'%s' not allowed for domain '%s' (allowed: %s)",
@@ -215,7 +213,7 @@ func (dm *DomainManager) ProcessRecord(inputProviderName, domainName, hostname, 
 	return nil
 }
 
-func getMapKeys(m map[string]interface{}) []string {
+func getMapKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for key := range m {
 		keys = append(keys, key)

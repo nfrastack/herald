@@ -5,6 +5,8 @@
 package providers
 
 import (
+	"maps"
+
 	"github.com/nfrastack/herald/internal/output/types/dns"
 
 	"encoding/json"
@@ -26,7 +28,7 @@ type porkbunRecord struct {
 	TTL     string `json:"ttl"`
 }
 
-func NewPorkbunProvider(config map[string]string) (interface{}, error) {
+func NewPorkbunProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("porkbun", config["profile_name"], config)
 
 	apiKey := base.Secret("api_key", "apiKey")
@@ -55,17 +57,15 @@ func (p *PorkbunProvider) SupportsProxied() bool {
 	return false
 }
 
-func (p *PorkbunProvider) auth() map[string]interface{} {
-	return map[string]interface{}{"apikey": p.apiKey, "secretapikey": p.secret}
+func (p *PorkbunProvider) auth() map[string]any {
+	return map[string]any{"apikey": p.apiKey, "secretapikey": p.secret}
 }
 
-func (p *PorkbunProvider) call(path string, payload map[string]interface{}) (int, []byte, error) {
+func (p *PorkbunProvider) call(path string, payload map[string]any) (int, []byte, error) {
 	if payload == nil {
 		payload = p.auth()
 	} else {
-		for k, v := range p.auth() {
-			payload[k] = v
-		}
+		maps.Copy(payload, p.auth())
 	}
 	return p.DoJSON("POST", p.apiHost+path, map[string]string{"Content-Type": "application/json"}, payload)
 }
@@ -119,7 +119,7 @@ func (p *PorkbunProvider) CreateOrUpdateRecordWithSource(domain, recordType, hos
 			if r.Content == target && r.TTL == ttlStr {
 				return nil
 			}
-			payload := map[string]interface{}{"name": name, "type": recordType, "content": target, "ttl": ttlStr}
+			payload := map[string]any{"name": name, "type": recordType, "content": target, "ttl": ttlStr}
 			status, respBody, err := p.call("/dns/edit/"+domain+"/"+r.ID, payload)
 			if err != nil {
 				return err
@@ -128,7 +128,7 @@ func (p *PorkbunProvider) CreateOrUpdateRecordWithSource(domain, recordType, hos
 		}
 	}
 
-	payload := map[string]interface{}{"name": name, "type": recordType, "content": target, "ttl": ttlStr}
+	payload := map[string]any{"name": name, "type": recordType, "content": target, "ttl": ttlStr}
 	status, respBody, err := p.call("/dns/create/"+domain, payload)
 	if err != nil {
 		return err

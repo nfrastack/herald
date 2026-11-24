@@ -5,6 +5,8 @@
 package providers
 
 import (
+	"maps"
+
 	"github.com/nfrastack/herald/internal/output/types/dns"
 
 	"encoding/json"
@@ -20,13 +22,13 @@ type TechnitiumProvider struct {
 }
 
 type technitiumRecord struct {
-	Name  string                 `json:"name"`
-	Type  string                 `json:"type"`
-	TTL   int                    `json:"ttl"`
-	RData map[string]interface{} `json:"rData"`
+	Name  string         `json:"name"`
+	Type  string         `json:"type"`
+	TTL   int            `json:"ttl"`
+	RData map[string]any `json:"rData"`
 }
 
-func NewTechnitiumProvider(config map[string]string) (interface{}, error) {
+func NewTechnitiumProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("technitium", config["profile_name"], config)
 
 	token := base.Secret("token", "api_token")
@@ -139,9 +141,7 @@ func (p *TechnitiumProvider) CreateOrUpdateRecordWithSource(domain, recordType, 
 		"domain": fqdn, "zone": domain, "type": recordType,
 		"ttl": fmt.Sprintf("%d", ttl), "overwrite": "true",
 	}
-	for k, v := range extra {
-		params[k] = v
-	}
+	maps.Copy(params, extra)
 
 	status, body, err := p.get("/api/zones/records/add", params)
 	if err != nil {
@@ -174,9 +174,7 @@ func (p *TechnitiumProvider) DeleteRecord(domain, recordType, hostname string) e
 			return err
 		}
 		params := map[string]string{"domain": fqdn, "zone": domain, "type": recordType}
-		for k, v := range extra {
-			params[k] = v
-		}
+		maps.Copy(params, extra)
 		status, body, err := p.get("/api/zones/records/delete", params)
 		if err != nil {
 			return err

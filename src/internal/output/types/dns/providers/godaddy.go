@@ -23,7 +23,7 @@ type godaddyRecord struct {
 	TTL  int    `json:"ttl"`
 }
 
-func NewGoDaddyProvider(config map[string]string) (interface{}, error) {
+func NewGoDaddyProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("godaddy", config["profile_name"], config)
 
 	apiKey := base.Secret("api_key", "key")

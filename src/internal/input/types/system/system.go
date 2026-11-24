@@ -5,6 +5,8 @@
 package system
 
 import (
+	"maps"
+
 	"github.com/nfrastack/herald/internal/domain"
 	"github.com/nfrastack/herald/internal/input/common"
 	"github.com/nfrastack/herald/internal/log"
@@ -63,7 +65,7 @@ type SystemProvider struct {
 	httpClient         *http.Client
 }
 
-func stringOption(config map[string]interface{}, key string) string {
+func stringOption(config map[string]any, key string) string {
 	if config == nil {
 		return ""
 	}
@@ -80,7 +82,7 @@ func stringOption(config map[string]interface{}, key string) string {
 	return ""
 }
 
-func boolOption(config map[string]interface{}, key string, def bool) bool {
+func boolOption(config map[string]any, key string, def bool) bool {
 	if config == nil {
 		return def
 	}
@@ -101,7 +103,7 @@ func boolOption(config map[string]interface{}, key string, def bool) bool {
 	return def
 }
 
-func durationOption(config map[string]interface{}, key string, def time.Duration) time.Duration {
+func durationOption(config map[string]any, key string, def time.Duration) time.Duration {
 	if config == nil {
 		return def
 	}
@@ -128,7 +130,7 @@ func durationOption(config map[string]interface{}, key string, def time.Duration
 	return def
 }
 
-func listOption(config map[string]interface{}, key string) []string {
+func listOption(config map[string]any, key string) []string {
 	if config == nil {
 		return nil
 	}
@@ -139,7 +141,7 @@ func listOption(config map[string]interface{}, key string) []string {
 	switch t := v.(type) {
 	case []string:
 		return t
-	case []interface{}:
+	case []any:
 		var out []string
 		for _, item := range t {
 			if s, ok := item.(string); ok {
@@ -154,7 +156,7 @@ func listOption(config map[string]interface{}, key string) []string {
 	}
 }
 
-func NewProvider(profileName string, config map[string]interface{}, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (*SystemProvider, error) {
+func NewProvider(profileName string, config map[string]any, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (*SystemProvider, error) {
 	logPrefix := common.BuildLogPrefix("system", profileName)
 
 	hostname := strings.ToLower(strings.TrimSpace(stringOption(config, "hostname")))
@@ -273,8 +275,8 @@ func (p *SystemProvider) matchInterface(name string, patterns []string, hasExpli
 		if pattern == "" {
 			continue
 		}
-		if strings.HasPrefix(pattern, "!") {
-			if ok, _ := path.Match(strings.TrimPrefix(pattern, "!"), name); ok {
+		if after, ok := strings.CutPrefix(pattern, "!"); ok {
+			if ok, _ := path.Match(after, name); ok {
 				return false
 			}
 			continue
@@ -364,7 +366,7 @@ func (p *SystemProvider) interfaceTargets() map[string]string {
 }
 
 func firstUsableIP(body string, wantIPv4, wantIPv6 bool) string {
-	for _, field := range strings.Fields(body) {
+	for field := range strings.FieldsSeq(body) {
 		field = strings.Trim(strings.TrimPrefix(field, "ip="), "\"',;")
 		addr, err := netip.ParseAddr(field)
 		if err != nil {
@@ -438,9 +440,7 @@ func (p *SystemProvider) currentTargets() map[string]string {
 		return targets
 	}
 	known := make(map[string]string)
-	for key, target := range p.lastKnownRecords {
-		known[key] = target
-	}
+	maps.Copy(known, p.lastKnownRecords)
 	if p.addressFile != "" {
 		if target := p.fileTarget(); target != "" {
 			recordType := "A"

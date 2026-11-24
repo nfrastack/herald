@@ -59,7 +59,7 @@ type route53ListRecordsResponse struct {
 	RecordSets []route53RecordSet `xml:"ResourceRecordSets>ResourceRecordSet"`
 }
 
-func NewRoute53Provider(config map[string]string) (interface{}, error) {
+func NewRoute53Provider(config map[string]string) (any, error) {
 	base := NewBaseProvider("route53", config["profile_name"], config)
 
 	accessKey := base.Secret("access_key", "access_key_id", "aws_access_key_id")
@@ -141,7 +141,7 @@ func (p *Route53Provider) get(path string) (int, []byte, error) {
 	return p.DoJSON("GET", p.endpoint+path, headers, nil)
 }
 
-func (p *Route53Provider) postXML(path string, payload interface{}) (int, []byte, error) {
+func (p *Route53Provider) postXML(path string, payload any) (int, []byte, error) {
 	raw, err := xml.Marshal(payload)
 	if err != nil {
 		return 0, nil, err

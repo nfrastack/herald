@@ -41,10 +41,10 @@ type RemoteRecord struct {
 	RecordType string    `json:"type"`
 	TTL        int       `json:"ttl"`
 	Source     string    `json:"source"`
-	CreatedAt  time.Time `json:"created_at,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
-func NewRemoteFormat(profileName string, config map[string]interface{}) (common.OutputFormat, error) {
+func NewRemoteFormat(profileName string, config map[string]any) (common.OutputFormat, error) {
 	url := util.ReadSecretValue(remoteStringField(config, "url"))
 	if url == "" {
 		return nil, fmt.Errorf("remote output requires 'url' field")
@@ -96,14 +96,14 @@ func NewRemoteFormat(profileName string, config map[string]interface{}) (common.
 	}, nil
 }
 
-func remoteStringField(config map[string]interface{}, key string) string {
+func remoteStringField(config map[string]any, key string) string {
 	if v, ok := config[key].(string); ok {
 		return v
 	}
 	return ""
 }
 
-func parseRemoteTimeout(value interface{}) time.Duration {
+func parseRemoteTimeout(value any) time.Duration {
 	const def = 30 * time.Second
 	switch v := value.(type) {
 	case nil:
@@ -138,8 +138,8 @@ func parseRemoteTimeout(value interface{}) time.Duration {
 	}
 }
 
-func buildRemoteTLSConfig(value interface{}) (*tls.Config, error) {
-	tlsMap, _ := value.(map[string]interface{})
+func buildRemoteTLSConfig(value any) (*tls.Config, error) {
+	tlsMap, _ := value.(map[string]any)
 	verify := true
 	if raw, ok := tlsMap["verify"]; ok {
 		switch v := raw.(type) {
@@ -270,24 +270,24 @@ func (r *RemoteFormat) Sync() error {
 	}
 
 	generator := "herald"
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"generator":    generator,
 		"generated_at": time.Now().Format(time.RFC3339),
 		"last_updated": time.Now().Format(time.RFC3339),
 	}
 
-	domains := make(map[string]map[string]interface{})
+	domains := make(map[string]map[string]any)
 	for domain := range allDomains {
 		records := additionsByDomain[domain]
 		if records == nil {
 			records = []*RemoteRecord{} // ensure empty slice, not nil
 		}
-		domains[domain] = map[string]interface{}{
+		domains[domain] = map[string]any{
 			"records": records,
 		}
 	}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"client_id": r.clientID,
 		"metadata":  metadata,
 		"domains":   domains,

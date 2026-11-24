@@ -86,7 +86,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		return nil, fmt.Errorf("%s source option (file path) is required", logPrefix)
 	}
 
-	structuredOptions := make(map[string]interface{})
+	structuredOptions := make(map[string]any)
 	for key, value := range options {
 		structuredOptions[key] = value
 	}

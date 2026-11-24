@@ -21,8 +21,8 @@ func ExtractHostsFromRule(rule string) []string {
 	matches := re.FindAllStringSubmatch(rule, -1)
 	for _, match := range matches {
 		if len(match) > 1 {
-			hosts := strings.Split(match[1], ",")
-			for _, h := range hosts {
+			hosts := strings.SplitSeq(match[1], ",")
+			for h := range hosts {
 				h = strings.TrimSpace(h)
 				h = strings.Trim(h, "'\"` ")
 				if h != "" {
@@ -42,7 +42,7 @@ func GetMapKeys(m map[string]string) []string {
 	return keys
 }
 
-func GetMapKeysGeneric(m map[string]interface{}) []string {
+func GetMapKeysGeneric(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -148,12 +148,12 @@ func MaskSensitiveOptions(options map[string]string) map[string]string {
 	return masked
 }
 
-func MaskSensitiveMapRecursive(m map[string]interface{}) map[string]interface{} {
+func MaskSensitiveMapRecursive(m map[string]any) map[string]any {
 	if m == nil {
 		return nil
 	}
 
-	masked := make(map[string]interface{}, len(m))
+	masked := make(map[string]any, len(m))
 	for k, v := range m {
 		if IsSensitiveKey(k) {
 			if sv, ok := v.(string); ok {
@@ -161,7 +161,7 @@ func MaskSensitiveMapRecursive(m map[string]interface{}) map[string]interface{} 
 			} else {
 				masked[k] = "****"
 			}
-		} else if subMap, ok := v.(map[string]interface{}); ok {
+		} else if subMap, ok := v.(map[string]any); ok {
 			masked[k] = MaskSensitiveMapRecursive(subMap)
 		} else {
 			masked[k] = v

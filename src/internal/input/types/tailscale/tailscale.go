@@ -315,7 +315,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		log.NewScopedLogger(logPrefix, "").With("action", "config.load").Debug("default tailnet")
 	}
 
-	structuredOptions := make(map[string]interface{})
+	structuredOptions := make(map[string]any)
 	for key, value := range options {
 		structuredOptions[key] = value
 	}

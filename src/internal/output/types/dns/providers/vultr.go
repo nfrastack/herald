@@ -25,7 +25,7 @@ type vultrRecord struct {
 	TTL  int    `json:"ttl"`
 }
 
-func NewVultrProvider(config map[string]string) (interface{}, error) {
+func NewVultrProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("vultr", config["profile_name"], config)
 
 	token := base.Secret("token", "api_token")
@@ -98,7 +98,7 @@ func (p *VultrProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostn
 			if r.Data == target && r.TTL == ttl {
 				return nil
 			}
-			body := map[string]interface{}{"data": target, "ttl": ttl}
+			body := map[string]any{"data": target, "ttl": ttl}
 			status, respBody, err := p.DoJSON("PATCH", fmt.Sprintf("%s/domains/%s/records/%s", p.apiHost, domain, r.ID), p.headers(), body)
 			if err != nil {
 				return err
@@ -110,7 +110,7 @@ func (p *VultrProvider) CreateOrUpdateRecordWithSource(domain, recordType, hostn
 		}
 	}
 
-	body := map[string]interface{}{"type": recordType, "name": name, "data": target, "ttl": ttl}
+	body := map[string]any{"type": recordType, "name": name, "data": target, "ttl": ttl}
 	status, respBody, err := p.DoJSON("POST", p.apiHost+"/domains/"+domain+"/records", p.headers(), body)
 	if err != nil {
 		return err

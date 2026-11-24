@@ -38,7 +38,7 @@ type easyDNSEnvelope struct {
 	} `json:"error"`
 }
 
-func NewEasyDNSProvider(config map[string]string) (interface{}, error) {
+func NewEasyDNSProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("easydns", config["profile_name"], config)
 
 	token := base.Secret("token")
@@ -131,7 +131,7 @@ func (p *EasyDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, hos
 	}
 
 	p.pace()
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"domain": domain, "host": host, "type": recordType,
 		"rdata": target, "ttl": ttlStr, "priority": "0",
 	}

@@ -44,7 +44,7 @@ type FileOutput struct {
 	underlying OutputFormat
 }
 
-func NewFileOutput(profileName string, config map[string]interface{}) (OutputFormat, error) {
+func NewFileOutput(profileName string, config map[string]any) (OutputFormat, error) {
 	format, ok := config["format"].(string)
 	if !ok || format == "" {
 		log.NewScopedLogger("[output/file]", "").With("action", "config.error").Error("[output/file] Missing or invalid 'format' field in config: %+v", config)
@@ -75,7 +75,7 @@ func NewFileOutput(profileName string, config map[string]interface{}) (OutputFor
 	}
 }
 
-func NewProvider(name string, config map[string]interface{}) (OutputFormat, error) {
+func NewProvider(name string, config map[string]any) (OutputFormat, error) {
 	log.NewScopedLogger("[output/file]", "").With("action", "provider.init").Debug("[output/file] name='%s', config: %+v", name, config)
 	return NewFileOutput(name, config)
 }

@@ -24,7 +24,7 @@ type Entry struct {
 	FirstSeen    time.Time `json:"first_seen"`
 	LastModified time.Time `json:"last_modified"`
 	LastSeen     time.Time `json:"last_seen"`
-	RemovedAt    time.Time `json:"removed_at,omitempty"`
+	RemovedAt    time.Time `json:"removed_at"`
 }
 
 type Tracker struct {
@@ -298,10 +298,7 @@ func Init(dir string, staleAfter time.Duration) {
 	Default.Load()
 	reportInterval := time.Hour
 	if staleAfter > 0 && staleAfter/4 < reportInterval {
-		reportInterval = staleAfter / 4
-		if reportInterval < 5*time.Minute {
-			reportInterval = 5 * time.Minute
-		}
+		reportInterval = max(staleAfter/4, 5*time.Minute)
 	}
 	Default.Start(reportInterval)
 }

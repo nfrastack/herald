@@ -28,7 +28,7 @@ type AzureDNSProvider struct {
 	cache          TokenCache
 }
 
-func NewAzureDNSProvider(config map[string]string) (interface{}, error) {
+func NewAzureDNSProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("azure", config["profile_name"], config)
 
 	tenantID := base.Option("tenant_id", "")
@@ -103,10 +103,7 @@ func (p *AzureDNSProvider) accessToken() (string, error) {
 		if out.AccessToken == "" {
 			return "", time.Time{}, fmt.Errorf("azure token exchange returned no access token")
 		}
-		ttl := out.ExpiresIn - 60
-		if ttl < 60 {
-			ttl = 60
-		}
+		ttl := max(out.ExpiresIn-60, 60)
 		return out.AccessToken, time.Now().Add(time.Duration(ttl) * time.Second), nil
 	})
 }
@@ -128,22 +125,22 @@ func (p *AzureDNSProvider) recordURL(zone, recordType, hostname string) string {
 		p.subscriptionID, p.resourceGroup, zone, recordType, url.PathEscape(name), azureAPIVersion)
 }
 
-func (p *AzureDNSProvider) properties(recordType, target string, ttl int) (map[string]interface{}, error) {
+func (p *AzureDNSProvider) properties(recordType, target string, ttl int) (map[string]any, error) {
 	switch recordType {
 	case "A":
-		return map[string]interface{}{"TTL": ttl, "ARecords": []map[string]string{{"ipv4Address": target}}}, nil
+		return map[string]any{"TTL": ttl, "ARecords": []map[string]string{{"ipv4Address": target}}}, nil
 	case "AAAA":
-		return map[string]interface{}{"TTL": ttl, "AAAARecords": []map[string]string{{"ipv6Address": target}}}, nil
+		return map[string]any{"TTL": ttl, "AAAARecords": []map[string]string{{"ipv6Address": target}}}, nil
 	case "CNAME":
-		return map[string]interface{}{"TTL": ttl, "CNAMERecord": map[string]string{"cname": target}}, nil
+		return map[string]any{"TTL": ttl, "CNAMERecord": map[string]string{"cname": target}}, nil
 	case "TXT":
-		return map[string]interface{}{"TTL": ttl, "TXTRecords": []map[string]interface{}{{"value": []string{target}}}}, nil
+		return map[string]any{"TTL": ttl, "TXTRecords": []map[string]any{{"value": []string{target}}}}, nil
 	default:
 		return nil, fmt.Errorf("azure provider does not support record type %s", recordType)
 	}
 }
 
-func (p *AzureDNSProvider) current(zone, recordType, hostname string) (map[string]interface{}, bool, error) {
+func (p *AzureDNSProvider) current(zone, recordType, hostname string) (map[string]any, bool, error) {
 	h, err := p.headers()
 	if err != nil {
 		return nil, false, err
@@ -158,15 +155,15 @@ func (p *AzureDNSProvider) current(zone, recordType, hostname string) (map[strin
 	if status != 200 {
 		return nil, false, fmt.Errorf("azure get record failed: %d - %s", status, string(body))
 	}
-	var out map[string]interface{}
+	var out map[string]any
 	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, false, err
 	}
 	return out, true, nil
 }
 
-func azureTargets(recordType string, body map[string]interface{}) []string {
-	props, ok := body["properties"].(map[string]interface{})
+func azureTargets(recordType string, body map[string]any) []string {
+	props, ok := body["properties"].(map[string]any)
 	if !ok {
 		return nil
 	}
@@ -176,17 +173,17 @@ func azureTargets(recordType string, body map[string]interface{}) []string {
 	case "AAAA":
 		return azureStringField(props, "AAAARecords", "ipv6Address")
 	case "CNAME":
-		if rec, ok := props["CNAMERecord"].(map[string]interface{}); ok {
+		if rec, ok := props["CNAMERecord"].(map[string]any); ok {
 			if v, ok := rec["cname"].(string); ok {
 				return []string{v}
 			}
 		}
 	case "TXT":
-		if recs, ok := props["TXTRecords"].([]interface{}); ok {
+		if recs, ok := props["TXTRecords"].([]any); ok {
 			var out []string
 			for _, r := range recs {
-				if m, ok := r.(map[string]interface{}); ok {
-					if vals, ok := m["value"].([]interface{}); ok {
+				if m, ok := r.(map[string]any); ok {
+					if vals, ok := m["value"].([]any); ok {
 						for _, v := range vals {
 							if s, ok := v.(string); ok {
 								out = append(out, s)
@@ -201,14 +198,14 @@ func azureTargets(recordType string, body map[string]interface{}) []string {
 	return nil
 }
 
-func azureStringField(props map[string]interface{}, list, field string) []string {
-	recs, ok := props[list].([]interface{})
+func azureStringField(props map[string]any, list, field string) []string {
+	recs, ok := props[list].([]any)
 	if !ok {
 		return nil
 	}
 	var out []string
 	for _, r := range recs {
-		if m, ok := r.(map[string]interface{}); ok {
+		if m, ok := r.(map[string]any); ok {
 			if v, ok := m[field].(string); ok {
 				out = append(out, v)
 			}
@@ -242,7 +239,7 @@ func (p *AzureDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, ho
 		}
 	}
 
-	status, respBody, err := p.DoJSON("PUT", p.recordURL(domain, recordType, hostname), h, map[string]interface{}{"properties": props})
+	status, respBody, err := p.DoJSON("PUT", p.recordURL(domain, recordType, hostname), h, map[string]any{"properties": props})
 	if err != nil {
 		return err
 	}
@@ -252,8 +249,8 @@ func (p *AzureDNSProvider) CreateOrUpdateRecordWithSource(domain, recordType, ho
 	return nil
 }
 
-func curTTL(body map[string]interface{}) int {
-	props, ok := body["properties"].(map[string]interface{})
+func curTTL(body map[string]any) int {
+	props, ok := body["properties"].(map[string]any)
 	if !ok {
 		return -1
 	}
@@ -266,7 +263,7 @@ func curTTL(body map[string]interface{}) int {
 	return -1
 }
 
-func singleTarget(recordType string, body map[string]interface{}) string {
+func singleTarget(recordType string, body map[string]any) string {
 	targets := azureTargets(recordType, body)
 	if len(targets) == 1 {
 		return targets[0]

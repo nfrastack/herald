@@ -10,6 +10,7 @@ import (
 	"github.com/nfrastack/herald/internal/common"
 	"github.com/nfrastack/herald/internal/log"
 	"net"
+	"slices"
 	"strings"
 )
 
@@ -73,8 +74,8 @@ func EnsureDNSForRouterStateWithProvider(domain, fqdn string, state RouterState,
 	hostname := fqdn
 	if fqdn == domain {
 		hostname = "@"
-	} else if strings.HasSuffix(fqdn, "."+domain) {
-		hostname = strings.TrimSuffix(fqdn, "."+domain)
+	} else if before, ok := strings.CutSuffix(fqdn, "."+domain); ok {
+		hostname = before
 	}
 
 	recordType := state.RecordType
@@ -223,8 +224,8 @@ func EnsureDNSRemoveForRouterStateWithProvider(domain, fqdn string, state Router
 	hostname := fqdn
 	if fqdn == domain {
 		hostname = "@"
-	} else if strings.HasSuffix(fqdn, "."+domain) {
-		hostname = strings.TrimSuffix(fqdn, "."+domain)
+	} else if before, ok := strings.CutSuffix(fqdn, "."+domain); ok {
+		hostname = before
 	}
 
 	recordType := state.RecordType
@@ -320,11 +321,9 @@ func (bp *BatchProcessor) isInputProviderAllowed(domain, inputProviderName strin
 
 			domainLogger.With("action", "domain.match").Debug("domain config '%s' for domain '%s' - allowed inputs: %v", domainKey, domain, inputProfiles)
 
-			for _, allowedProvider := range inputProfiles {
-				if allowedProvider == inputProviderName {
-					domainLogger.With("action", "domain.match").Debug("'%s' allowed for domain '%s' via config '%s'", inputProviderName, domain, domainKey)
-					return true
-				}
+			if slices.Contains(inputProfiles, inputProviderName) {
+				domainLogger.With("action", "domain.match").Debug("'%s' allowed for domain '%s' via config '%s'", inputProviderName, domain, domainKey)
+				return true
 			}
 		}
 	}

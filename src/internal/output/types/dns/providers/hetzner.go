@@ -26,7 +26,7 @@ type hetznerRecord struct {
 	TTL    int    `json:"ttl"`
 }
 
-func NewHetznerProvider(config map[string]string) (interface{}, error) {
+func NewHetznerProvider(config map[string]string) (any, error) {
 	base := NewBaseProvider("hetzner", config["profile_name"], config)
 
 	token := base.Secret("token", "api_token")
@@ -120,7 +120,7 @@ func (p *HetznerProvider) CreateOrUpdateRecordWithSource(domain, recordType, hos
 			if r.Value == target && r.TTL == ttl {
 				return nil
 			}
-			body := map[string]interface{}{"zone_id": zoneID, "type": recordType, "name": name, "value": target, "ttl": ttl}
+			body := map[string]any{"zone_id": zoneID, "type": recordType, "name": name, "value": target, "ttl": ttl}
 			status, respBody, err := p.DoJSON("PUT", p.apiHost+"/records/"+r.ID, p.headers(), body)
 			if err != nil {
 				return err
@@ -132,7 +132,7 @@ func (p *HetznerProvider) CreateOrUpdateRecordWithSource(domain, recordType, hos
 		}
 	}
 
-	body := map[string]interface{}{"zone_id": zoneID, "type": recordType, "name": name, "value": target, "ttl": ttl}
+	body := map[string]any{"zone_id": zoneID, "type": recordType, "name": name, "value": target, "ttl": ttl}
 	status, respBody, err := p.DoJSON("POST", p.apiHost+"/records", p.headers(), body)
 	if err != nil {
 		return err
