@@ -18,24 +18,26 @@ concurrency:
 
 jobs:
   build:
-    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    name: Build ${{ matrix.os }}/${{ matrix.arch }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      ART: herald_${{ github.ref_name }}_${{ matrix.os }}_${{ matrix.arch }}
 
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {goos: linux, goarch: amd64}
-          - {goos: linux, goarch: arm64}
-          #- { goos: darwin, goarch: amd64 }
-          #- { goos: darwin, goarch: arm64 }
-          #- { goos: freebsd, goarch: amd64 }
-          #- { goos: freebsd, goarch: arm64 }
-          #- { goos: openbsd, goarch: amd64 }
-          #- { goos: openbsd, goarch: arm64 }
-          #- { goos: windows, goarch: amd64 }
-          #- { goos: windows, goarch: arm64 }
+          - {os: linux, arch: amd64}
+          - {os: linux, arch: arm64}
+          #- { os: darwin, arch: amd64 }
+          #- { os: darwin, arch: arm64 }
+          #- { os: freebsd, arch: amd64 }
+          #- { os: freebsd, arch: arm64 }
+          #- { os: openbsd, arch: amd64 }
+          #- { os: openbsd, arch: arm64 }
+          #- { os: windows, arch: amd64 }
+          #- { os: windows, arch: arm64 }
 
     steps:
       - name: Checkout Code
@@ -52,16 +54,15 @@ jobs:
         run: |
           CHANNEL=stable
           SUFFIX=""
-          if [ "${{ matrix.goos }}" = "windows" ]; then SUFFIX=".exe"; fi
+          if [ "${{ matrix.os }}" = "windows" ]; then SUFFIX=".exe"; fi
           if echo "${{ github.ref_name }}" | grep -qiE \
             '[-._]?(beta|rc|pre|preview)[-._]?[0-9]*$|(b|rc)[0-9]+$'; then
             CHANNEL=beta
           fi
           COMMIT=$(git rev-parse --short=7 HEAD)
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            OUT=../herald_${{ github.ref_name }}
-            OUT=${OUT}_${{ matrix.goos }}_${{ matrix.goarch }}${SUFFIX}
+          CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
+            OUT=../$ART$SUFFIX
             go build -trimpath \
               -ldflags "-s -w -X main.Version=${{ github.ref_name }} \
               -X main.buildChannel=${CHANNEL} -X main.buildCommit=${COMMIT} \
@@ -72,8 +73,8 @@ jobs:
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: herald_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}
-          path: herald_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}*
+          name: ${{ env.ART }}
+          path: ${{ env.ART }}*
 
       - name: Run unit tests
         working-directory: src
