@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -55,7 +55,7 @@ func NewExternalProvider(config map[string]string) (any, error) {
 			names = append(names, after)
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	var env []string
 	for _, name := range names {
 		if v := base.Option("env."+name, ""); v != "" {

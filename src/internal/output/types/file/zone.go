@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -418,8 +418,8 @@ func managedLinesEqual(a, b []string) bool {
 	}
 	ac := append([]string(nil), a...)
 	bc := append([]string(nil), b...)
-	sort.Strings(ac)
-	sort.Strings(bc)
+	slices.Sort(ac)
+	slices.Sort(bc)
 	for i := range ac {
 		if ac[i] != bc[i] {
 			return false
@@ -757,31 +757,28 @@ func (z *ZoneFormat) collectManagedRecords(domain string) []*common.BaseRecord {
 	if sortOrder != "asc" && sortOrder != "desc" {
 		sortOrder = "asc"
 	}
-	less := func(i, j int) bool { return false }
+	cmpFn := func(a, b *common.BaseRecord) int { return strings.Compare(a.Hostname, b.Hostname) }
 	switch sortKey {
 	case "host":
-		less = func(i, j int) bool {
-			return records[i].Hostname < records[j].Hostname
-		}
 	case "ip":
-		less = func(i, j int) bool {
+		cmpFn = func(a, b *common.BaseRecord) int {
 			if sortOrder == "desc" {
-				return records[i].Target > records[j].Target
+				return strings.Compare(b.Target, a.Target)
 			}
-			return records[i].Target < records[j].Target
+			return strings.Compare(a.Target, b.Target)
 		}
 	case "input":
-		less = func(i, j int) bool {
+		cmpFn = func(a, b *common.BaseRecord) int {
 			if sortOrder == "desc" {
-				return records[i].Source > records[j].Source
+				return strings.Compare(b.Source, a.Source)
 			}
-			return records[i].Source < records[j].Source
+			return strings.Compare(a.Source, b.Source)
 		}
 	}
 	if sortKey == "host" || sortOrder == "asc" {
-		sort.Slice(records, func(i, j int) bool { return records[i].Hostname < records[j].Hostname })
+		slices.SortFunc(records, func(a, b *common.BaseRecord) int { return strings.Compare(a.Hostname, b.Hostname) })
 	} else if len(records) > 1 {
-		sort.Slice(records, less)
+		slices.SortFunc(records, cmpFn)
 	}
 
 	return enforceCNAMEExclusivity(z, domain, records)

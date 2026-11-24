@@ -10,7 +10,7 @@ import (
 
 	"fmt"
 	"net"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -438,13 +438,13 @@ func (h *HostsFormat) generateHostsFile(domain string, export *common.ExportData
 	for hostname := range hostnameMap {
 		hostnames = append(hostnames, hostname)
 	}
-	sort.Strings(hostnames)
+	slices.Sort(hostnames)
 
 	for _, hostname := range hostnames {
 		records := hostnameMap[hostname]
 
-		sort.Slice(records, func(i, j int) bool {
-			return records[i].Type < records[j].Type
+		slices.SortFunc(records, func(a, b *HostsRecord) int {
+			return strings.Compare(a.Type, b.Type)
 		})
 
 		for _, record := range records {
