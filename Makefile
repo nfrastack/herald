@@ -25,8 +25,25 @@ build-all:
 clean:
 	rm -f $(BINARY_NAME) $(BINARY_NAME)_x86_64 $(BINARY_NAME)_aarch64
 
+HERALD_TEST_DIR ?= ../herald-test
+
 test:
+	@if [ -d $(HERALD_TEST_DIR)/unit-tests ]; then \
+		rsync -a --include='*/' --include='*_test.go' --exclude='*' \
+			$(HERALD_TEST_DIR)/unit-tests/ src/; \
+	fi
 	cd $(SRC_DIR) && CGO_ENABLED=0 $(GO) test -count=1 -short ./...
+	@find src -name "*_test.go" -delete 2>/dev/null || true
+
+test-all: test
+
+test-integration:
+	@if [ -x $(HERALD_TEST_DIR)/matrix/run-all.sh ]; then \
+		$(HERALD_TEST_DIR)/matrix/run-all.sh; \
+	else \
+		echo "no herald-test repo (expected at $(HERALD_TEST_DIR))"; \
+		exit 2; \
+	fi
 
 clean-vendor:
 	rm -rf vendor
@@ -107,7 +124,9 @@ help:
 	@echo "make build-release      Build the binary with version information"
 	@echo "make build-all          Build binaries for x86_64 and aarch64"
 	@echo "make clean              Clean up build artifacts"
-	@echo "make test               Run unit tests"
+	@echo "make test               Run unit tests (private overlay from ../herald-test)"
+	@echo "make test-all           Run unit tests"
+	@echo "make test-integration   Run integration matrix (private overlay)"
 	@echo "make install            Install the binary locally"
 	@echo "make release            Build and prepare for release"
 	@echo "make check-release      Verify if the repository is tagged and clean"

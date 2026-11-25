@@ -2,6 +2,8 @@
 .devenv*
 devenv.local.nix
 
+*_test.go
+
 # Go build outputs
 /herald
 /herald_x86_64
