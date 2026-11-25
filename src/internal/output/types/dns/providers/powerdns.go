@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-var PowerDNSProviderName = "powerdns"
-
 type PowerDNSConfig struct {
 	APIHost  string `yaml:"api_host"`
 	APIToken string `yaml:"api_token"`
