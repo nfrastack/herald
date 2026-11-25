@@ -16,8 +16,8 @@ import (
 	"github.com/nfrastack/herald/internal/state"
 	"github.com/nfrastack/herald/internal/util"
 
-	"github.com/nfrastack/herald/internal/output/types/dns/providers"
-	_ "github.com/nfrastack/herald/internal/output/types/remote" // Register remote output provider
+	_ "github.com/nfrastack/herald/internal/output/types/dns/providers"
+	_ "github.com/nfrastack/herald/internal/output/types/remote"
 
 	"context"
 	"encoding/json"
@@ -37,8 +37,6 @@ var (
 	BuildTime = "unknown"
 
 	buildCommit = "unknown"
-
-	_ = providers.PowerDNSProviderName
 )
 
 func resolveDevVersion() {

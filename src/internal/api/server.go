@@ -34,11 +34,7 @@ import (
 )
 
 const (
-	// maxAPIRequestBody caps API upload bodies (DoS protection).
-	// Go 1.27.4 fixed the net/http MaxBytesReader header race, making
-	// this the safe way to bound request bodies.
-	maxAPIRequestBody = 10 << 20 // 10 MiB
-	// apiReadHeaderTimeout mitigates Slowloris-style attacks.
+	maxAPIRequestBody    = 10 << 20 // 10 MiB
 	apiReadHeaderTimeout = 10 * time.Second
 )
 

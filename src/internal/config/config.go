@@ -80,7 +80,7 @@ type APIConfig struct {
 	Endpoint      string                      `yaml:"endpoint" json:"endpoint"`
 	Profiles      map[string]APIClientProfile `yaml:"profiles" json:"profiles"`
 	TLS           *APITLSConfig               `yaml:"tls" json:"tls"`
-	LogLevel      string                      `yaml:"log_level" json:"log_level"` // Provider-specific log level override
+	LogLevel      string                      `yaml:"log_level" json:"log_level"` // Provider specific log level override
 }
 
 type APITLSConfig struct {

@@ -7,11 +7,12 @@ package domain
 import (
 	"errors"
 	"fmt"
-	"github.com/nfrastack/herald/internal/common"
-	"github.com/nfrastack/herald/internal/log"
 	"net"
 	"slices"
 	"strings"
+
+	"github.com/nfrastack/herald/internal/common"
+	"github.com/nfrastack/herald/internal/log"
 )
 
 type RouterState struct {
@@ -19,10 +20,10 @@ type RouterState struct {
 	Rule                 string
 	EntryPoints          []string
 	Service              string
-	SourceType           string // e.g. "container", "router", "file", "remote", etc.
+	SourceType           string // "container", "router", "file", "remote" ...
 	RecordType           string // DNS record type (A, AAAA, CNAME) - from input provider
-	ForceServiceAsTarget bool   // When true, always use Service field as target (for VPN providers)
-	Overwrite            bool   // When true, allow overwriting conflicting records
+	ForceServiceAsTarget bool   // Always use Service field as target (for VPN providers)
+	Overwrite            bool   // Allow overwriting conflicting records
 }
 
 func getDomainLogger(domain string, domainConfig map[string]string) *log.ScopedLogger {
