@@ -303,7 +303,7 @@ func (p *FileProvider) processFile() {
 			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 			p.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider", realDomain)
 			state := domain.RouterState{
-				SourceType: "file",
+				SourceType: p.name,
 				Name:       p.name, // Use the actual provider name
 				Service:    e.Target,
 				RecordType: recordType, // Set the actual DNS record type
@@ -326,7 +326,7 @@ func (p *FileProvider) processFile() {
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 				p.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider (removal)", realDomain)
 				state := domain.RouterState{
-					SourceType: "file",
+					SourceType: p.name,
 					Name:       p.name, // Use the actual provider name
 					Service:    old.Target,
 					RecordType: recordType,

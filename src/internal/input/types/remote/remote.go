@@ -206,7 +206,7 @@ func (p *RemoteProvider) processRemote() {
 			p.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider", realDomain)
 
 			state := domain.RouterState{
-				SourceType: "remote_profile",
+				SourceType: providerName,
 				Name:       providerName,
 				Service:    e.Target,
 				RecordType: recordType,
@@ -232,7 +232,7 @@ func (p *RemoteProvider) processRemote() {
 				p.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider (removal)", realDomain)
 
 				state := domain.RouterState{
-					SourceType: "remote_profile",
+					SourceType: providerName,
 					Name:       providerName,
 					Service:    old.Target,
 					RecordType: recordType,

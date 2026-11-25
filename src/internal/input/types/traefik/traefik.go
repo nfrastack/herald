@@ -731,7 +731,7 @@ func (t *TraefikProvider) processTraefikRouters() error {
 			Rule:        rule,
 			EntryPoints: entryPoints,
 			Service:     service,
-			SourceType:  "router",
+			SourceType:  t.profileName,
 			RecordType:  "CNAME", // Traefik routers typically create CNAME records
 		}
 		hosts := extractHostsFromRule(rule)

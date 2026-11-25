@@ -194,7 +194,7 @@ func (p *CaddyProvider) processCaddy() {
 			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 			p.logger.With("action", "domain.match", "domain", realDomain).Trace("real domain name for DNS provider")
 			state := domain.RouterState{
-				SourceType: "caddy",
+				SourceType: p.opts.Name,
 				Name:       p.opts.Name, // Use the actual provider name
 				Service:    h.Service,
 				RecordType: "A",
@@ -215,7 +215,7 @@ func (p *CaddyProvider) processCaddy() {
 				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 				p.logger.With("action", "domain.match", "domain", realDomain).Trace("real domain name for DNS provider")
 				state := domain.RouterState{
-					SourceType: "caddy",
+					SourceType: p.opts.Name,
 					Name:       p.opts.Name, // Use the actual provider name
 					Service:    old.Service,
 					RecordType: "A",

@@ -932,7 +932,7 @@ func (p *TailscaleProvider) processDevices() {
 
 				if changed {
 					routerState := domain.RouterState{
-						SourceType:           "tailscale",
+						SourceType:           p.profileName,
 						Name:                 p.profileName,
 						Service:              cleanIP,
 						RecordType:           recordType,
@@ -977,7 +977,7 @@ func (p *TailscaleProvider) processDevices() {
 
 					p.logMemberRemoved(fqdn) // This log is fine
 					routerState := domain.RouterState{
-						SourceType:           "tailscale",
+						SourceType:           p.profileName,
 						Name:                 p.profileName,
 						Service:              oldTarget,
 						RecordType:           recordType,
