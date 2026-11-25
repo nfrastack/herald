@@ -5,7 +5,7 @@
 package docker
 
 import (
-	"github.com/nfrastack/herald/internal/config" // This import is needed for config.GlobalConfig
+	"github.com/nfrastack/herald/internal/config"
 	"github.com/nfrastack/herald/internal/domain"
 	"github.com/nfrastack/herald/internal/input/common"
 	"github.com/nfrastack/herald/internal/log" // Re-import the log package
@@ -1361,7 +1361,7 @@ func (p *DockerProvider) extractDNSInfoFromContainerForDomain(container dcontain
 		if strings.ToLower(overwriteStr) == "true" || overwriteStr == "1" {
 			overwrite = true
 		}
-	} // Create a DNS entry for each hostname
+	}
 	for _, hostname := range hostnames {
 		containerInfo := &DockerContainerInfo{
 			ID:         container.ID,
@@ -1684,7 +1684,7 @@ func (p *DockerProvider) extractDNSEntriesFromService(service swarm.Service) ([]
 		} else if explicitValue == "false" || explicitValue == "0" {
 			dnsEnabled = false
 			p.logger.With("action", "input.filter", "service", serviceName).Debug("service '%s' has 'nfrastack.herald.enable=false' label, skipping", serviceName)
-			return entries, nil // Return empty entries list
+			return entries, nil
 		}
 	}
 

@@ -331,7 +331,7 @@ func NewProviderFromStructured(options map[string]any) (Provider, error) {
 		log.NewScopedLogger("[input/traefik]", "").With("action", "input.filter", "provider", profileName).Debug("no filters configured, processing all routers")
 	}
 
-	logLevel := stringOptions["log_level"] // Get provider-specific log level
+	logLevel := stringOptions["log_level"]
 
 	scopedLogger := common.CreateScopedLogger("traefik", profileName, stringOptions)
 
@@ -534,7 +534,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 		log.NewScopedLogger("[input/traefik]", "").With("action", "input.filter", "provider", profileName).Debug("no filters configured, processing all routers")
 	}
 
-	logLevel := options["log_level"] // Get provider-specific log level
+	logLevel := options["log_level"]
 
 	scopedLogger := common.CreateScopedLogger("traefik", profileName, options)
 

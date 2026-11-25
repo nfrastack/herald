@@ -82,7 +82,7 @@ func IsRunningUnderSystemd() bool {
 
 var (
 	configFilePath  = flag.String("config", "", "Path to configuration file")
-	configFilePathC = flag.String("c", "", "") // Hidden shorthand for config
+	configFilePathC = flag.String("c", "", "")
 	showVersion     = flag.Bool("version", false, "Show version and exit")
 	logLevelFlag    = flag.String("log-level", "", "Set log level (overrides config/env)")
 	logFormatFlag   = flag.String("log-format", "", "Set log format text, structured or json (overrides config/env)")

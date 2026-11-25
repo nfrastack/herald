@@ -136,7 +136,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 	} else {
 		log.NewScopedLogger("[input/file]", "").With("action", "provider.init", "provider", parsed.Name).Info("file provider: source=%s, format=%s, interval=%v, watchMode=%v", source, format, finalInterval, watchMode)
 	}
-	logLevel := options["log_level"] // Get provider-specific log level
+	logLevel := options["log_level"]
 
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)
 
@@ -304,9 +304,9 @@ func (p *FileProvider) processFile() {
 			p.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider", realDomain)
 			state := domain.RouterState{
 				SourceType: p.name,
-				Name:       p.name, // Use the actual provider name
+				Name:       p.name,
 				Service:    e.Target,
-				RecordType: recordType, // Set the actual DNS record type
+				RecordType: recordType,
 			}
 			p.logger.With("action", "record.create", "domain", realDomain, "fqdn", fqdnNoDot).Trace("ProcessRecord: %+v", state)
 			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
@@ -327,7 +327,7 @@ func (p *FileProvider) processFile() {
 				p.logger.With("action", "domain.match").Trace("real domain name '%s' for DNS provider (removal)", realDomain)
 				state := domain.RouterState{
 					SourceType: p.name,
-					Name:       p.name, // Use the actual provider name
+					Name:       p.name,
 					Service:    old.Target,
 					RecordType: recordType,
 				}

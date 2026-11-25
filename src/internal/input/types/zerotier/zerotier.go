@@ -138,7 +138,7 @@ func NewProvider(options map[string]string, outputWriter domain.OutputWriter, ou
 			},
 		}
 	}
-	logLevel := options["log_level"] // Get provider-specific log level
+	logLevel := options["log_level"]
 	logPrefix := common.BuildLogPrefix("zerotier", profileName)
 
 	if apiURL == "" {
@@ -516,7 +516,7 @@ func (p *ZerotierProvider) fetchZerotierMembers() ([]DNSEntry, error) {
 	p.logger.With("action", "input.filter").Debug("members using filter system")
 	var entries []DNSEntry
 	for _, m := range members {
-		currentTime := time.Now().Unix() * 1000 // Convert to milliseconds
+		currentTime := time.Now().Unix() * 1000
 		timeoutMs := int64(p.onlineTimeoutSeconds * 1000)
 		timeSinceLastSeen := currentTime - m.LastSeen
 		isOnline := timeSinceLastSeen < timeoutMs

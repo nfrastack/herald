@@ -734,7 +734,7 @@ func NewAPIServer(outputProfiles map[string]any, apiConfig *config.APIConfig) *A
 	return &APIServer{
 		clients:        make(map[string]*ClientData),
 		profiles:       make(map[string]config.APIClientProfile),
-		clientExpiry:   10 * time.Minute, // Remove clients after 10 minutes of no updates
+		clientExpiry:   10 * time.Minute,
 		outputProfiles: outputProfiles,
 		logger:         scopedLogger,
 		failedAttempts: make(map[string]*FailedAttemptTracker),

@@ -9,7 +9,7 @@ import (
 )
 
 func CreateScopedLogger(providerType, profileName string, options map[string]string) *log.ScopedLogger {
-	logLevel := options["log_level"] // Get provider-specific log level
+	logLevel := options["log_level"]
 	logPrefix := BuildLogPrefix(providerType, profileName)
 
 	scopedLogger := log.NewScopedLogger(logPrefix, logLevel)

@@ -189,7 +189,7 @@ func ProcessConfigValues(config map[string]string) map[string]string {
 
 func processConfigValue(value string) string {
 	if strings.HasPrefix(value, "file://") {
-		filePath := value[7:] // Remove "file://" prefix
+		filePath := value[7:]
 
 		content, err := os.ReadFile(filePath)
 		if err != nil {
@@ -200,7 +200,7 @@ func processConfigValue(value string) string {
 	}
 
 	if strings.HasPrefix(value, "env://") {
-		envName := value[6:] // Remove "env://" prefix
+		envName := value[6:]
 
 		envValue := os.Getenv(envName)
 		if envValue == "" {

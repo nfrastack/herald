@@ -11,7 +11,7 @@ import (
 
 func ReadSecretValue(value string) string {
 	if strings.HasPrefix(value, "file://") {
-		filePath := value[7:] // Remove "file://" prefix
+		filePath := value[7:]
 
 		content, err := os.ReadFile(filePath)
 		if err != nil {
@@ -22,7 +22,7 @@ func ReadSecretValue(value string) string {
 	}
 
 	if strings.HasPrefix(value, "env://") {
-		envVar := value[6:] // Remove "env://" prefix
+		envVar := value[6:]
 
 		if envValue := os.Getenv(envVar); envValue != "" {
 			return envValue

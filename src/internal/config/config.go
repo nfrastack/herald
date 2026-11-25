@@ -414,7 +414,7 @@ func LoadFileConfig(value, fieldName string) (string, error) {
 		return value, nil
 	}
 
-	filePath := value[7:] // Remove "file://" prefix
+	filePath := value[7:]
 	log.NewScopedLogger("[config]", "").With("action", "config.load").Debug("[config] %s from file: %s", fieldName, filePath)
 
 	content, err := os.ReadFile(filePath)

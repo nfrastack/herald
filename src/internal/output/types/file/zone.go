@@ -730,7 +730,7 @@ func (z *ZoneFormat) collectManagedRecords(domain string) []*common.BaseRecord {
 
 	for _, record := range domainData.Records {
 		key := record.Hostname + ":" + record.Type
-		recordMap[key] = record // This will overwrite existing records with same hostname+type
+		recordMap[key] = record
 	}
 	z.GetLogger().With("action", "zone.write").Debug("final record count for domain %s: %d", domain, len(recordMap))
 

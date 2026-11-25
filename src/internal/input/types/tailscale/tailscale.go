@@ -975,7 +975,7 @@ func (p *TailscaleProvider) processDevices() {
 					realDomain := p.getParentDomainForFQDN(fqdnNoDot)
 					p.logger.With("action", "domain.route").Trace("real domain name '%s' for DNS provider (removal)", realDomain)
 
-					p.logMemberRemoved(fqdn) // This log is fine
+					p.logMemberRemoved(fqdn)
 					routerState := domain.RouterState{
 						SourceType:           p.profileName,
 						Name:                 p.profileName,

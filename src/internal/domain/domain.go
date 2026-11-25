@@ -336,7 +336,7 @@ func extractInputProviderFromLogPrefix(logPrefix string) string {
 	if strings.HasPrefix(logPrefix, "[input/") && strings.HasSuffix(logPrefix, "]") {
 		parts := strings.Split(logPrefix[7:len(logPrefix)-1], "/")
 		if len(parts) >= 2 {
-			return parts[1] // Return the profile name
+			return parts[1]
 		}
 	}
 	return ""

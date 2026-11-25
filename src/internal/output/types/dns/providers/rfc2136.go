@@ -234,8 +234,6 @@ func (p *RFC2136Provider) CreateOrUpdateRecord(domain, recordType, name, target 
 }
 
 func (p *RFC2136Provider) CreateOrUpdateRecordWithSource(domain, recordType, name, target string, ttl int, proxied bool, comment, source string, overwrite bool) error {
-	_ = comment
-	_ = overwrite
 	if err := p.upsert(domain, recordType, name, target, ttl); err != nil {
 		p.Logger.With("action", "record.sync", "source", source).Warn("upsert %s.%s %s failed: %v", name, domain, recordType, err)
 		return err
