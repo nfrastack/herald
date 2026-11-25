@@ -765,7 +765,7 @@ func (p *DockerProvider) watchdogLoop() {
 		warned := p.warnedSilence
 		p.watchdogMu.Unlock()
 		if silence >= silenceWarn && !warned {
-			p.logger.With("action", "provider.poll").Verbose("no docker events for %v, socket probe in %v if silence continues", silence.Round(time.Second), (silenceProbe - silence).Round(time.Second))
+			p.logger.With("action", "provider.poll").Trace("no docker events for %v, socket probe in %v if silence continues", silence.Round(time.Second), (silenceProbe - silence).Round(time.Second))
 			p.watchdogMu.Lock()
 			p.warnedSilence = true
 			p.watchdogMu.Unlock()
@@ -801,7 +801,7 @@ func (p *DockerProvider) reconcileLoop() {
 }
 
 func (p *DockerProvider) reconcilePresence() {
-	p.logger.With("action", "sync.start").Verbose("presence reconcile (state only, no output writes)")
+	p.logger.With("action", "sync.start").Trace("presence reconcile (state only, no output writes)")
 	ctx := context.Background()
 	containers, err := p.client.ContainerList(ctx, dcontainer.ListOptions{})
 	if err != nil {
