@@ -76,13 +76,8 @@ func versionString(showBuild bool) string {
 	return Version
 }
 
-func IsRunningUnderSystemd() (system, user bool) {
-	invocation := os.Getenv("INVOCATION_ID") != ""
-	journal := os.Getenv("JOURNAL_STREAM") != ""
-	if invocation || journal {
-		return true, false
-	}
-	return false, false
+func IsRunningUnderSystemd() bool {
+	return os.Getenv("INVOCATION_ID") != "" || os.Getenv("JOURNAL_STREAM") != ""
 }
 
 var (
@@ -100,7 +95,7 @@ func main() {
 
 	flag.Parse()
 
-	system, user := IsRunningUnderSystemd()
+	system := IsRunningUnderSystemd()
 
 	defaultLogTimestamps := true
 	if system {
@@ -116,7 +111,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if !system && !user && !*containerFlag {
+	if !system && !*containerFlag {
 		fmt.Println()
 		fmt.Println("             .o88o.                                 .                       oooo")
 		fmt.Println("             888 \"\"                                .o8                       888")
@@ -304,8 +299,6 @@ func main() {
 		log.NewScopedLogger("", "").With("action", "provider.init").Error("[output] initialize output manager: %v", err)
 		os.Exit(1)
 	}
-
-	log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
 
 	log.GetLogger().SetShowTimestamps(cfg.General.LogTimestamps)
 
