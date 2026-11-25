@@ -1,4 +1,4 @@
-## 3.0.0beta 2026-10-04 <code at nfrastack dot com>
+## 3.0.0 2026-11-26 <code at nfrastack dot com>
 
    ### Added
     - add allow_missing_outputs to warn + skip domains with unknown outputs instead of exiting
