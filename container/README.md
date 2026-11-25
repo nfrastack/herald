@@ -94,6 +94,7 @@ This container automatically generates configuration to poll either from a Docke
 | ---------------------- | ------------------------------------------------------------------------------------------------------ |
 | `/logs/`               | Optional Log Path                                                                                      |
 | `/config/`             | Optional Config File Path                                                                              |
+| `/state/`              | Optional State Path (presence tracking)                                                                |
 | `/var/run/docker.sock` | (example) You must have access to a docker socket in order to utilize the Docker polling functionality |
 
 ### Environment Variables
@@ -108,12 +109,14 @@ Below are the main environment variables supported by the image, as reflected in
 | `HERALD_SETUP_TYPE` | `auto` to generate config, `manual` for custom | `auto`       |
 | `HERALD_USER`       | User to run as (`root` needed for docker.sock) | `herald`     |
 | `LOG_TYPE`          | Log to `console`, `file`, or `both` or `none`  | `console`    |
+| `LOG_FORMAT`        | Log encoding (`text`, `structured`, or `json`) | `text`       |
 | `LOG_LEVEL`         | Logging level (`info`, `verbose`, etc)         | `info`       |
 | `LOG_PATH`          | Log file directory                             | `/logs/`     |
 | `LOG_FILE`          | Log file name                                  | `herald.log` |
 | `LOG_TIMESTAMPS`    | Show timestamps in logs (`TRUE`/`FALSE`)       | `TRUE`       |
 | `CONFIG_PATH`       | Config file directory                          | `/config/`   |
 | `CONFIG_FILE`       | Config file name                               | `herald.yml` |
+| `STATE_PATH`        | State directory (presence tracking)            | `/state/`    |
 
 #### Provider Environment Variables
 

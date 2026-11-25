@@ -22,11 +22,15 @@
         };
       };
 
-      input = {
+      inputs = {
         # Docker containers with labels
         docker_public = {
           type = "docker";
           api_url = "unix:///var/run/docker.sock";
+          # api_url = "http://socket-proxy";
+          # api_auth_user = "file:///run/secrets/docker_user";
+          # api_auth_pass = "file:://run/secrets/docker_PASSWORD";
+          # "api_header_X-Custom-Token" = "file:///run/secrets/custom_token";
           expose_containers = true;
           process_existing = true;
           record_remove_on_stop = true;
@@ -90,6 +94,7 @@
           api_auth_id = "random_auth_id";
           api_auth_token = "tskey-client-xxxxx";
           domain = "vpn.example.com";
+          additional_domains = "example.net, example.org";
           interval = "60s";
           hostname_format = "simple";
           process_existing = true;
@@ -105,12 +110,34 @@
           ];
         };
 
+        # Host's own addresses (dynamic DNS for this machine)
+        sys_pub = {
+          type = "system";
+          hostname = "myhost";
+          domain = "example.com";
+          interfaces = [ "eth0" ];
+          families = [ "ipv4" ];
+          interval = "300s";
+          process_existing = true;
+          record_remove_on_stop = true;
+        };
+
+        # Host's public IP from behind NAT (WAN discovery)
+        sys_wan = {
+          type = "system";
+          hostname = "myhost";
+          domain = "example.com";
+          discover_url = "https://api.ipify.org";
+          families = [ "ipv4" ];
+        };
+
         # ZeroTier network members
         zerotier_network = {
           type = "zerotier";
           api_token = "your-zerotier-token";
           network_id = "F2BD7A9E0CA0B96B";
           domain = "zt.example.com";
+          additional_domains = "example.net, example.org";
           interval = "60s";
           online_timeout_seconds = 300;
           process_existing = true;
@@ -152,12 +179,23 @@
         };
       };
 
-      output = {
+      outputs = {
         # Live Cloudflare DNS
         cloudflare_dns = {
           type = "dns";
           provider = "cloudflare";
           api_token = "your-cloudflare-token";
+          log_level = "info";
+        };
+
+        # RFC2136 dynamic DNS
+        rfc2136_dns = {
+          type = "dns";
+          provider = "rfc2136";
+          server = "127.0.0.1:53";
+          # key_name = "herald-key";
+          # key_secret = "file:///run/secrets/rfc2136_key";
+          # key_algorithm = "hmac-sha256";
           log_level = "info";
         };
 
@@ -316,6 +354,10 @@
           server1 = {
             token = "server1-secret-token";
             output_profile = "zone_files";
+            # internal_output = "local_only";
+            # source_outputs = {  # keys are input names on the client host (globs allowed)
+            #   "docker_int" = "local_only";
+            # };
           };
           server2 = {
             token = "server2-secret-token";

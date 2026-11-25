@@ -1,0 +1,322 @@
+// SPDX-FileCopyrightText: © 2025 Nfrastack <code@nfrastack.com>
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+package providers
+
+import (
+	"github.com/nfrastack/herald/internal/output/types/dns"
+
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/cloudflare/cloudflare-go"
+)
+
+type CloudflareProvider struct {
+	*BaseProvider
+	client *cloudflare.API
+
+	zoneMu  sync.Mutex
+	zoneIDs map[string]string
+}
+
+func NewCloudflareProviderWithProfile(profileName string, config map[string]string) (any, error) {
+	base := NewBaseProvider("cloudflare", profileName, config)
+
+	token := base.Secret("token", "api_token")
+	if token == "" {
+		return nil, fmt.Errorf("cloudflare provider requires 'token' or 'api_token' parameter")
+	}
+
+	api, err := cloudflare.NewWithAPIToken(token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Cloudflare client: %v", err)
+	}
+
+	provider := &CloudflareProvider{
+		BaseProvider: base,
+		client:       api,
+		zoneIDs:      make(map[string]string),
+	}
+
+	base.Logger.With("action", "provider.init").Debug("initialized (retries: %d, timeout: %v)", base.Retries, base.Timeout)
+	return provider, nil
+}
+
+func NewCloudflareProvider(config map[string]string) (any, error) {
+	return NewCloudflareProviderWithProfile("default", config)
+}
+
+func init() {
+	dns.RegisterProvider("cloudflare", NewCloudflareProvider)
+}
+
+func (c *CloudflareProvider) SupportsProxied() bool {
+	return true
+}
+
+func existingProxied(p *bool) bool {
+	return p != nil && *p
+}
+
+func (c *CloudflareProvider) allowReplace() bool {
+	v := strings.ToLower(strings.TrimSpace(c.Option("allow_replace", "false")))
+	return v == "true" || v == "1" || v == "yes"
+}
+
+func (c *CloudflareProvider) CreateOrUpdateRecord(domain, recordType, name, target string, ttl int, proxied bool, overwrite bool) error {
+	return c.CreateOrUpdateRecordWithSource(domain, recordType, name, target, ttl, proxied, "", "herald", overwrite)
+}
+
+func (c *CloudflareProvider) CreateOrUpdateRecordWithSource(domain, recordType, name, target string, ttl int, proxied bool, comment, source string, overwrite bool) error {
+	logPrefix := getDomainLogPrefix(c.ProfileName, domain)
+	c.Logger.With("action", "record.sync").Debug("%s record: %s.%s %s -> %s (TTL: %d, Proxied: %t, Overwrite: %t)", logPrefix, name, domain, recordType, target, ttl, proxied, overwrite)
+
+	ctx := context.Background()
+
+	zoneID, err := c.getZoneID(ctx, domain)
+	if err != nil {
+		c.Logger.With("action", "zone.write").Error("%s zone ID for domain %s: %v", logPrefix, domain, err)
+		return fmt.Errorf("failed to get zone ID for domain %s: %v", domain, err)
+	}
+
+	fullName := BuildFQDN(name, domain)
+
+	c.Logger.With("action", "record.sync").Trace("%s lookup for existing record", logPrefix)
+	existingRecord, err := c.checkExistingRecord(ctx, zoneID, fullName, recordType)
+	if err != nil {
+		c.Logger.With("action", "record.sync").Error("%s lookup: %v", logPrefix, err)
+		return fmt.Errorf("record lookup failed: %v", err)
+	}
+
+	if existingRecord != nil {
+		c.Logger.With("action", "record.sync").Trace("%s details: id=%s type=%s name=%s content=%s ttl=%d proxied=%v", logPrefix, existingRecord.ID, existingRecord.Type, existingRecord.Name, existingRecord.Content, existingRecord.TTL, existingRecord.Proxied)
+		if existingRecord.Content == target && existingRecord.TTL == ttl && existingProxied(existingRecord.Proxied) == proxied {
+			c.Logger.With("action", "record.skip").Debug("%s already matches, skipping update", logPrefix)
+			return nil
+		}
+		c.Logger.With("action", "record.update").Info("%s updating: id=%s", logPrefix, existingRecord.ID)
+		updateParams := cloudflare.UpdateDNSRecordParams{
+			Type:    recordType,
+			Name:    fullName,
+			Content: target,
+			TTL:     ttl,
+			Proxied: &proxied,
+		}
+		updateParams.ID = existingRecord.ID
+		_, uerr := c.client.UpdateDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), updateParams)
+		if uerr != nil {
+			return fmt.Errorf("failed to update DNS record: %v", uerr)
+		}
+		c.Logger.With("action", "record.update").Info("%s: %s %s -> %s", logPrefix, fullName, recordType, target)
+		return nil
+	}
+
+	c.Logger.With("action", "record.create").Info("%s no existing record, proceeding with create", logPrefix)
+
+	recordParams := cloudflare.CreateDNSRecordParams{Type: recordType, Name: fullName, Content: target, TTL: ttl, Proxied: &proxied}
+	rc := cloudflare.ZoneIdentifier(zoneID)
+
+	attempts := 3
+	for i := 1; i <= attempts; i++ {
+		_, cerr := c.client.CreateDNSRecord(ctx, rc, recordParams)
+		if cerr == nil {
+			c.Logger.With("action", "record.create").Info("%s: %s %s -> %s", logPrefix, fullName, recordType, target)
+			return nil
+		}
+
+		cerrStr := cerr.Error()
+		if strings.Contains(cerrStr, "81058") || strings.Contains(strings.ToLower(cerrStr), "identical record") {
+			c.Logger.With("action", "record.skip").Info("%s identical record already exists; treating as success: %v", logPrefix, cerr)
+			return nil
+		}
+
+		if isOccupantConflict(cerrStr) {
+			return c.resolveOccupantConflict(ctx, zoneID, fullName, domain, recordType, target, ttl, proxied, overwrite, recordParams, rc)
+		}
+
+		c.Logger.With("action", "record.create").Error("%s (attempt %d/%d): %v", logPrefix, i, attempts, cerr)
+		if i < attempts {
+			c.Sleep(i, 500*time.Millisecond)
+		}
+	}
+
+	return fmt.Errorf("failed to create DNS record after %d attempts: %s", attempts, fullName)
+}
+
+func isOccupantConflict(cerrStr string) bool {
+	lower := strings.ToLower(cerrStr)
+	return strings.Contains(lower, "already exists") || strings.Contains(cerrStr, "81054")
+}
+
+func (c *CloudflareProvider) resolveOccupantConflict(ctx context.Context, _, fullName, domain, recordType, target string, _ int, _ bool, overwrite bool, recordParams cloudflare.CreateDNSRecordParams, rc *cloudflare.ResourceContainer) error {
+	logPrefix := getDomainLogPrefix(c.ProfileName, domain)
+	occupants, _, err := c.client.ListDNSRecords(ctx, rc, cloudflare.ListDNSRecordsParams{Name: fullName})
+	if err != nil {
+		return fmt.Errorf("failed to create DNS record %s (occupant lookup failed): %v", fullName, err)
+	}
+	var occupant *cloudflare.DNSRecord
+	for i, r := range occupants {
+		if r.Name == fullName && r.Type != recordType {
+			occupant = &occupants[i]
+			break
+		}
+	}
+	if occupant == nil {
+		return fmt.Errorf("failed to create DNS record %s: conflicting record exists", fullName)
+	}
+	if !overwrite {
+		c.Logger.With("action", "record.skip").Warn("%s held by %s %s -> %s, not overwriting", logPrefix, occupant.Type, fullName, occupant.Content)
+		return nil
+	}
+	if !c.allowReplace() {
+		c.Logger.With("action", "record.skip").Warn("%s held by %s %s -> %s, not replacing (allow_replace not enabled)", logPrefix, occupant.Type, fullName, occupant.Content)
+		return nil
+	}
+	if err := c.client.DeleteDNSRecord(ctx, rc, occupant.ID); err != nil {
+		return fmt.Errorf("failed to remove conflicting %s record %s: %v", occupant.Type, fullName, err)
+	}
+	c.Logger.With("action", "record.delete").Warn("%s replacing conflicting %s record with %s (allow_replace enabled)", logPrefix, occupant.Type, recordType)
+	if _, cerr := c.client.CreateDNSRecord(ctx, rc, recordParams); cerr != nil {
+		return fmt.Errorf("failed to create DNS record after removing conflict %s: %v", fullName, cerr)
+	}
+	c.Logger.With("action", "record.create").Info("%s: %s %s -> %s", logPrefix, fullName, recordType, target)
+	return nil
+}
+
+func (c *CloudflareProvider) checkExistingRecord(ctx context.Context, zoneID, name, recordType string) (*cloudflare.DNSRecord, error) {
+	logPrefix := getDomainLogPrefix(c.ProfileName, name)
+	maxAttempts := 5
+	baseDelay := 200 * time.Millisecond
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		c.Logger.With("action", "record.sync").Trace("%s attempt %d/%d: querying for name=%s, type=%s", logPrefix, attempt, maxAttempts, name, recordType)
+
+		rc := cloudflare.ZoneIdentifier(zoneID)
+		params := cloudflare.ListDNSRecordsParams{Name: name, Type: recordType}
+		recs, _, err := c.client.ListDNSRecords(ctx, rc, params)
+
+		if err != nil {
+			c.Logger.With("action", "record.sync").Trace("%s attempt %d with error: %v", logPrefix, attempt, err)
+			if attempt < maxAttempts {
+				c.Sleep(attempt, baseDelay)
+				continue
+			}
+			return nil, fmt.Errorf("record lookup failed after %d attempts: %v", maxAttempts, err)
+		}
+
+		c.Logger.With("action", "record.sync").Trace("%s attempt %d returned %d records", logPrefix, attempt, len(recs))
+		for i, r := range recs {
+			c.Logger.With("action", "record.sync").Trace("%s result %d: id=%s type=%s name=%s content=%s ttl=%d proxied=%v", logPrefix, i+1, r.ID, r.Type, r.Name, r.Content, r.TTL, r.Proxied)
+		}
+
+		if len(recs) > 0 {
+			for _, r := range recs {
+				if r.Type == recordType && r.Name == name {
+					c.Logger.With("action", "record.sync").Trace("%s exact match on attempt %d: id=%s", logPrefix, attempt, r.ID)
+					return &r, nil
+				}
+			}
+			c.Logger.With("action", "record.sync").Trace("%s records but no exact match on attempt %d, returning first", logPrefix, attempt)
+			return &recs[0], nil
+		}
+
+		c.Logger.With("action", "record.sync").Trace("%s attempt %d found no records", logPrefix, attempt)
+		if attempt < maxAttempts {
+			c.Logger.With("action", "record.sync").Trace("%s sleeping %v before retry", logPrefix, baseDelay*time.Duration(attempt))
+			c.Sleep(attempt, baseDelay)
+		}
+	}
+
+	c.Logger.With("action", "record.sync").Trace("%s completed %d attempts, no records found", logPrefix, maxAttempts)
+	return nil, nil
+}
+
+func (c *CloudflareProvider) DeleteRecord(domain, recordType, name string) error {
+	logPrefix := getDomainLogPrefix(c.ProfileName, domain)
+	c.Logger.With("action", "record.delete").Debug("%s: %s.%s %s", logPrefix, name, domain, recordType)
+
+	ctx := context.Background()
+
+	zoneID, err := c.getZoneID(ctx, domain)
+	if err != nil {
+		return fmt.Errorf("failed to get zone ID for domain %s: %v", domain, err)
+	}
+
+	fullName := BuildFQDN(name, domain)
+
+	existingRecord, err := c.checkExistingRecord(ctx, zoneID, fullName, recordType)
+	if err != nil {
+		return fmt.Errorf("failed to search for existing record: %v", err)
+	}
+
+	if existingRecord == nil {
+		c.Logger.With("action", "record.delete").Warn("%s not found: %s %s", logPrefix, fullName, recordType)
+		return nil
+	}
+
+	rc := cloudflare.ZoneIdentifier(zoneID)
+
+	err = c.client.DeleteDNSRecord(ctx, rc, existingRecord.ID)
+	if err != nil {
+		return fmt.Errorf("failed to delete DNS record: %v", err)
+	}
+
+	c.Logger.With("action", "record.delete").Info("%s: %s %s", logPrefix, fullName, recordType)
+	return nil
+}
+
+func (c *CloudflareProvider) getZoneID(ctx context.Context, domain string) (string, error) {
+	c.zoneMu.Lock()
+	if id, ok := c.zoneIDs[domain]; ok {
+		c.zoneMu.Unlock()
+		return id, nil
+	}
+	c.zoneMu.Unlock()
+
+	zones, err := c.client.ListZones(ctx, domain)
+	if err != nil {
+		return "", fmt.Errorf("failed to list zones: %v", err)
+	}
+
+	if len(zones) == 0 {
+		return "", fmt.Errorf("no zone found for domain: %s", domain)
+	}
+
+	c.zoneMu.Lock()
+	c.zoneIDs[domain] = zones[0].ID
+	c.zoneMu.Unlock()
+
+	return zones[0].ID, nil
+}
+
+func (c *CloudflareProvider) GetName() string {
+	return "cloudflare"
+}
+
+func (c *CloudflareProvider) Validate() error {
+	if c.client == nil {
+		return fmt.Errorf("cloudflare client not initialized")
+	}
+
+	ctx := context.Background()
+
+	_, err := c.client.ListZones(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to validate Cloudflare connection: %v", err)
+	}
+
+	c.Logger.With("action", "provider.validate").Debug("provider validation successful")
+	return nil
+}
+
+func getDomainLogPrefix(domainConfigKey, domain string) string {
+	if domainConfigKey != "" {
+		return fmt.Sprintf("[domain/%s/%s]", domainConfigKey, strings.ReplaceAll(domain, ".", "_"))
+	}
+	return fmt.Sprintf("[domain/%s]", strings.ReplaceAll(domain, ".", "_"))
+}

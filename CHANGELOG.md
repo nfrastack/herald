@@ -1,3 +1,62 @@
+## 3.0.0 2026-11-26 <code at nfrastack dot com>
+
+   ### Added
+    - add allow_missing_outputs to warn + skip domains with unknown outputs instead of exiting
+    - use nfrastack/herald as user agent for all http operations
+    - (api) state tracking to assist in detecting stale records
+    - (api) add created_at and last_modified_at state entries
+    - (api) isolate domains to their own profiles
+    - (input/docker) add api_auth_user/api_auth_pass basic auth support
+    - (input/docker) and api_header_* custom headers
+    - (input/docker) add resync_interval for periodic output resync
+    - (input/system) add new provider to collect system interface addresses
+    - (input/tailscale) support additional_domains
+    - (input/zerotier) support additional_domains
+    - (output/dns) allow blocking private ip ranges records from registering on public dns
+    - (output/dns) skip provider calls for identical records with optional reassert_interval
+    - (output/dns/cloudflare) cache zone IDs, compare before update, quiet cross type conflicts
+    - (output/dns/cloudflare) add allow_replace during reconciliation
+    - (output/dns/technitium) add provider
+    - (output/dns/digitalocean) add provider
+    - (output/dns/hetzner) add provider
+    - (output/dns/ovh) add provider
+    - (output/dns/easydns) add provider
+    - (output/dns/porkbun) add provider
+    - (output/dns/vultr) add provider
+    - (output/dns/spaceship) add provider
+    - (output/dns/linode) add provider
+    - (output/dns/gandi) add provider
+    - (output/dns/godaddy) add provider
+    - (output/dns/azure) add provider
+    - (output/dns/google) add provider
+    - (output/dns/rfc2136) add provider
+    - (output/dns/route53) add provider
+    - (output/dns/external) add provider
+    - (output/file/*) add created_at and last_modified_at state comment entries
+    - (output/remote) add mTLS support
+
+   ### Changed
+    - config rejects unknown fields at startup
+    - constant format strings
+    - rework repository layout
+    - properly parse ipv6 addresses
+    - structured logging
+    - fix --dry-run from ever writing
+    - stop supporting tls<1.2
+    - (api) add shareable_writes capability to write to whole zone
+    - (api) gracefully stop server and flush states on shutdown
+    - (api) scope client uploads to allowed domains
+    - (api) scope clients to allowed hostnames
+    - (input/*) avoid unneccessary rewrites of records if in known state
+    - (input/docker) reconnect event stream with backoff instead of dying on first error
+    - (input/docker) widen event filter to create/restart/unpause/pause/kill/destroy
+    - (output/dns) rework provider format
+    - (output/dns/cloudflare) refactor provider
+    - (output/dns/powerdns) refactor provider
+    - (output/zone) seperate manual from managed records
+    - (output/zone) only write zone files when actual record change
+    - (output/zone) properly attribute client on record addition
+
 ## 2.3.4 2026-01-19 <code at nfrastack dot com>
 
    ### Changed

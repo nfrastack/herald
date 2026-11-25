@@ -49,10 +49,10 @@ nfrastack <code@nfrastack.com>
 
 ### From Source
 
-Clone this repository and compile with [GoLang 1.25 or later](https://golang.org):
+Clone this repository and compile with [GoLang 1.27 or later](https://golang.org):
 
 ```bash
-go build -o bin/herald ./cmd/herald
+make build
 ```
 
 ### Precompiled Binaries
@@ -164,7 +164,7 @@ Global settings for the application. These can be set in the `general` section o
 
 **Options:**
 
-- `log_level` (string): Logging level for the application (e.g., `trace`, `debug`, `verbose`, `info`, `warn`, `error`).
+- `log_level` (string): Logging level for the application (eg `trace`, `debug`, `verbose`, `info`, `warn`, `error`).
 - `log_timestamps` (bool): Whether to include timestamps in log output.
 - `dry_run` (bool): If true, perform a test run without making DNS changes.
 
@@ -177,9 +177,47 @@ general:
   dry_run: false
 ```
 
+### State & Presence Tracking
+
+Herald tracks when each DNS record was first and last confirmed present (poll hits, container events, API uploads) in `state_dir/lastseen.json`. Heartbeats only touch that file. Stale records log as `WARN` with first/last seen dates for you to review manually.
+
+```yaml
+state_dir: /var/lib/herald   # Operational state lives here
+
+stale_after: 720h            # Records unseen longer than this are logged for manual review. Tombstoned (removed) records are purged from state after this duration.
+                             # Unset disables both stale reporting and tombstone purging.
+```
+
+Three separate timeouts affect how long records are remembered.
+
+| Setting                   | Applies to          | Effect                                                                                                                     |
+|---------------------------|---------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `client_expiry`           | api server memory   | how long an clients last upload is kept. After that the client is treated as gone until it uploads again. (default: `10m`) |
+| `state_dir/lastseen.json` | every host on disk  | first and last seen history for every record  Deleted records are kept as tombstones until `stale_after` purges them.      |
+| `stale_after`             | every host on disk  | how long before unseen records log a `WARN` for manual review, and when tombstoned records are purged from state.          | 
+
+> DNS records themselves are never deleted automatically.
+
+> An uploader that stops pushing for longer than `client_expiry` drops out of the API server's view, but its on disk history stays. The next upload resumes normally..
+
 #### Scoped Logging
 
 Each input/output/domain provider supports individual log level configuration via the `log_level` option, allowing fine-grained control over logging verbosity per provider without affecting global log levels.
+
+Log format is selected by `--log-format`, `LOG_FORMAT`, or `general.log_format` in `herald.yml` (flag wins, then env, then file; empty means auto: `structured` on a console, `text` under systemd/journald):
+
+- `text`: plain `LEVEL [scope] action message` lines for humans and journald.
+- `structured`: slog `level=... msg=...` key=value lines.
+- `json`: one JSON object per line.
+
+Every record carries an `action` (`record.create`, `auth.reject`, `sync.fail`, ...) plus a short companion message, so all three formats stay greppable for the same verbs.
+
+Log records carry structured fields (`scope`, `action`, `client`, `domain`, `profile`, `container`, `device`, `member`). With `LOG_FORMAT=json`, query them directly:
+
+```bash
+journalctl -u herald --output=json | jq -r 'select(.client == "examplehostname") | "\(.__REALTIME_TIMESTAMP) \(.msg)"'
+journalctl -u herald --output=json | jq -r 'select(.msg | contains("rejected")) | [.client, .msg] | @tsv'
+```
 
 ### Domain Configuration
 
@@ -187,14 +225,14 @@ Domains define per-domain configuration, including which input/output profiles t
 
 **Options:**
 
-- `name` (string): The DNS domain name (e.g., `example.com`).
+- `name` (string): The DNS domain name (eg `example.com`).
 - `profiles` (object): Structured input and output configuration:
   - `inputs` (list of strings): Which input providers are allowed to create records for this domain.
   - `outputs` (list of strings): Which output profiles should process records for this domain.
 - `record` (object): DNS record options for this domain:
-  - `type` (string): DNS record type (e.g., `A`, `AAAA`, `CNAME`).
+  - `type` (string): DNS record type (eg `A`, `AAAA`, `CNAME`).
   - `ttl` (integer): Time-to-live for DNS records (in seconds).
-  - `target` (string): The value for the DNS record (e.g., IP address or CNAME target).
+  - `target` (string): The value for the DNS record (eg IP address or CNAME target).
   - `update_existing` (bool): Whether to update existing records for this domain.
   - `allow_multiple` (bool): Allow multiple A/AAAA records for this domain.
   - `proxied` (bool): Set proxied flag (Cloudflare DNS only)
@@ -316,6 +354,7 @@ Input providers discover services that need DNS records. Each input provider is 
 - **zerotier**: Monitors ZeroTier networks and creates DNS records for network members
 - **file**: Reads DNS records from local files in YAML, JSON, hosts, or zone file formats
 - **remote**: Fetches DNS records from remote files over HTTP(S)
+- **system**: Publishes the host's own addresses (interface IPs, a configured address, or a discovered public IP) as DNS records
 
 #### Caddy Input Provider
 
@@ -346,9 +385,9 @@ inputs:
 
 The Caddy provider supports filtering to precisely control which routes to process:
 
-- **host**: Filter by hostname patterns (e.g., `*.localhost`, `api*.example.com`)
+- **host**: Filter by hostname patterns (eg `*.localhost`, `api*.example.com`)
 - **handler**: Filter by handler type (`reverse_proxy`, `file_server`, `static_response`, `vars`)
-- **upstream**: Filter by upstream dial addresses (e.g., `host.docker.internal:*`, `localhost:2019`)
+- **upstream**: Filter by upstream dial addresses (eg `host.docker.internal:*`, `localhost:2019`)
 - **server**: Filter by server name (`srv0`, etc.)
 
 **Example Filters:**
@@ -470,7 +509,7 @@ The Docker provider supports automatic DNS record creation by using container la
   - Values: `true`, `false`, `1`, `0`
   - If omitted, defaults to the value of `expose_containers` in the provider configuration
 
-- `nfrastack.herald.host`: The full hostname to register (e.g., `app.example.com`)
+- `nfrastack.herald.host`: The full hostname to register (eg `app.example.com`)
   - This is the primary label used for DNS configuration
   - Format: `<hostname>.<domain>` or just `<domain>` for apex records
 
@@ -638,7 +677,7 @@ labels:
   - nfrastack.herald.disable.<profile>=true
 ```
 
-Replace `<profile>` with the name of your input provider (e.g., `docker_pub`, `docker_int`).
+Replace `<profile>` with the name of your input provider (eg `docker_pub`, `docker_int`).
 
 **Example:**
 ```yaml
@@ -649,7 +688,7 @@ services:
       - nfrastack.herald.disable.docker_pub=true
 ```
 
-This will prevent the `docker_pub` input provider from processing this container, even if other filters match. Other providers (e.g., `docker_int`) will still process the container unless also disabled.
+This will prevent the `docker_pub` input provider from processing this container, even if other filters match. Other providers (eg `docker_int`) will still process the container unless also disabled.
 
 
 #### File Input Provider
@@ -733,7 +772,7 @@ filter:
 
 - `source` (required): Path to the file.
 - `format`: `yaml` (default), `json`, `hosts`, or `zone` - autodetects based on extension.
-- `interval`: `-1` (default, watch mode), or a duration (e.g. `30s`).
+- `interval`: `-1` (default, watch mode), or a duration (eg `30s`).
 - `record_remove_on_stop`: Remove DNS records when removed from file. Default: `false`.
 - `process_existing`: Process all records on startup. Default: `false`.
 
@@ -806,7 +845,7 @@ filter:
 
 - `remote_url` (required): URL to the remote YAML or JSON file.
 - `format`: `yaml` (default) or `json`.
-- `interval`: How often to poll the remote file (e.g., `30s`).
+- `interval`: How often to poll the remote file (eg `30s`).
 - `process_existing`: Process all records on startup. Default: `false`.
 - `record_remove_on_stop`: Remove DNS records when removed from remote. Default: `false`.
 - `remote_auth_user`: Username for HTTP Basic Auth (optional).
@@ -816,6 +855,75 @@ filter:
   - `ca`: Path to custom CA certificate file (optional).
   - `cert`: Path to client certificate file for mutual TLS (optional).
   - `key`: Path to client private key file for mutual TLS (optional).
+
+#### System Input Provider
+
+The system provider publishes the host's own addresses as DNS records, acting as a dynamic DNS client for the machine herald runs on. Four address modes, first match wins:
+
+1. `address`: a literal IP (or `file://`/`env://` reference). Always published when set.
+2. `address_file`: path to a file containing an IP, re-read every poll (for an external updater script). Unreadable or unparseable content keeps the last known address.
+3. `discover_url`: an HTTP endpoint returning the machine's public IP as plain text (eg `https://api.ipify.org`), for hosts behind NAT whose interface holds a private address. Failures keep the last known address.
+4. Interfaces: the literal addresses of matching local interfaces (default when nothing above is set).
+
+```yaml
+inputs:
+  sys_pub:
+    type: system
+    hostname: host01                    # defaults to the OS hostname
+    domain: example.com
+    additional_domains: "example.org"   # optional extra suffixes
+    address: 185.239.111.102            # mode 1: explicit (overrides everything)
+    #address_file: /tmp/ip.txt          # mode 2: read from file
+    interval: 300s
+    process_existing: true
+    record_remove_on_stop: true
+  sys_wan:
+    type: system
+    hostname: host01alt
+    domain: public.com
+    discover_url: https://api.ipify.org  # mode 3: public IP from behind NAT
+    families: [ipv4]
+  sys_zt:
+    type: system
+    hostname: host01zt
+    domain: internal.com
+    interfaces: ["zt*"]                  # mode 4: ZeroTier interface(s)
+    families: [ipv4, ipv6]
+```
+
+**Configuration Options:**
+
+- `type` (required): Must be `system`
+- `hostname`: Short hostname to publish (default: OS hostname up to the first dot)
+- `domain`: Domain suffix for DNS records (required)
+- `additional_domains`: Extra domain suffixes to publish under from the same poll (comma/space separated or YAML list)
+- `address`: Literal IP address to publish (supports `file://` and `env://` references). Takes precedence over everything below.
+- `address_file`: Path to a file containing an IP address, re-read every poll. Failures keep the last known address.
+- `discover_url`: HTTP(S) URL returning the public IP as plain text (supports `file://` and `env://` references). Failures keep the last known address.
+- `interfaces`: Interface name patterns to read addresses from (exact names or globs, `!` prefix excludes, eg `["eth0", "!docker*"]`). Default: all interfaces except well-known virtual ones (`docker*`, `veth*`, `br-*`, `tun*`, `tap*`, `wg*`, `lo`). An explicitly named interface is always used.
+- `families`: Address families to publish (`ipv4`, `ipv6`, or both. Default: `ipv4` only). Loopback, link-local, and unspecified addresses are never published.
+- `interval`: Polling interval (default: 300s)
+- `timeout`: HTTP timeout for `discover_url` (default: 10s)
+- `process_existing`: Publish on startup (default: true)
+- `record_remove_on_stop`: Remove the record when the address disappears (default: true)
+- `log_level`: Provider-specific log level override
+
+> The system input publishes address records (`A`/`AAAA`) only!
+
+Only the first address per family is published, so multi homed hosts stay deterministic. Pair a public and an internal input on the same host (eg `sys_pub` on `eth0` plus `sys_zt` on `zt*`) and the API server splits them with `source_outputs` — see [Split-Tunnel Routing](#split-tunnel-routing).
+
+**Public IP collectors:**
+
+Any endpoint returning the IP as plain text works. Some popular services:
+
+| URL                                        |
+|--------------------------------------------|
+| `https://api.ipify.org`                    |
+| `https://icanhazip.com`                    |
+| `https://wtfismyip.com`                    |
+| `https://ident.me`                         |
+| `https://checkip.amazonaws.com`            |
+| `https://www.cloudflare.com/cdn-cgi/trace` |
 
 #### Tailscale Input Provider
 
@@ -830,6 +938,7 @@ inputs:
     api_key: "your_tailscale_api_key_here"
     tailnet: "-"                # Default tailnet, or specify tailnet ID
     domain: "ts.example.com"
+    additional_domains: "example.net, example.org"  # extra suffixes, one poll (comma/space separated, or YAML list)
     interval: 30s
     hostname_format: "simple"   # "simple", "tailscale", or "full"
     process_existing: true
@@ -863,7 +972,7 @@ api_auth_id: "your_oauth_client_id"
 
 **Hostname Formats:**
 
-- `simple`: Use device name, remove `.tail` suffix (e.g., `laptop` from `laptop.tail12345.ts.net`)
+- `simple`: Use device name, remove `.tail` suffix (eg `laptop` from `laptop.tail12345.ts.net`)
 - `tailscale`: Use device name but sanitize for DNS (replace dots/underscores with hyphens)
 - `full`: Use complete Tailscale hostname as-is
 
@@ -901,6 +1010,7 @@ inputs:
 - `api_url`: API URL (default: Tailscale Central, specify for Headscale)
 - `tailnet`: Tailnet ID or namespace (default: "-" for default tailnet)
 - `domain`: Domain suffix for DNS records (required)
+- `additional_domains`: Extra domain suffixes to publish each device under from the same poll (eg `"example.com, example.org"` or a YAML list). Single API lookup, no extra polling. Default: unset (primary `domain` only).
 - `interval`: Polling interval (default: 120s)
 - `hostname_format`: How to format hostnames (default: "simple")
 - `process_existing`: Process existing devices on startup (default: false)
@@ -972,10 +1082,10 @@ inputs:
 **Options for configuring a Traefik input provider:**
 
 - `type`: (string) Must be `traefik` for Traefik input provider.
-- `api_url`: The URL of the Traefik API to poll (e.g., `http://traefik:8080/api/http/routers`).
+- `api_url`: The URL of the Traefik API to poll (eg `http://traefik:8080/api/http/routers`).
 - `api_auth_user`: Username for basic auth to the Traefik API (optional).
 - `api_auth_pass`: Password for basic auth to the Traefik API (optional).
-- `interval`: How often to poll the Traefik API for updates (e.g., `15s`, `1m`, `1h`).
+- `interval`: How often to poll the Traefik API for updates (eg `15s`, `1m`, `1h`).
 - `tls`: TLS configuration object (optional):
   - `verify`: Whether to verify TLS certificates (default: true).
   - `ca`: Path to custom CA certificate file (optional).
@@ -990,10 +1100,10 @@ The Traefik provider supports advanced filtering to precisely control which rout
 
 **Available filter types:**
 
-- `name`: Filter routers by name patterns (e.g., `^websecure-`, `*-internal`)
+- `name`: Filter routers by name patterns (eg `^websecure-`, `*-internal`)
 - `service`: Filter by service name patterns
-- `provider`: Filter by provider (e.g., `docker`, `file`, `kubernetes`)
-- `entrypoint`: Filter by entrypoints (e.g., `websecure`, `web`)
+- `provider`: Filter by provider (eg `docker`, `file`, `kubernetes`)
+- `entrypoint`: Filter by entrypoints (eg `websecure`, `web`)
 - `status`: Filter by router status
 - `rule`: Filter by router rule patterns
 
@@ -1094,6 +1204,7 @@ inputs:
     api_token: "your_zerotier_api_token_here"
     network_id: "YOUR_NETWORK_ID"
     domain: "zt.example.com"
+    additional_domains: "example.net, example.org"  # extra suffixes, one poll (comma/space separated, or YAML list)
     online_timeout_seconds: 300  # Recommended: 300+ seconds
     record_remove_on_stop: true
     use_address_fallback: true
@@ -1108,7 +1219,8 @@ inputs:
 - `type`: Must be "zerotier"
 - `api_token`: ZeroTier API token or ZT-Net auth token (required)
 - `network_id`: ZeroTier network ID (required)
-- `domain`: Domain suffix for DNS records (e.g., `zt.example.com`)
+- `domain`: Domain suffix for DNS records (eg `zt.example.com`)
+- `additional_domains`: Extra domain suffixes to publish each member under from the same poll (eg `"example.com, example.org"` or a YAML list). Single API lookup, no extra polling. Default: unset (primary `domain` only).
 - `api_url`: API URL (default: `https://my.zerotier.com` for ZeroTier Central)
 - `interval`: Polling interval (default: 60s)
 - `online_timeout_seconds`: Time to consider member offline (default: 120, recommend: 300+)
@@ -1146,10 +1258,51 @@ Output providers handle where DNS records are sent. This includes live DNS provi
 
 #### Live DNS Providers
 
-Live DNS providers use `type: dns` and manage records directly with DNS services:
+Live DNS providers use `type: dns` and manage records directly with DNS services. All credential values accept `file://` and `env://` secret references (see [Secret References](#secret-references)).
 
-- **cloudflare**: Manage DNS records via Cloudflare API
-- **powerdns**: Manage DNS records via PowerDNS API
+Shared options for every DNS provider:
+
+- `timeout` (integer): API request timeout in seconds, defaults to 30.
+- `retries` (integer): Retry attempts, defaults to 3.
+- `log_level` (string): Per-profile log level override.
+- `api_host` / `endpoint`: Override the API base URL where the provider supports it.
+- `options` (object): Provider-specific extra options, passed through as `options.<key>`.
+- `allow_replace` (bool): Permits destructive cross-type replace (delete + recreate, resets `created_on`). Default false. Currently enforced by the `cloudflare` provider; also settable as `options.allow_replace`.
+- `deny_private_ips` (bool): Refuse A/AAAA targets in private/non-routable space (RFC1918, ULA, loopback, link-local, CGNAT, documentation ranges) with a `record.reject` warning, so they never reach public DNS. 
+                             Default false. Extra CIDRs can be added via `deny_cidrs: "cidr1,cidr2".
+- `reassert_interval` (duration): re-assert identical records after this interval to resolve drift.
+                                  Accepts `24h`, `30m`, etc -  `0`/`off`/`never` disables.
+                                  Default off. identical target/TTL/proxied writes skip the provider call entirely.
+
+| Provider       | Credential options                   | Notes                                      |
+| -------------- | ------------------------------------ | ------------------------------------------ |
+| `azure`        | tenant_id, client_id, client_secret, | Entra client credentials                   |
+|                | subscription_id, resource_group      | A/AAAA/CNAME/TXT only                      |
+| `cloudflare`   | token (or api_token)                 | Honors `proxied`, `allow_replace`          |
+| `digitalocean` | token                                |                                            |
+| `easydns`      | token, api_key                       | Parent account only                        |
+|                |                                      | paced to 1 req/sec (500/day quota)         |
+| `external`     | command (absolute path),             | Shells out per write - see below           |
+|                | args (list), env (object)            |                                            |
+| `gandi`        | api_key                              |                                            |
+| `godaddy`      | api_key, api_secret                  |                                            |
+| `google`       | project,                             | Cloud DNS API                              |
+|                | credentials (JSON or path)           |                                            |
+| `hetzner`      | token                                | Auth-API-Token header                      |
+| `linode`       | token                                |                                            |
+| `ovh`          | app_key, app_secret,                 |                                            |
+|                | consumer_key, endpoint               |                                            |
+| `porkbun`      | api_key, secret_key                  |                                            |
+| `powerdns`     | api_host, api_token,                 |                                            |
+|                | server_id,                           |                                            |
+|                | tls.ca/cert/key/skip_verify          |                                            |
+| `rfc2136`      | server, key_name + key_secret        | RFC 2136 dynamic updates always UPDATEs    |
+|                |                                      | `update_existing` `overwrite` do not work  |
+| `route53`      | access_key, secret_key,              |                                            |
+|                | session_token, region                |                                            |
+| `spaceship`    | api_key, api_secret                  |                                            |
+| `technitium`   | api_host, token                      |                                            |
+| `vultr`        | token                                |                                            |
 
 ```yaml
 outputs:
@@ -1159,20 +1312,142 @@ outputs:
     provider: cloudflare
     token: "your-cloudflare-token"
     log_level: info
+    # deny_private_ips: true  # refuse RFC1918/ULA/loopback/link-local/CGNAT A/AAAA targets (default false)
+    # deny_cidrs: "100.64.0.0/10"  # optional extra CIDRs to refuse (comma-separated, guard must be on)
 
-  # Live PowerDNS API
+  # External hook - Runs command per write. 
+  # Placeholders: {action} (upsert/delete) {domain}, {name} (relative, @ for apex),
+  # {fqdn}, {type}, {target}, {ttl}, {source}, {comment}, {profile}.
+  external_hook:
+    type: dns
+    provider: external
+    command: /usr/local/bin/herald-external
+    args: ["{action}", "{domain}", "{name}", "{type}", "{target}"]
+    env:
+      EXTERNAL_KEY: file:///run/secrets/external_key
+
+  # Azure DNS (Entra client credentials)
+  azure_dns:
+    type: dns
+    provider: azure
+    tenant_id: env://AZURE_TENANT_ID
+    client_id: env://AZURE_CLIENT_ID
+    client_secret: file:///run/secrets/azure_secret
+    subscription_id: env://AZURE_SUBSCRIPTION_ID
+    resource_group: "dns-rg"
+
+  # DigitalOcean DNS
+  do_dns:
+    type: dns
+    provider: digitalocean
+    token: env://DO_TOKEN
+
+  # easyDNS (parent account only, paced requests)
+  easydns_dns:
+    type: dns
+    provider: easydns
+    token: env://EASYDNS_TOKEN
+    api_key: env://EASYDNS_KEY
+
+  # Gandi LiveDNS
+  gandi_dns:
+    type: dns
+    provider: gandi
+    api_key: env://GANDI_KEY
+
+  # GoDaddy
+  godaddy_dns:
+    type: dns
+    provider: godaddy
+    api_key: env://GODADDY_KEY
+    api_secret: file:///run/secrets/godaddy_secret
+
+  # Google Cloud DNS (service account)
+  google_dns:
+    type: dns
+    provider: google
+    project: "my-gcp-project"
+    credentials: file:///run/secrets/gcp_dns.json
+
+  # Hetzner DNS
+  hetzner_dns:
+    type: dns
+    provider: hetzner
+    token: file:///run/secrets/hetzner_token
+
+  # Linode DNS
+  linode_dns:
+    type: dns
+    provider: linode
+    token: env://LINODE_TOKEN
+
+  # OVH
+  ovh_dns:
+    type: dns
+    provider: ovh
+    app_key: env://OVH_APP_KEY
+    app_secret: file:///run/secrets/ovh_app_secret
+    consumer_key: file:///run/secrets/ovh_consumer_key
+    endpoint: "https://ca.api.ovh.com/1.0"  # Optional, eu/ca/us
+
+  # Porkbun
+  porkbun_dns:
+    type: dns
+    provider: porkbun
+    api_key: env://PORKBUN_KEY
+    secret_key: file:///run/secrets/porkbun_secret
+
+  # PowerDNS API
   powerdns_dns:
     type: dns
     provider: powerdns
     api_host: "http://powerdns.example.com:8081/api/v1"
     api_token: "your-powerdns-api-token"
-    server_id: "localhost"  # Optional, defaults to "localhost"
+    server_id: "localhost"            # Optional, defaults to "localhost"
     tls:
       ca: "/path/to/ca.pem"           # Optional CA certificate
       cert: "/path/to/client.pem"     # Optional client certificate
       key: "/path/to/client.key"      # Optional client private key
       skip_verify: false              # Optional, skip TLS verification
     log_level: info
+
+  # AWS Route53
+  route53_dns:
+    type: dns
+    provider: route53
+    access_key: env://AWS_ACCESS_KEY_ID
+    secret_key: file:///run/secrets/aws_secret
+    region: "us-east-1"  # Optional
+
+  # RFC2136 dynamic DNS
+  rfc2136_dns:
+    type: dns
+    provider: rfc2136
+    server: "127.0.0.1:53"            # DNS server accepting UPDATEs (host or host:port)
+    # key_name: "herald-key"          # TSIG key name (optional)
+    # key_secret: file:///run/secrets/rfc2136_key  # base64 TSIG secret (required with key_name)
+    # key_algorithm: hmac-sha256      # hmac-sha256 (default), hmac-sha384, hmac-sha512, hmac-md5
+    log_level: info
+
+  # Spaceship
+  spaceship_dns:
+    type: dns
+    provider: spaceship
+    api_key: env://SPACESHIP_KEY
+    api_secret: file:///run/secrets/spaceship_secret
+
+  # Technitium
+  technitium_dns:
+    type: dns
+    provider: technitium
+    api_host: "http://192.168.1.53:5380"
+    token: file:///run/secrets/technitium_token
+
+  # Vultr DNS
+  vultr_dns:
+    type: dns
+    provider: vultr
+    token: env://VULTR_TOKEN
 ```
 
 #### File Export Formats
@@ -1325,24 +1600,92 @@ api:
     - "!lo"                                   # Exclude loopback interface
     - "!docker*"                              # Exclude all Docker interfaces
   endpoint: "/api/dns"
-  client_expiry: "10m"
+  client_expiry: "10m"  # how long the aggregator remembers an idle uploader (in-memory only, not history — see State & Presence Tracking)
   log_level: "info"
   profiles:
     server1:
       token: "your_bearer_token_here"
       output_profile: "aggregated_zones"
+      domains: ["example.com"]  # optional: reject uploads for other domains
     server2:
       token: "file:///var/run/secrets/server2_token"  # Load token from file
       output_profile: "special_zones"
+      # domains: ["example.net", "example.org"]
+      # internal_output / source_outputs: split-tunnel routing, see "Split-Tunnel Routing" below.
   tls:
     cert: "/etc/ssl/certs/herald.crt"
     key: "/etc/ssl/private/herald.key"
     ca: "/etc/ssl/ca/client-ca.pem"  # Optional for mutual TLS
 ```
 
+#### Client Domain Scoping
+
+Each API client profile accepts an optional `domains` list. When set, uploads (and removals) for any other domain are rejected with a warning, the same rule applies no matter what the `output_profile` points at. Clients hold only their bearer token, the server holds the provider tokens.
+
+```yaml
+outputs:
+  cloudflare_dns:
+    type: dns
+    provider: cloudflare
+    api_token: "file:///run/secrets/cf_token"  # server-side only
+  powerdns_dns:
+    type: dns
+    provider: powerdns
+    api_host: "http://powerdns.example.com:8081/api/v1"
+    api_token: "file:///run/secrets/pdns_token"  # server-side only
+
+api:
+  profiles:
+    edge01:
+      token: "file:///run/secrets/edge01_token"
+      output_profile: cloudflare_dns
+      domains: ["example.com"]
+      hostnames: ["musort", "*.edge"]  # glob patterns on the short hostname
+    edge02:
+      token: "env://EDGE02_TOKEN"
+      output_profile: powerdns_dns
+      domains: ["file:///run/secrets/edge02_domains"]  # comma/newline separated
+```
+
+Within an allowed scope, the first writer owns each name: a different client overwriting or deleting it is rejected and logged. Set `shared_writes: true` on purpose for boxes that legitimately share names (eg failover pairs) - domain and hostname lists still apply.
+
+#### Split-Tunnel Routing
+
+When senders push both public and internal records for the same domain through the API (eg a host whose containers match both a public and an internal input), the server splits them per record. Each uploaded record carries the name of the sender input that built it (`source`), and routing is resolved in this order:
+
+1. `source_outputs` - exact input name match first, then glob (`docker_int`, `docker_*_int`). The sender's origin decides.
+2. `internal_output` - fallback for A/AAAA records with private/non-routable targets (RFC1918, ULA, loopback, link-local, CGNAT).
+3. `output_profile` - the default for everything else.
+
+Removals are cleaned from every profile the record could have landed in.
+
+Example: A host runs two docker inputs over the same containers, split by label. A container labelled `any` matches both, so one container produces two records. Each record carries the input name as its `source`:
+
+| uploaded record               | source       | routed to         |
+| ----------------------------- | ------------ | ----------------- |
+| `ha` CNAME `apal.example.com` | `docker_pub` | `cloudflare_dns`  |
+| `ha` A `10.0.0.5`             | `docker_int` | `local_zone_file` |
+
+
+```yaml
+# On edge01 (sender): inputs docker_pub + docker_int, one remote output with client_id edge01 pointing at the API server.
+
+# On the API server:
+api:
+  profiles:
+    edge01:
+      token: "file:///run/secrets/edge01_token"
+      output_profile: cloudflare_dns     # default: docker_pub records land here
+      source_outputs:
+        docker_int: local_zone_file      # docker_int records land here instead
+      internal_output: local_zone_file   # fallback for unlabeled private A/AAAA
+```
+
 #### Security Features
 
 - Bearer token authentication per client
+- Optional per-client domain and hostname allowlists
+- Record ownership - clients cannot overwrite or delete other hosts names
 - Failed attempt tracking and rate limiting (20 attempts/hour)
 - TLS with optional mutual authentication
 - Comprehensive security logging
@@ -1399,6 +1742,7 @@ Herald supports a minimal set of environment variables for global application se
 | `DRY_RUN`          | If true, do not perform actual DNS updates         | `false`   |
 | `LOG_LEVEL`        | Set log level (`trace` `debug`, `verbose`, `info`) | `verbose` |
 | `LOG_TIMESTAMPS`   | Include timestamps in log output (`true`/`false`)  | `true`    |
+| `LOG_FORMAT`       | Log encoding (`text`/`structured`/`json`)          | auto (`structured` console, `text` systemd) |
 
 All other configuration should be done via the YAML configuration file. See the sample [.env](contrib/config/env.sample) file for examples.
 
@@ -1469,7 +1813,7 @@ Default DNS record settings, used unless overridden at the domain or container l
 **Options:**
 
 - `record` (object): Default DNS record options:
-  - `type` (string): Default DNS record type (e.g., `A`, `AAAA`, `CNAME`).
+  - `type` (string): Default DNS record type (eg `A`, `AAAA`, `CNAME`).
   - `ttl` (integer): Default time-to-live for DNS records (in seconds).
   - `update_existing` (bool): Whether to update existing records by default.
   - `allow_multiple` (bool): Allow multiple A/AAAA records by default.

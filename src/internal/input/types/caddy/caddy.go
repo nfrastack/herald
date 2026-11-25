@@ -1,0 +1,435 @@
+// SPDX-FileCopyrightText: © 2024 Nfrastack <code@nfrastack.com>
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+package caddy
+
+import (
+	"github.com/nfrastack/herald/internal/config"
+	"github.com/nfrastack/herald/internal/domain"
+	"github.com/nfrastack/herald/internal/input/common"
+	"github.com/nfrastack/herald/internal/log"
+
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+)
+
+type Provider interface {
+	StartPolling() error
+	StopPolling() error
+	GetName() string
+}
+
+type CaddyProvider struct {
+	apiURL        string
+	interval      time.Duration
+	opts          common.PollProviderOptions
+	running       bool
+	lastHosts     map[string]domain.RouterState
+	logPrefix     string
+	options       map[string]string
+	logger        *log.ScopedLogger
+	filterConfig  common.FilterConfig
+	domainConfigs map[string]config.DomainConfig
+	outputWriter  domain.OutputWriter
+	outputSyncer  domain.OutputSyncer
+}
+
+func NewProvider(profileName string, config map[string]any, outputWriter domain.OutputWriter, outputSyncer domain.OutputSyncer) (Provider, error) {
+	options := make(map[string]string)
+	for k, v := range config {
+		options[k] = fmt.Sprintf("%v", v)
+	}
+
+	parsed := common.ParsePollProviderOptions(options, common.PollProviderOptions{
+		Interval:           60 * time.Second,
+		ProcessExisting:    false,
+		RecordRemoveOnStop: false,
+		Name:               profileName,
+	})
+	apiURL := common.ReadFileValue(options["api_url"])
+	if apiURL == "" {
+		return nil, fmt.Errorf("%s api_url option (URL) is required", parsed.Name)
+	}
+	logPrefix := common.BuildLogPrefix("caddy", parsed.Name)
+
+	structuredOptions := make(map[string]any)
+	for key, value := range options {
+		structuredOptions[key] = value
+	}
+
+	filterLogPrefix := logPrefix + "/filter"
+	filterLogger := log.NewScopedLogger(filterLogPrefix, "")
+	filterConfig, err := common.NewFilterFromStructuredOptions(structuredOptions, filterLogger)
+	if err != nil {
+		log.NewScopedLogger("[input/caddy]", "").With("action", "config.error", "provider", parsed.Name).Debug("filter configuration: %v, using default", err)
+		filterConfig = common.DefaultFilterConfig()
+	}
+
+	hasActiveFilters := len(filterConfig.Filters) > 0 && !(len(filterConfig.Filters) == 1 && filterConfig.Filters[0].Type == common.FilterTypeNone)
+
+	if hasActiveFilters {
+		log.NewScopedLogger("[input/caddy]", "").With("action", "input.filter", "provider", parsed.Name).Debug("configuration: %d active filters", len(filterConfig.Filters))
+		for i, f := range filterConfig.Filters {
+			log.NewScopedLogger("[input/caddy]", "").With("action", "input.filter", "provider", parsed.Name).Debug("filter %d: Type=%s, Value=%s, Operation=%s, Negate=%v",
+				i, f.Type, f.Value, f.Operation, f.Negate)
+		}
+	} else {
+		log.NewScopedLogger("[input/caddy]", "").With("action", "input.filter", "provider", parsed.Name).Debug("no filters configured, processing all routes")
+	}
+
+	scopedLogger := common.CreateScopedLogger("caddy", parsed.Name, options)
+
+	return &CaddyProvider{
+		apiURL:       apiURL,
+		interval:     parsed.Interval,
+		opts:         parsed,
+		logPrefix:    logPrefix,
+		options:      options,
+		logger:       scopedLogger,
+		filterConfig: filterConfig,
+		outputWriter: outputWriter,
+		outputSyncer: outputSyncer,
+	}, nil
+}
+
+func (p *CaddyProvider) StartPolling() error {
+	if p.running {
+		return nil
+	}
+	if p.lastHosts == nil {
+		p.lastHosts = make(map[string]domain.RouterState)
+	}
+	p.running = true
+	go p.pollLoop()
+	return nil
+}
+
+func (p *CaddyProvider) StopPolling() error {
+	p.running = false
+	return nil
+}
+
+func (p *CaddyProvider) IsRunning() bool {
+	return p.running
+}
+
+func (p *CaddyProvider) pollLoop() {
+	if p.opts.ProcessExisting {
+		p.logger.With("action", "sync.start").Trace("existing Caddy config on startup (process_existing=true)")
+		p.processCaddy()
+	} else {
+		p.logger.With("action", "provider.poll").Trace("poll on startup (process_existing=false), inventory only, no processing")
+		hosts, err := p.readCaddy()
+		if err == nil {
+			current := make(map[string]domain.RouterState)
+			for _, h := range hosts {
+				fqdn := h.FQDN
+				key := fqdn + ":A"
+				state := domain.RouterState{
+					Name:       h.FQDN,
+					Service:    h.Service,
+					RecordType: "A",
+				}
+				current[key] = state
+			}
+			p.lastHosts = current
+		}
+	}
+
+	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop()
+	for p.running {
+		<-ticker.C
+		p.processCaddy()
+	}
+}
+
+func (p *CaddyProvider) SetDomainConfigs(domainConfigs map[string]config.DomainConfig) {
+	p.domainConfigs = domainConfigs
+}
+
+func (p *CaddyProvider) getParentDomainForFQDN(fqdn string) string {
+	var bestMatch string
+	for _, cfg := range p.domainConfigs {
+		if strings.HasSuffix(fqdn, cfg.Name) {
+			if len(cfg.Name) > len(bestMatch) {
+				bestMatch = cfg.Name
+			}
+		}
+	}
+	return bestMatch
+}
+
+func (p *CaddyProvider) processCaddy() {
+	isInitialLoad := len(p.lastHosts) == 0
+	hosts, err := p.readCaddy()
+	if err != nil {
+		p.logger.With("action", "sync.fail").Error("read Caddy config: %v", err)
+		return
+	}
+	p.logger.With("action", "provider.poll").Debug("%d hosts from Caddy", len(hosts))
+
+	batchProcessor := domain.NewBatchProcessor(p.logPrefix, p.outputWriter, p.outputSyncer)
+	current := make(map[string]domain.RouterState)
+
+	for _, h := range hosts {
+		fqdn := h.FQDN
+		key := fqdn + ":A"
+		state := domain.RouterState{
+			Name:       h.FQDN,
+			Service:    h.Service,
+			RecordType: "A",
+		}
+		current[key] = state
+		fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+		if _, ok := p.lastHosts[key]; !ok {
+			if isInitialLoad {
+				p.logger.With("action", "record.create", "fqdn", fqdnNoDot).Info("detected (A)")
+			} else {
+				p.logger.With("action", "record.create", "fqdn", fqdnNoDot).Info("detected (A)")
+			}
+			realDomain := p.getParentDomainForFQDN(fqdnNoDot)
+			p.logger.With("action", "domain.match", "domain", realDomain).Trace("real domain name for DNS provider")
+			state := domain.RouterState{
+				SourceType: p.opts.Name,
+				Name:       p.opts.Name,
+				Service:    h.Service,
+				RecordType: "A",
+			}
+			p.logger.With("action", "record.create", "domain", realDomain, "fqdn", fqdnNoDot).Trace("ProcessRecord: %+v", state)
+			err := batchProcessor.ProcessRecord(realDomain, fqdnNoDot, state)
+			if err != nil {
+				p.logger.With("action", "record.create", "fqdn", fqdnNoDot).Error("ensure DNS: %v", err)
+			}
+		}
+	}
+	if p.opts.RecordRemoveOnStop {
+		for key, old := range p.lastHosts {
+			if _, ok := current[key]; !ok {
+				fqdn := old.Name
+				fqdnNoDot := strings.TrimSuffix(fqdn, ".")
+				p.logger.With("action", "record.delete", "fqdn", fqdnNoDot).Info("removed (A)")
+				realDomain := p.getParentDomainForFQDN(fqdnNoDot)
+				p.logger.With("action", "domain.match", "domain", realDomain).Trace("real domain name for DNS provider")
+				state := domain.RouterState{
+					SourceType: p.opts.Name,
+					Name:       p.opts.Name,
+					Service:    old.Service,
+					RecordType: "A",
+				}
+				p.logger.With("action", "record.delete", "domain", realDomain, "fqdn", fqdnNoDot).Trace("ProcessRecordRemoval: %+v", state)
+				err := batchProcessor.ProcessRecordRemoval(realDomain, fqdnNoDot, state)
+				if err != nil {
+					p.logger.With("action", "record.delete", "fqdn", fqdnNoDot).Error("remove DNS: %v", err)
+				}
+			}
+		}
+	}
+	p.lastHosts = current
+
+	batchProcessor.FinalizeBatch()
+}
+
+type caddyConfig struct {
+	Apps struct {
+		HTTP struct {
+			Servers map[string]caddyServer `json:"servers"`
+		} `json:"http"`
+	} `json:"apps"`
+}
+
+type caddyServer struct {
+	Routes []caddyRoute `json:"routes"`
+}
+
+type caddyRoute struct {
+	Match    []caddyMatch  `json:"match"`
+	Handle   []caddyHandle `json:"handle"`
+	Terminal bool          `json:"terminal"`
+}
+
+type caddyMatch struct {
+	Host []string `json:"host"`
+}
+
+type caddyHandle struct {
+	Handler   string          `json:"handler"`
+	Routes    []caddyRoute    `json:"routes,omitempty"`
+	Root      string          `json:"root,omitempty"`
+	Body      string          `json:"body,omitempty"`
+	Status    int             `json:"status_code,omitempty"`
+	Upstreams []caddyUpstream `json:"upstreams,omitempty"`
+}
+
+type caddyUpstream struct {
+	Dial string `json:"dial"`
+}
+
+type caddyHost struct {
+	FQDN    string
+	Service string
+	Route   caddyRoute // Store the full route for filtering
+	Server  string     // Server name
+}
+
+func (p *CaddyProvider) readCaddy() ([]caddyHost, error) {
+	p.logger.With("action", "provider.poll").Debug("Caddy config: %s", p.apiURL)
+	httpUser := common.ReadFileValue(p.options["api_auth_user"])
+	httpPass := common.ReadFileValue(p.options["api_auth_pass"])
+
+	tlsConfig := common.ParseTLSConfigFromOptions(p.options)
+
+	if !tlsConfig.Verify {
+		p.logger.With("action", "tls.skip").Debug("certificate verification disabled")
+	}
+	if tlsConfig.CA != "" {
+		p.logger.With("action", "tls.load").Debug("custom CA certificate: %s", tlsConfig.CA)
+	}
+	if tlsConfig.Cert != "" && tlsConfig.Key != "" {
+		p.logger.With("action", "tls.load").Debug("client certificate authentication")
+	}
+
+	body, err := common.FetchRemoteResourceWithTLSConfig(p.apiURL, httpUser, httpPass, nil, &tlsConfig, p.logPrefix)
+	if err != nil {
+		p.logger.With("action", "provider.poll").Error("fetch data from Caddy API: %v", err)
+		return nil, fmt.Errorf("%s failed to fetch data: %w", p.logPrefix, err)
+	}
+
+	p.logger.With("action", "provider.poll").Trace("API response: %s", string(body))
+
+	var cfg caddyConfig
+	if err := json.Unmarshal(body, &cfg); err != nil {
+		p.logger.With("action", "provider.validate").Error("parse JSON response: %v", err)
+		return nil, fmt.Errorf("%s failed to parse JSON: %w", p.logPrefix, err)
+	}
+
+	var allHosts []caddyHost
+	for serverName, server := range cfg.Apps.HTTP.Servers {
+		p.logger.With("action", "provider.event").Trace("server '%s' with %d routes", serverName, len(server.Routes))
+		for routeIdx, route := range server.Routes {
+			p.logger.With("action", "provider.event").Trace("route %d (terminal=%v, matches=%d, handlers=%d)",
+				routeIdx, route.Terminal, len(route.Match), len(route.Handle))
+
+			for _, match := range route.Match {
+				for _, host := range match.Host {
+					caddyHost := caddyHost{
+						FQDN:    host,
+						Service: "caddy",
+						Route:   route,
+						Server:  serverName,
+					}
+
+					if p.matchesFilter(caddyHost) {
+						p.logger.With("action", "input.filter").Trace("'%s' matches filter criteria", host)
+						allHosts = append(allHosts, caddyHost)
+					} else {
+						p.logger.With("action", "input.filter").Trace("'%s' filtered out", host)
+					}
+				}
+			}
+		}
+	}
+
+	p.logger.With("action", "provider.poll").Debug("%d filtered hosts in Caddy config", len(allHosts))
+	return allHosts, nil
+}
+
+func (p *CaddyProvider) matchesFilter(host caddyHost) bool {
+	if len(p.filterConfig.Filters) == 0 {
+		return true // No filters, match all
+	}
+
+	if len(p.filterConfig.Filters) == 1 && p.filterConfig.Filters[0].Type == common.FilterTypeNone {
+		return true
+	}
+
+	return p.filterConfig.Evaluate(host, func(filter common.Filter, entry any) bool {
+		return evaluateCaddyFilter(filter, entry)
+	})
+}
+
+func evaluateCaddyFilter(filter common.Filter, entry any) bool {
+	host, ok := entry.(caddyHost)
+	if !ok {
+		return false
+	}
+
+	switch filter.Type {
+	case common.FilterTypeNone:
+		return true
+	case "host":
+		for _, condition := range filter.Conditions {
+			if !common.RegexMatch(condition.Value, host.FQDN) {
+				return false
+			}
+		}
+		return true
+	case "handler":
+		for _, condition := range filter.Conditions {
+			if !routeHasHandler(host.Route, condition.Value) {
+				return false
+			}
+		}
+		return true
+	case "upstream":
+		for _, condition := range filter.Conditions {
+			if !routeHasUpstream(host.Route, condition.Value) {
+				return false
+			}
+		}
+		return true
+	case "server":
+		for _, condition := range filter.Conditions {
+			if !common.RegexMatch(condition.Value, host.Server) {
+				return false
+			}
+		}
+		return true
+	default:
+		return true
+	}
+}
+
+func routeHasHandler(route caddyRoute, handlerType string) bool {
+	return inspectHandlers(route.Handle, func(handler caddyHandle) bool {
+		return handler.Handler == handlerType
+	})
+}
+
+func routeHasUpstream(route caddyRoute, upstreamPattern string) bool {
+	return inspectHandlers(route.Handle, func(handler caddyHandle) bool {
+		for _, upstream := range handler.Upstreams {
+			if common.RegexMatch(upstreamPattern, upstream.Dial) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func inspectHandlers(handlers []caddyHandle, predicate func(caddyHandle) bool) bool {
+	for _, handler := range handlers {
+		if predicate(handler) {
+			return true
+		}
+		if handler.Handler == "subroute" && len(handler.Routes) > 0 {
+			for _, subroute := range handler.Routes {
+				if inspectHandlers(subroute.Handle, predicate) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (p *CaddyProvider) GetDNSEntries() ([]any, error) {
+	return nil, nil
+}
+
+func (cp *CaddyProvider) GetName() string {
+	return "caddy"
+}

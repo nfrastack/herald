@@ -4,14 +4,44 @@
   inputs = { nixpkgs.url = "nixpkgs/nixos-unstable"; };
   outputs = { self, nixpkgs }:
     let
-      version = "2.3.4";
+      heraldVersion = "3.0.0";
+
+      goVersion = "1.27.4";
+
+      goMajorMinor = nixpkgs.lib.versions.majorMinor goVersion;
+      goAttr = "go_${nixpkgs.lib.replaceStrings ["."] ["_"] goMajorMinor}";
+      goBuilder = "buildGo${nixpkgs.lib.replaceStrings ["."] [""] goMajorMinor}Module";
+
+      goOverrideHash = "sha256-c8+4VxrsDAEXdofbhxY9Rqog6XeWcncokaoXZU2aYJk=";
+
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
       ];
 
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-      nixpkgsFor = forAllSystems (system: import nixpkgs { inherit system; });
+      nixpkgsFor = forAllSystems (system: import nixpkgs {
+        inherit system;
+        overlays = [
+          (final: prev:
+            let stock = prev.${goAttr}; in
+            {
+              ${goAttr} =
+                if nixpkgs.lib.versionOlder stock.version goVersion then
+                  stock.overrideAttrs (old: {
+                    version = goVersion;
+                    src = final.fetchurl {
+                      url = "https://go.dev/dl/go${goVersion}.src.tar.gz";
+                      hash = goOverrideHash;
+                    };
+                  })
+                else
+                  stock;
+              go = final.${goAttr};
+              buildGoModule = prev.${goBuilder};
+            })
+        ];
+      });
     in {
       packages = forAllSystems (system:
         let
@@ -20,16 +50,25 @@
             date -u +%Y-%m-%dT%H:%M:%SZ > $out
           '';
           buildDateStr = builtins.readFile buildDate;
-        in {
+          buildCommit =
+            if self ? dirtyShortRev && self.dirtyShortRev != null then self.dirtyShortRev
+            else if self ? shortRev && self.shortRev != null then self.shortRev
+            else "unknown";
+        in assert nixpkgs.lib.assertMsg
+          (!(nixpkgs.lib.versionOlder (pkgs.${goAttr}.version or "0") goVersion))
+          "Go toolchain too old: ${goAttr} provides ${pkgs.${goAttr}.version or "missing"}, herald needs >= ${goVersion}";
+        {
           herald = pkgs.buildGoModule {
             pname = "herald";
-            version = "${version}";
+            version = "${heraldVersion}-${buildCommit}";
             src = self;
+            modRoot = "src";
 
             meta = {
               description = "Herald - Dynamic DNS record management for modern infrastructure. Supports Docker, Traefik, File, Remote, Tailscale, and ZeroTier/ZT-Net poll providers.";
               homepage = "https://github.com/nfrastack/herald";
               license = "BSD-3-Clause";
+              mainProgram = "herald";
               maintainers = [
                 {
                   name = "nfrastack";
@@ -42,26 +81,28 @@
             ldflags = [
               "-s"
               "-w"
-              "-X main.Version=${version}"
+              "-X main.Version=${heraldVersion}"
+              "-X main.buildCommit=${buildCommit}"
               "-X main.BuildTime=${buildDateStr}"
             ];
 
-            vendorHash = "sha256-J/ji1BFYRi4VXLL9oWRL2vwHpvwO8mqJ8RQ8sGBemgQ=";
+            vendorHash = "sha256-ZfPOxr/FV45tuH44O/ZzbD+1jeJ4VXpBvK+AFAULpmc=";
           };
+          default = self.packages.${system}.herald;
         });
 
       devShells = forAllSystems (system:
         let pkgs = nixpkgsFor.${system};
-        in pkgs.mkShell {
-          buildInputs = with pkgs; [
-            gnumake
-            go
-          ];
+        in {
+          default = pkgs.mkShell {
+            buildInputs = with pkgs; [
+              gnumake
+              go
+            ];
+          };
         });
 
-      devShell = forAllSystems (system: self.devShells.${system});
-
-      defaultPackage = forAllSystems (system: self.packages.${system}.herald);
+      devShell = forAllSystems (system: self.devShells.${system}.default);
 
       nixosModules.default = { config, lib, pkgs, ... }:
         let
@@ -133,6 +174,18 @@
               default = null;
               description = "Additional YAML configuration files to include";
             };
+
+            stateDir = lib.mkOption {
+              type = with lib.types; nullOr str;
+              default = null;
+              description = "Directory for operational state (presence tracking). Falls back to /var/lib/herald";
+            };
+
+            staleAfter = lib.mkOption {
+              type = with lib.types; nullOr str;
+              default = null;
+              description = "Warn on records unseen longer than this (eg 720h).";
+            };
           };
 
           config = lib.mkIf cfg.enable {
@@ -148,7 +201,9 @@
                   // (if cfg.outputs != {} then { outputs = cfg.outputs; } else {})
                   // (if cfg.domains != {} then { domains = cfg.domains; } else {})
                   // (if cfg.api != {} then { api = cfg.api; } else {})
-                  // (if cfg.include != null then { include = cfg.include; } else {});
+                  // (if cfg.include != null then { include = cfg.include; } else {})
+                  // (if cfg.stateDir != null then { state_dir = cfg.stateDir; } else {})
+                  // (if cfg.staleAfter != null then { stale_after = cfg.staleAfter; } else {});
               in yaml.generate "herald.yml" configData;
 
             systemd.services.herald = lib.mkIf cfg.service.enable {
@@ -168,6 +223,7 @@
                 StandardOutput = "journal";
                 StandardError = "journal";
                 SyslogIdentifier = "herald";
+                StateDirectory = "herald";
               };
             };
           };
