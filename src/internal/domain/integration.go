@@ -124,7 +124,7 @@ func InitializeDomainSystem(domainConfigs map[string]any, inputProfiles, outputP
 				}
 				return nil
 			}())
-		log.NewScopedLogger("[domain]", "").With("action", "config.load").Verbose("domain config for '%s' (provider: %s, effective_inputs: %v, effective_outputs: %v)",
+		log.NewScopedLogger("[domain]", "").With("action", "config.load").Trace("domain config for '%s' (provider: %s, effective_inputs: %v, effective_outputs: %v)",
 			domainName, domainConfig.Provider, domainConfig.GetInputProfiles(), domainConfig.GetOutputs())
 	}
 
