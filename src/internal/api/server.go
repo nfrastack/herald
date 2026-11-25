@@ -5,8 +5,6 @@
 package api
 
 import (
-	"slices"
-
 	"github.com/nfrastack/herald/internal/config"
 	"github.com/nfrastack/herald/internal/log"
 	"github.com/nfrastack/herald/internal/output"
@@ -28,7 +26,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -1042,18 +1039,4 @@ func (s *APIServer) unown(domain, hostname, recordType string) {
 	s.ownedMu.Lock()
 	defer s.ownedMu.Unlock()
 	delete(s.owned, ownedKey(domain, hostname, recordType))
-}
-
-func VerifyZoneRecord(zoneFilePath, hostname, recordType, target string) (bool, error) {
-	data, err := os.ReadFile(zoneFilePath)
-	if err != nil {
-		return false, fmt.Errorf("failed to read zone file: %w", err)
-	}
-	lines := strings.Split(string(data), "\n")
-	pattern := fmt.Sprintf(`^\s*%s\s+\d+\s+IN\s+%s\s+%s`, regexp.QuoteMeta(hostname), regexp.QuoteMeta(recordType), regexp.QuoteMeta(target))
-	re := regexp.MustCompile(pattern)
-	if slices.ContainsFunc(lines, re.MatchString) {
-		return true, nil // Record exists
-	}
-	return false, nil // Record not found
 }
