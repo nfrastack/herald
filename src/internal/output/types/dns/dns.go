@@ -7,13 +7,13 @@ package dns
 import (
 	"fmt"
 	"net/netip"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/nfrastack/herald/internal/log"
 	state "github.com/nfrastack/herald/internal/state"
+	"github.com/nfrastack/herald/internal/util"
 )
 
 var dnsLog = log.NewScopedLogger("[dns]", "")
@@ -182,35 +182,9 @@ func ValidateProviderExists(providerName string) error {
 func ProcessConfigValues(config map[string]string) map[string]string {
 	processed := make(map[string]string)
 	for key, value := range config {
-		processed[key] = processConfigValue(value)
+		processed[key] = util.ReadSecretValue(value)
 	}
 	return processed
-}
-
-func processConfigValue(value string) string {
-	if strings.HasPrefix(value, "file://") {
-		filePath := value[7:]
-
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			return value
-		}
-
-		return strings.TrimSpace(string(content))
-	}
-
-	if strings.HasPrefix(value, "env://") {
-		envName := value[6:]
-
-		envValue := os.Getenv(envName)
-		if envValue == "" {
-			return value
-		}
-
-		return envValue
-	}
-
-	return value
 }
 
 type writtenState struct {

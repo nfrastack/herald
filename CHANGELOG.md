@@ -1,3 +1,9 @@
+## dev
+
+   ### Changed
+    - (output/dns) reuse shared secret value helper drop private duplicate
+
+
 ## 3.0.0 2026-11-26 <code at nfrastack dot com>
 
    ### Added
