@@ -4,7 +4,7 @@
   inputs = { nixpkgs.url = "nixpkgs/nixos-unstable"; };
   outputs = { self, nixpkgs }:
     let
-      heraldVersion = "3.0.1";
+      heraldVersion = "3.0.2b";
 
       goVersion = "1.27.4";
 
