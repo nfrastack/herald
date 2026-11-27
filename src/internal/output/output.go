@@ -340,6 +340,9 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 			Provider:    provider,
 			Config:      config,
 		}
+		if err := provider.Validate(); err != nil {
+			return fmt.Errorf("dns provider '%s' validation failed: %v", providerName, err)
+		}
 	} else {
 		registryMutex.RLock()
 		createFunc, exists := outputFormatRegistry[format]
@@ -580,7 +583,7 @@ func InitializeOutputManagerWithProfiles(outputConfigs map[string]any, enabledPr
 			}
 			err := outputManager.AddProfile(profileName, path, domains, configMap)
 			if err != nil {
-				outLog.With("action", "provider.init", "profile", profileName).Error("to add profile: %v", err)
+				return fmt.Errorf("failed to add output profile '%s': %w", profileName, err)
 			}
 		}
 	} else {

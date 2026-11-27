@@ -3,6 +3,7 @@
    ### Fixed
     - (config) accept documented domain provider and log_level fields
     - (input/docker) remove records for destroyed containers from cached entries when inspection fails
+    - (output/dns) validate provider credentials at startup
 
 
 ## 3.0.1 2026-11-28 <code at nfrasack dot com>
