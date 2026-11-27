@@ -82,6 +82,8 @@ type DockerProvider struct {
 	sharedConnection   *SharedConnection
 	removalCache       map[string]time.Time
 	removalCacheMutex  sync.Mutex
+	recordsMu          sync.Mutex
+	containerRecords   map[string][]DNSEntry
 	watchdogMu         sync.Mutex
 	lastProbe          time.Time
 	warnedSilence      bool
@@ -490,6 +492,7 @@ func NewProviderFromStructured(options map[string]any, outputWriter domain.Outpu
 		opts:             parsed,
 		logger:           scopedLogger,
 		removalCache:     make(map[string]time.Time),
+		containerRecords: make(map[string][]DNSEntry),
 		outputWriter:     outputWriter,
 		outputSyncer:     outputSyncer,
 	}
@@ -861,6 +864,11 @@ func (p *DockerProvider) handleContainerEvent(ctx context.Context, event events.
 			return
 		}
 		p.removalCache[containerID] = time.Now()
+		for id, at := range p.removalCache {
+			if time.Since(at) > time.Minute {
+				delete(p.removalCache, id)
+			}
+		}
 		p.removalCacheMutex.Unlock()
 
 		if !p.recordRemoveOnStop {
@@ -949,12 +957,27 @@ func (p *DockerProvider) removeContainerRecords(containerID string) {
 
 	container, err := p.client.ContainerInspect(ctx, containerID)
 	if err != nil {
-		p.logger.With("action", "record.delete", "id", containerID[:12]).Debug("could not inspect container %s for cleanup: %v", containerID[:12], err)
+		p.recordsMu.Lock()
+		entries, found := p.containerRecords[containerID]
+		if found {
+			delete(p.containerRecords, containerID)
+		}
+		p.recordsMu.Unlock()
+		if !found {
+			p.logger.With("action", "record.delete", "id", containerID[:12]).Warn("could not inspect container %s for cleanup and no cached records exist: %v", containerID[:12], err)
+			return
+		}
+		p.logger.With("action", "record.delete", "id", containerID[:12]).Warn("could not inspect container %s for cleanup, removing %d cached DNS entries: %v", containerID[:12], len(entries), err)
+		p.processDNSEntries(entries, true)
 		return
 	}
 
 	containerName := getContainerName(container)
 	p.logger.With("action", "record.delete", "container", containerName).With("id", containerID[:12]).Debug("DNS records for container: %s (%s)", containerName, containerID[:12])
+
+	p.recordsMu.Lock()
+	delete(p.containerRecords, containerID)
+	p.recordsMu.Unlock()
 
 	entries := p.extractDNSEntriesFromContainer(container)
 
@@ -1089,6 +1112,10 @@ func (p *DockerProvider) processContainer(ctx context.Context, containerID strin
 	}
 
 	entries := p.extractDNSEntriesFromContainer(container)
+
+	p.recordsMu.Lock()
+	p.containerRecords[containerID] = entries
+	p.recordsMu.Unlock()
 
 	if len(entries) > 0 {
 		p.processDNSEntries(entries, false)
