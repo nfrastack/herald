@@ -12,6 +12,7 @@
     - (config) honor skip_domain_validation and remove dead validators
     - (config, input/zerotier) remove write-never domain config store
     - (config) remove dead secret-expansion helpers and config merger
+    - (api) reject malformed uploads and remove unreachable removal branch
     - (input/zerotier) remove meaningless error return from DNS update path
 
 

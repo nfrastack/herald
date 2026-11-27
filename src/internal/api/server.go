@@ -520,60 +520,35 @@ func (s *APIServer) HandleDataUpload(w http.ResponseWriter, r *http.Request) {
 	reqLog.With("action", "client.upload").Trace("body: %s", string(body))
 
 	var clientData ClientData
-	var remotePayload RemoteActionPayload
 	var removalsFromPayload map[string][][2]string // domain -> list of [hostname, type]
 	contentType := r.Header.Get("Content-Type")
 	reqLog.With("action", "client.upload").Trace("Content-Type: %s", contentType)
 	reqLog.With("action", "client.upload").Trace("payload: %s", string(body))
-	switch {
-	default:
-		if err := json.Unmarshal(body, &clientData); err == nil {
-			var raw map[string]any
-			if err := json.Unmarshal(body, &raw); err == nil {
-				if removals, ok := raw["removals"].(map[string]any); ok {
-					removalsFromPayload = make(map[string][][2]string)
-					for domain, recs := range removals {
-						recList, ok := recs.([]any)
-						if !ok {
-							continue
-						}
-						for _, r := range recList {
-							rec, ok := r.(map[string]any)
-							if !ok {
-								continue
-							}
-							hostname, _ := rec["hostname"].(string)
-							recordType, _ := rec["type"].(string)
-							if hostname != "" && recordType != "" {
-								removalsFromPayload[domain] = append(removalsFromPayload[domain], [2]string{hostname, recordType})
-							}
-						}
-					}
-				}
-			}
-		} else if err := json.Unmarshal(body, &remotePayload); err == nil && remotePayload.Action == "remove" {
-			for domain, dom := range remotePayload.Domains {
-				if clientData.Domains == nil {
+	if err := json.Unmarshal(body, &clientData); err != nil {
+		reqLog.With("action", "api.reject").Error("decode payload: %v", err)
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err == nil {
+		if removals, ok := raw["removals"].(map[string]any); ok {
+			removalsFromPayload = make(map[string][][2]string)
+			for domain, recs := range removals {
+				recList, ok := recs.([]any)
+				if !ok {
 					continue
 				}
-				domainObj, ok := clientData.Domains[domain]
-				if !ok || domainObj == nil {
-					continue
-				}
-				newRecords := make([]*Record, 0, len(domainObj.Records))
-				for _, record := range domainObj.Records {
-					shouldRemove := false
-					for _, r := range dom.Records {
-						if record.Hostname == r.Hostname && record.Type == r.Type {
-							shouldRemove = true
-							break
-						}
+				for _, r := range recList {
+					rec, ok := r.(map[string]any)
+					if !ok {
+						continue
 					}
-					if !shouldRemove {
-						newRecords = append(newRecords, record)
+					hostname, _ := rec["hostname"].(string)
+					recordType, _ := rec["type"].(string)
+					if hostname != "" && recordType != "" {
+						removalsFromPayload[domain] = append(removalsFromPayload[domain], [2]string{hostname, recordType})
 					}
 				}
-				domainObj.Records = newRecords
 			}
 		}
 	}
