@@ -5,7 +5,6 @@
 package zerotier
 
 import (
-	"github.com/nfrastack/herald/internal/config"
 	"github.com/nfrastack/herald/internal/domain"
 	"github.com/nfrastack/herald/internal/input/common"
 	"github.com/nfrastack/herald/internal/log"
@@ -73,7 +72,6 @@ type ZerotierProvider struct {
 	addressFallbackMembers map[string]bool   // Track which members are using address fallback (for output context)
 	name                   string
 	lastEntries            []DNSEntry
-	domainConfigs          map[string]config.DomainConfig
 	outputWriter           domain.OutputWriter // Injected dependency
 	outputSyncer           domain.OutputSyncer // Injected dependency
 }
@@ -306,20 +304,7 @@ func (p *ZerotierProvider) targetDomains() []string {
 }
 
 func (p *ZerotierProvider) resolveRealDomain(domainKey string) string {
-	realDomain := domainKey
-	domainConfig := config.GetDomainConfig(domainKey)
-	p.logger.With("action", "domain.match").Debug("domainConfig for key '%s': %+v", domainKey, domainConfig)
-	if domainConfig != nil {
-		if d, ok := domainConfig["domain"]; ok {
-			realDomain = d
-			p.logger.With("action", "domain.match").Trace("domain config key '%s' to real domain name '%s'", domainKey, realDomain)
-		} else {
-			p.logger.With("action", "domain.skip").Debug("domain config for key '%s' does not contain a 'domain' field, using as-is", domainKey)
-		}
-	} else {
-		p.logger.With("action", "domain.skip").Debug("unresolved domain config key '%s', using as-is", domainKey)
-	}
-	return realDomain
+	return domainKey
 }
 
 func shortHostname(entry DNSEntry, primaryDomain string) string {

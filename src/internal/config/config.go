@@ -15,7 +15,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"sync"
 )
 
 type ConfigFile struct {
@@ -178,28 +177,6 @@ func GetConfig(config map[string]string, key string) string {
 	return value
 }
 
-func GetDomainConfig(domain string) map[string]string {
-	domainConfigsMu.RLock()
-	defer domainConfigsMu.RUnlock()
-
-	if config, exists := domainConfigs[domain]; exists {
-		return config
-	}
-
-	normalizedDomain := strings.ReplaceAll(domain, ".", "_")
-	if config, exists := domainConfigs[normalizedDomain]; exists {
-		return config
-	}
-
-	for _, config := range domainConfigs {
-		if actualDomain, exists := config["name"]; exists && actualDomain == domain {
-			return config
-		}
-	}
-
-	return nil
-}
-
 func (cf *ConfigFile) GetDomains() map[string]output.DomainConfig {
 	result := make(map[string]output.DomainConfig)
 	for key, domainConfig := range cf.Domains {
@@ -212,11 +189,6 @@ type DomainProfiles struct {
 	Inputs  []string `yaml:"inputs" json:"inputs"`
 	Outputs []string `yaml:"outputs" json:"outputs"`
 }
-
-var (
-	domainConfigsMu sync.RWMutex
-	domainConfigs   = make(map[string]map[string]string)
-)
 
 var GlobalConfig ConfigFile
 
@@ -446,12 +418,6 @@ func (cf *ConfigFile) ResolveStateDir() string {
 		return env
 	}
 	return "/var/lib/herald"
-}
-
-func SetDomainConfigs(configs map[string]map[string]string) {
-	domainConfigsMu.Lock()
-	defer domainConfigsMu.Unlock()
-	domainConfigs = configs
 }
 
 func SetEnvVar(key, value string) {
