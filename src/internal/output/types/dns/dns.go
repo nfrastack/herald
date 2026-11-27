@@ -278,6 +278,14 @@ func (d *DNSOutputFormat) forget(domain, hostname, recordType string) {
 	delete(d.lastWritten, dnsCacheKey(domain, hostname, recordType))
 }
 
+func (d *DNSOutputFormat) ShouldWrite(domain, hostname, target, recordType string, ttl int, proxied bool) bool {
+	return d.shouldWrite(domain, hostname, target, recordType, ttl, proxied)
+}
+
+func (d *DNSOutputFormat) NoteWritten(domain, hostname, target, recordType string, ttl int, proxied bool) {
+	d.noteWritten(domain, hostname, target, recordType, ttl, proxied)
+}
+
 func (d *DNSOutputFormat) GetName() string {
 	return fmt.Sprintf("dns/%s", d.Provider.GetName())
 }

@@ -77,9 +77,13 @@ func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat
 		// changes - the comment is byte-identical while the record is
 		// unchanged, letting providers skip the update entirely.
 		comment := state.CommentFor(domain, hostname, recordType, source)
+		if !df.ShouldWrite(domain, hostname, target, recordType, ttl, applyProxied) {
+			return false, ""
+		}
 		if err := df.Provider.CreateOrUpdateRecordWithSource(domain, recordType, hostname, target, ttl, applyProxied, comment, source, overwrite); err != nil {
 			return false, fmt.Sprintf("profile '%s': %v", profileName, err)
 		}
+		df.NoteWritten(domain, hostname, target, recordType, ttl, applyProxied)
 		mgrLog.With("action", "record.create", "profile", profileName).Debug("record to DNS profile (proxied=%t)", applyProxied)
 	} else {
 		if err := profile.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source); err != nil {
