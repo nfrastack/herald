@@ -126,7 +126,7 @@ Below are the main environment variables supported by the image, as reflected in
 | `CLOUDFLARE_API_EMAIL` | Cloudflare API email        | (optional) |
 | `CLOUDFLARE_API_KEY`   | Cloudflare API key          | (optional) |
 
->> Use either `CLOUDFLARE_API_EMAIL + _KEY` together or `CLOUDFLARE_API_TOKEN` on its own.
+>> Use either `CLOUDFLARE_API_EMAIL + CLOUDFLARE_API_KEY` together or `CLOUDFLARE_API_TOKEN` on its own. `CLOUDFLARE_EMAIL` remains accepted as a legacy alias.
 
 #### Domain Environment Variables
 
@@ -134,8 +134,7 @@ Below are the main environment variables supported by the image, as reflected in
 | ---------------------------------- | -------------------------------------------------------------------------- | ------------------- |
 | `DOMAIN_01_NAME`                   | Domain name                                                                | `example.com`       |
 | `DOMAIN_01_PROVIDER`               | Provider profile to use                                                    | `cloudflare`        |
-| `DOMAIN_01_ZONE_ID`                | (optional) Zone ID for the domain                                          | `your_zone_id_here` |
-|                                    | Needed with `CLOUDFLARE_API_EMAIL` & `CLOUDFLARE_API_TOKEN`                |                     |
+| `DOMAIN_01_ZONE_ID`                | (optional) Explicit Cloudflare zone ID                                 | `your_zone_id_here` |
 | `DOMAIN_01_INPUTS`                 | Comma-separated list of inputs eg `docker,traefik`                         |                     |
 | `DOMAIN_01_OUTPUTS`                | Comma-separated list of outputs eg `cloudflare`                            | `cloudflare`        |
 | `DOMAIN_01_RECORD_PROXIED`         | Enable Cloudflare proxying                                                 | `FALSE`             |
@@ -207,6 +206,7 @@ These variables control integration with Docker, Caddy, and Traefik. Prefixes ar
 | ---------------------- | --------------------------- | --------------- |
 | `CLOUDFLARE_API_TOKEN` | Global Cloudflare API token | (optional)      |
 | `CLOUDFLARE_API_EMAIL` | Cloudflare API email        | (optional)      |
+| `CLOUDFLARE_EMAIL`      | Legacy alias for the email  | (optional)      |
 | `CLOUDFLARE_API_KEY`   | Cloudflare API key          | (optional)      |
 
 >> The EMAIL and KEY are only required if using Global API keys. It is recommended to create a scoped token.

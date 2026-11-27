@@ -166,6 +166,9 @@ outputs:
     provider: cloudflare
     # api_token: env://CLOUDFLARE_API_TOKEN
     api_token: "your_cloudflare_api_token"
+    # For Global API Key authentication, use this pair instead:
+    # api_email: env://CLOUDFLARE_API_EMAIL
+    # api_key: file:///run/secrets/cloudflare_api_key
     # reassert_interval: 24h
     # allow_replace: false  # required with overwrite for cross-type replace (delete+recreate resets created_on)
     log_level: info

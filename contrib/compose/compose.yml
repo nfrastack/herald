@@ -51,7 +51,7 @@ services:
 
       # Domain example
       - DOMAIN_01_NAME=example.com
-      #- DOMAIN_01_ZONE_ID=your_zone_id_here    # Only needed for Cloudflare with Global API Key
+      #- DOMAIN_01_ZONE_ID=your_zone_id_here    # Optional explicit Cloudflare zone ID
       - DOMAIN_01_RECORD_TYPE=A
       - DOMAIN_01_RECORD_TTL=300
       - DOMAIN_01_RECORD_TARGET=192.0.2.1

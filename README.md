@@ -1278,7 +1278,7 @@ Shared options for every DNS provider:
 | -------------- | ------------------------------------ | ------------------------------------------ |
 | `azure`        | tenant_id, client_id, client_secret, | Entra client credentials                   |
 |                | subscription_id, resource_group      | A/AAAA/CNAME/TXT only                      |
-| `cloudflare`   | token (or api_token)                 | Honors `proxied`, `allow_replace`          |
+| `cloudflare`   | token/api_token, or api_email + api_key | Honors `proxied`, `allow_replace`          |
 | `digitalocean` | token                                |                                            |
 | `easydns`      | token, api_key                       | Parent account only                        |
 |                |                                      | paced to 1 req/sec (500/day quota)         |
@@ -1302,6 +1302,17 @@ Shared options for every DNS provider:
 |                | session_token, region                |                                            |
 | `spaceship`    | api_key, api_secret                  |                                            |
 | `technitium`   | api_host, token                      |                                            |
+
+Cloudflare supports API token authentication (`token` or `api_token`) and Global API Key authentication (`api_email` + `api_key`). If both are configured, the API token takes precedence. Set `zone_id` on a domain to skip Cloudflare zone discovery for that domain:
+
+```yaml
+domains:
+  example:
+    name: example.com
+    zone_id: "your_zone_id_here"
+    profiles:
+      outputs: [cloudflare_dns]
+```
 | `vultr`        | token                                |                                            |
 
 ```yaml
