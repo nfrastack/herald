@@ -5,21 +5,16 @@
 package config
 
 import (
-	"maps"
-
 	"github.com/nfrastack/herald/internal/log"
 	"github.com/nfrastack/herald/internal/util"
 
 	"bytes"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
-
-var SecretRegex = regexp.MustCompile(`\${([^}]+)}`)
 
 type StringSliceFlag []string
 
@@ -232,97 +227,4 @@ func FieldSetInConfigFile(configFilePath, field string) bool {
 	}
 	_, exists := general[field]
 	return exists
-}
-
-func processConfigFileSecrets(content string) string {
-	processedContent := SecretRegex.ReplaceAllStringFunc(content, func(match string) string {
-		varName := match[2 : len(match)-1]
-
-		if after, ok := strings.CutPrefix(varName, "file:"); ok {
-			filePath := after
-
-			fileData, err := os.ReadFile(filePath)
-			if err != nil {
-				log.NewScopedLogger("[config]", "").With("action", "config.error").Error("[config/file] read secret file %s: %v", filePath, err)
-				return match // Keep original if error
-			}
-
-			return strings.TrimSpace(string(fileData))
-		}
-
-		if after, ok := strings.CutPrefix(varName, "env:"); ok {
-			envVar := after
-
-			if value, exists := os.LookupEnv(envVar); exists {
-				return value
-			}
-
-			return match
-		}
-
-		if value, exists := os.LookupEnv(varName); exists {
-			return value
-		}
-
-		return match
-	})
-
-	return processedContent
-}
-
-func ProcessSecrets(value string) string {
-	return processConfigFileSecrets(value)
-}
-
-func ProcessSecretsInMap(options map[string]string) map[string]string {
-	processed := make(map[string]string, len(options))
-	for k, v := range options {
-		processed[k] = ProcessSecrets(v)
-	}
-	return processed
-}
-
-func MergeConfigFile(dst, src *ConfigFile) *ConfigFile {
-	if dst == nil {
-		dst = &ConfigFile{}
-	}
-	if src == nil {
-		return dst
-	}
-	if src.General.LogLevel != "" {
-		dst.General.LogLevel = src.General.LogLevel
-	}
-	if src.General.LogType != "" {
-		dst.General.LogType = src.General.LogType
-	}
-	if src.General.LogFormat != "" {
-		dst.General.LogFormat = src.General.LogFormat
-	}
-	if src.General.LogTimestamps {
-		dst.General.LogTimestamps = src.General.LogTimestamps
-	}
-	if len(src.General.InputProfiles) > 0 {
-		dst.General.InputProfiles = src.General.InputProfiles
-	}
-	if src.General.DryRun {
-		dst.General.DryRun = src.General.DryRun
-	}
-	if (src.Defaults != DefaultsConfig{}) {
-		dst.Defaults = src.Defaults
-	}
-	if src.StateDir != "" {
-		dst.StateDir = src.StateDir
-	}
-	if src.StaleAfter != "" {
-		dst.StaleAfter = src.StaleAfter
-	}
-	if dst.Inputs == nil {
-		dst.Inputs = map[string]InputProviderConfig{}
-	}
-	maps.Copy(dst.Inputs, src.Inputs)
-	if dst.Domains == nil {
-		dst.Domains = map[string]DomainConfig{}
-	}
-	maps.Copy(dst.Domains, src.Domains)
-	return dst
 }

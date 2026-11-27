@@ -11,6 +11,7 @@
     - (output) remove uncalled global sync that wiped other sources' changes
     - (config) honor skip_domain_validation and remove dead validators
     - (config, input/zerotier) remove write-never domain config store
+    - (config) remove dead secret-expansion helpers and config merger
     - (input/zerotier) remove meaningless error return from DNS update path
 
 
