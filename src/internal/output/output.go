@@ -15,7 +15,6 @@ import (
 
 	"fmt"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -174,78 +173,6 @@ func GetGlobalOutputManager() *OutputManager {
 	globalOutputManagerMutex.RLock()
 	defer globalOutputManagerMutex.RUnlock()
 	return globalOutputManager
-}
-
-func (om *OutputManager) WriteRecordWithSourceAndDomainFilter(domainConfigKey, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool, domainManager any) error {
-	var allowedOutputs []string
-
-	if dm, ok := domainManager.(interface {
-		GetAllDomains() map[string]DomainConfig
-	}); ok {
-		if config, exists := dm.GetAllDomains()[domainConfigKey]; exists {
-			allowedOutputs = config.GetOutputs()
-		}
-	}
-
-	if len(allowedOutputs) == 0 {
-		globalConfig := getGlobalConfigForOutput()
-		if globalConfig != nil {
-			if config, exists := globalConfig.GetDomains()[domainConfigKey]; exists {
-				allowedOutputs = config.GetOutputs()
-			}
-		}
-	}
-
-	if dm, ok := domainManager.(interface {
-		ValidateOutputProfileAccess(domainConfigKey, outputProfileName string) bool
-	}); ok {
-		filtered := make([]string, 0, len(allowedOutputs))
-		for _, outputProfile := range allowedOutputs {
-			if dm.ValidateOutputProfileAccess(domainConfigKey, outputProfile) {
-				filtered = append(filtered, outputProfile)
-			} else {
-				mgrLog.With("action", "domain.skip", "profile", outputProfile, "config", domainConfigKey).Debug("profile not allowed for domain config key (filtered by ValidateOutputProfileAccess)")
-			}
-		}
-		allowedOutputs = filtered
-	}
-
-	if len(allowedOutputs) == 0 {
-		mgrLog.With("action", "record.skip", "config", domainConfigKey).Warn("no outputs allowed for domain config key after filtering")
-		return nil
-	}
-
-	mgrLog.With("action", "domain.route", "config", domainConfigKey, "domain", domain, "source", source).Debug("record write: hostname='%s', target='%s', recordType='%s', ttl=%d, proxied=%t, allowedOutputs=%v", hostname, target, recordType, ttl, proxied, allowedOutputs)
-
-	om.mutex.RLock()
-	defer om.mutex.RUnlock()
-
-	writtenCount := 0
-	var errors []string
-
-	for _, outputProfile := range allowedOutputs {
-		if profile, exists := om.profiles[outputProfile]; exists {
-			written, errStr := om.writeToProfile(outputProfile, profile, domain, hostname, target, recordType, ttl, source, proxied, overwrite)
-			if errStr != "" {
-				errors = append(errors, errStr)
-			} else if written {
-				writtenCount++
-				mgrLog.With("action", "state.save", "source", source).Debug("changed profiles after WriteRecordWithSourceAndDomainFilter: %v", om.changedProfiles[source])
-			}
-		} else {
-			mgrLog.With("action", "config.error", "profile", outputProfile, "config", domainConfigKey).Warn("profile not found (referenced by domain config key)")
-		}
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("failed to write to some outputs: %s", strings.Join(errors, "; "))
-	}
-
-	if writtenCount > 0 {
-		mgrLog.With("action", "output.write", "config", domainConfigKey).Debug("to %d output profiles", writtenCount)
-	}
-
-	return nil
 }
 
 func (om *OutputManager) GetProfile(profileName string) OutputFormat {

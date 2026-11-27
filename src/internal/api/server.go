@@ -200,6 +200,7 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 		uploadShared = prof.SharedWrites
 	}
 	s.mutex.RUnlock()
+	removalProfiles := make(map[string]bool)
 	if removalsSnapshot != nil {
 		for domain, recs := range removalsSnapshot {
 			if uploadAllowed != nil && !uploadAllowed[domain] {
@@ -223,6 +224,7 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 				}
 				if uploadHasProf {
 					routedName := outputProfileFor(uploadProf, domain)
+					removalProfiles[routedName] = true
 					if rp := outputManager.GetProfile(routedName); rp != nil {
 						_ = rp.RemoveRecord(domain, hostname, recordType)
 					} else {
@@ -230,6 +232,7 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 						continue
 					}
 					if uploadProf.InternalOutput != "" && uploadProf.InternalOutput != routedName && (recordType == "A" || recordType == "AAAA") {
+						removalProfiles[uploadProf.InternalOutput] = true
 						if ip := outputManager.GetProfile(uploadProf.InternalOutput); ip != nil {
 							_ = ip.RemoveRecord(domain, hostname, recordType)
 						}
@@ -238,6 +241,7 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 						if sourceRouted == "" || sourceRouted == routedName || sourceRouted == uploadProf.InternalOutput {
 							continue
 						}
+						removalProfiles[sourceRouted] = true
 						if sp := outputManager.GetProfile(sourceRouted); sp != nil {
 							_ = sp.RemoveRecord(domain, hostname, recordType)
 						}
@@ -251,6 +255,15 @@ func (s *APIServer) aggregateAndWriteWithRemovals(connID, uploadClientID string,
 				}
 				state.Remove(domain, hostname, recordType)
 				s.unown(domain, hostname, recordType)
+			}
+		}
+		if outputManager != nil {
+			for profileName := range removalProfiles {
+				if p := outputManager.GetProfile(profileName); p != nil {
+					if err := p.Sync(); err != nil {
+						aggLog.With("action", "sync.fail").Error("profile '%s': %v", profileName, err)
+					}
+				}
 			}
 		}
 	}

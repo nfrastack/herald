@@ -5,7 +5,6 @@
 package output
 
 import (
-	"github.com/nfrastack/herald/internal/common"
 	"github.com/nfrastack/herald/internal/log"
 
 	"fmt"
@@ -13,19 +12,6 @@ import (
 )
 
 var mgrLog = log.NewScopedLogger("[output/manager]", "")
-
-func (m *OutputManager) RouteRecords(domainConfigKey, domain string, records []common.Record) error {
-	logPrefix := common.GetDomainLogPrefix(domainConfigKey, domain)
-	fmt.Printf("%s Routing %d records\n", logPrefix, len(records))
-	mgrLog.With("action", "domain.route", "domain", domain, "config", domainConfigKey).Debug("records")
-
-	if err := m.SyncAll(); err != nil {
-		mgrLog.With("action", "sync.fail", "domain", domain, "config", domainConfigKey).Error("SyncAll after routing records: %v", err)
-		return err
-	}
-
-	return nil
-}
 
 func (om *OutputManager) WriteRecordToOutputs(allowedOutputs []string, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool) error {
 	om.mutex.RLock()

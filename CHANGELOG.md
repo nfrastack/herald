@@ -5,6 +5,9 @@
     - (input/docker) remove records for destroyed containers from cached entries when inspection fails
     - (output/dns) validate provider credentials at startup
     - (output/dns) skip unchanged records on the primary write path
+    - (domain, output) remove dormant routing paths and unused provider registry
+    - (output/file) write API-uploaded records to hosts output
+    - (api) sync file outputs after API removals
 
 
 ## 3.0.1 2026-11-28 <code at nfrasack dot com>

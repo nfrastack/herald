@@ -117,6 +117,10 @@ func (h *HostsFormat) WriteRecord(domain, hostname, target, recordType string, t
 }
 
 func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
+	return h.WriteRecordWithSourceAt(domain, hostname, target, recordType, ttl, source, time.Time{}, time.Time{})
+}
+
+func (h *HostsFormat) WriteRecordWithSourceAt(domain, hostname, target, recordType string, ttl int, source string, createdAt, updatedAt time.Time) error {
 	start := time.Now().UnixMilli()
 	log.NewScopedLogger("[output/file]", "").With("action", "record.create").Debug("%s domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", h.getHostsLogPrefix(), domain, hostname, target, recordType, ttl, source)
 	defer func() {
@@ -137,6 +141,12 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 			return err
 		}
 		if ip != nil {
+			if !createdAt.IsZero() {
+				ip.CreatedAt = createdAt
+			}
+			if !updatedAt.IsZero() {
+				ip.UpdatedAt = updatedAt
+			}
 			h.Lock()
 			key := fmt.Sprintf("%s:%s", hostname, ip.Type)
 			h.records[key] = ip
@@ -166,7 +176,7 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 	if existingRecord != nil {
 		if existingRecord.Target != target {
 			existingRecord.Target = target
-			existingRecord.UpdatedAt = time.Now().UTC()
+			existingRecord.UpdatedAt = updatedAtOrNow(updatedAt)
 		}
 		if existingRecord.UpdatedAt.IsZero() {
 			existingRecord.UpdatedAt = existingRecord.CreatedAt
@@ -174,27 +184,45 @@ func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType
 		existingRecord.TTL = uint32(ttl)
 		existingRecord.Source = source
 	} else {
-		now := time.Now().UTC()
+		created := createdAtOrNow(createdAt)
+		updated := updatedAt
+		if updated.IsZero() {
+			updated = created
+		}
 		h.records[key] = &HostsRecord{
 			Hostname:  hostname,
 			Type:      recordType,
 			Target:    target,
 			TTL:       uint32(ttl),
 			Source:    source,
-			CreatedAt: now,
-			UpdatedAt: now,
+			CreatedAt: created,
+			UpdatedAt: updated,
 		}
 	}
 	h.Unlock()
 
 	if h.CommonFormat != nil {
-		err := h.CommonFormat.WriteRecordWithSource(domain, hostname, target, recordType, ttl, source)
+		err := h.CommonFormat.WriteRecordWithSourceAt(domain, hostname, target, recordType, ttl, source, createdAt, updatedAt)
 		if err != nil {
 			log.NewScopedLogger("[output/file]", "").With("action", "output.write").Warn("[output/hosts] CommonFormat export update failed: %v", err)
 		}
 	}
 
 	return nil
+}
+
+func createdAtOrNow(createdAt time.Time) time.Time {
+	if createdAt.IsZero() {
+		return time.Now().UTC()
+	}
+	return createdAt.UTC()
+}
+
+func updatedAtOrNow(updatedAt time.Time) time.Time {
+	if updatedAt.IsZero() {
+		return time.Now().UTC()
+	}
+	return updatedAt.UTC()
 }
 
 func (h *HostsFormat) resolveCNAMEOutsideLock(domain, hostname, target string, ttl int, source string) (*HostsRecord, error) {
