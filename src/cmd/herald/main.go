@@ -278,7 +278,7 @@ func main() {
 		dnsProviders[name] = true
 	}
 
-	if err := domain.InitializeDomainSystem(domainsInterface, inputsInterface, outputsInterface, dnsProviders, cfg.General.AllowMissingOutputs); err != nil {
+	if err := domain.InitializeDomainSystem(domainsInterface, inputsInterface, outputsInterface, dnsProviders, cfg.General.AllowMissingOutputs, cfg.General.SkipDomainValidation); err != nil {
 		log.NewScopedLogger("", "").With("action", "domain.route").Error("[domain] initialize domain system: %v", err)
 		os.Exit(1)
 	}

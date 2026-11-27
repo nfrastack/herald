@@ -31,7 +31,7 @@ func parseStringArray(value any) []string {
 	}
 }
 
-func InitializeDomainSystem(domainConfigs map[string]any, inputProfiles, outputProfiles, dnsProviders map[string]any, allowMissingOutputs bool) error {
+func InitializeDomainSystem(domainConfigs map[string]any, inputProfiles, outputProfiles, dnsProviders map[string]any, allowMissingOutputs, skipValidation bool) error {
 	log.NewScopedLogger("[domain]", "").With("action", "config.load").Debug("domain configs received: %+v", domainConfigs)
 
 	domains := make(map[string]*DomainConfig)
@@ -120,8 +120,10 @@ func InitializeDomainSystem(domainConfigs map[string]any, inputProfiles, outputP
 			domainName, domainConfig.Provider, domainConfig.GetInputProfiles(), domainConfig.GetOutputs())
 	}
 
-	if err := ValidateDomainConfigurations(domains, inputProfiles, outputProfiles, dnsProviders, allowMissingOutputs); err != nil {
-		return fmt.Errorf("domain validation failed: %v", err)
+	if !skipValidation {
+		if err := ValidateDomainConfigurations(domains, inputProfiles, outputProfiles, dnsProviders, allowMissingOutputs); err != nil {
+			return fmt.Errorf("domain validation failed: %v", err)
+		}
 	}
 
 	GlobalDomainManager = NewDomainManager()
