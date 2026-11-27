@@ -138,6 +138,7 @@ type DomainConfig struct {
 	Options           map[string]string `yaml:"options"`
 	ExcludeSubdomains []string          `yaml:"exclude_subdomains"`
 	IncludeSubdomains []string          `yaml:"include_subdomains"`
+	ZoneID            string            `yaml:"zone_id"`
 	Profiles          *DomainProfiles   `yaml:"profiles"` // Primary structured format
 }
 
