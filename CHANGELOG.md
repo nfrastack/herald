@@ -1,3 +1,9 @@
+## dev
+
+   ### Fixed
+    - (config) accept documented domain provider and log_level fields
+
+
 ## 3.0.1 2026-11-28 <code at nfrasack dot com>
 
    ### Fixed

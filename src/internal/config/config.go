@@ -134,6 +134,8 @@ type InputProviderConfig struct {
 
 type DomainConfig struct {
 	Name              string            `yaml:"name"`
+	Provider          string            `yaml:"provider"`
+	LogLevel          string            `yaml:"log_level"`
 	Record            RecordConfig      `yaml:"record"`
 	Options           map[string]string `yaml:"options"`
 	ExcludeSubdomains []string          `yaml:"exclude_subdomains"`

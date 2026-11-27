@@ -16,6 +16,7 @@ import (
 	"github.com/nfrastack/herald/internal/state"
 	"github.com/nfrastack/herald/internal/util"
 
+	"github.com/nfrastack/herald/internal/output/types/dns"
 	_ "github.com/nfrastack/herald/internal/output/types/dns/providers"
 	_ "github.com/nfrastack/herald/internal/output/types/remote"
 
@@ -222,6 +223,14 @@ func main() {
 		domainMap := make(map[string]any)
 		domainMap["name"] = v.Name
 
+		if v.Provider != "" {
+			domainMap["provider"] = v.Provider
+		}
+
+		if v.LogLevel != "" {
+			domainMap["log_level"] = v.LogLevel
+		}
+
 		if v.Profiles != nil && (len(v.Profiles.Inputs) > 0 || len(v.Profiles.Outputs) > 0) {
 			profilesMap := make(map[string]any)
 			if len(v.Profiles.Inputs) > 0 {
@@ -261,7 +270,15 @@ func main() {
 	outputsInterface := make(map[string]any)
 	maps.Copy(outputsInterface, cfg.Outputs)
 
-	if err := domain.InitializeDomainSystem(domainsInterface, inputsInterface, outputsInterface, map[string]any{}, cfg.General.AllowMissingOutputs); err != nil {
+	dnsProviders := make(map[string]any)
+	for _, name := range dns.GetAvailableProviders() {
+		dnsProviders[name] = true
+	}
+	for name := range cfg.Outputs {
+		dnsProviders[name] = true
+	}
+
+	if err := domain.InitializeDomainSystem(domainsInterface, inputsInterface, outputsInterface, dnsProviders, cfg.General.AllowMissingOutputs); err != nil {
 		log.NewScopedLogger("", "").With("action", "domain.route").Error("[domain] initialize domain system: %v", err)
 		os.Exit(1)
 	}
