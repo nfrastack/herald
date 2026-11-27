@@ -257,7 +257,7 @@ func (p *ZerotierProvider) pollLoop() {
 		p.logger.With("action", "sync.start").Trace("existing Zerotier members on startup (process_existing=true)")
 		entries, err := p.fetchMembers()
 		if err == nil {
-			_ = p.updateDNSEntries(entries, nil)
+			p.updateDNSEntries(entries, nil)
 			p.lastEntries = entries
 		}
 	} else {
@@ -279,7 +279,7 @@ func (p *ZerotierProvider) pollLoop() {
 		<-ticker.C
 		entries, err := p.fetchMembers()
 		if err == nil {
-			_ = p.updateDNSEntries(entries, p.lastEntries)
+			p.updateDNSEntries(entries, p.lastEntries)
 			p.lastEntries = entries
 		}
 	}
@@ -374,7 +374,7 @@ func (p *ZerotierProvider) publishEntry(batchProcessor *domain.BatchProcessor, e
 	}
 }
 
-func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntries []DNSEntry) error {
+func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntries []DNSEntry) {
 	current := make(map[string]DNSEntry)
 	for _, entry := range currentEntries {
 		key := entry.GetFQDN() + ":" + entry.GetRecordType()
@@ -416,7 +416,6 @@ func (p *ZerotierProvider) updateDNSEntries(currentEntries []DNSEntry, lastEntri
 	}
 
 	batchProcessor.FinalizeBatch()
-	return nil
 }
 
 func keys(m map[string]struct{}) []string {

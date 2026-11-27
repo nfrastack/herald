@@ -10,6 +10,7 @@
     - (api) sync file outputs after API removals
     - (output) remove uncalled global sync that wiped other sources' changes
     - (config) honor skip_domain_validation and remove dead validators
+    - (input/zerotier) remove meaningless error return from DNS update path
 
 
 ## 3.0.1 2026-11-28 <code at nfrasack dot com>
