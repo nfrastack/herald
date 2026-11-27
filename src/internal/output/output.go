@@ -23,6 +23,7 @@ import (
 type DomainConfig interface {
 	GetOutputs() []string
 	GetName() string
+	GetZoneID() string
 }
 
 type GlobalConfigForOutput interface {
@@ -314,6 +315,22 @@ func (om *OutputManager) AddProfile(profileName, path string, domains []string, 
 			}
 		}
 		providerConfig["profile_name"] = profileName
+		if globalConfig := getGlobalConfigForOutput(); globalConfig != nil {
+			for key, domainConfig := range globalConfig.GetDomains() {
+				if !slices.Contains(domainConfig.GetOutputs(), profileName) {
+					continue
+				}
+				zoneID := domainConfig.GetZoneID()
+				if zoneID == "" {
+					continue
+				}
+				domainName := domainConfig.GetName()
+				if domainName == "" {
+					domainName = key
+				}
+				providerConfig["zone_ids."+domainName] = zoneID
+			}
+		}
 		provider, errProvider := dns.GetProvider(providerName, providerConfig)
 		if errProvider != nil {
 			return fmt.Errorf("failed to instantiate DNS provider '%s': %v", providerName, errProvider)

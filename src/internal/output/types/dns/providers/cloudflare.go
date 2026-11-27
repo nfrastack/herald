@@ -27,12 +27,22 @@ type CloudflareProvider struct {
 func NewCloudflareProviderWithProfile(profileName string, config map[string]string) (any, error) {
 	base := NewBaseProvider("cloudflare", profileName, config)
 
-	token := base.Secret("token", "api_token")
-	if token == "" {
-		return nil, fmt.Errorf("cloudflare provider requires 'token' or 'api_token' parameter")
-	}
+	token := base.Option("token", base.Option("api_token", ""))
+	email := base.Option("api_email", "")
+	apiKey := base.Option("api_key", "")
 
-	api, err := cloudflare.NewWithAPIToken(token)
+	var api *cloudflare.API
+	var err error
+	switch {
+	case token != "":
+		api, err = cloudflare.NewWithAPIToken(token)
+	case email != "" && apiKey != "":
+		api, err = cloudflare.New(apiKey, email)
+	case email != "" || apiKey != "":
+		return nil, fmt.Errorf("cloudflare Global API Key authentication requires both 'api_email' and 'api_key'")
+	default:
+		return nil, fmt.Errorf("cloudflare provider requires either 'token'/'api_token' or both 'api_email' and 'api_key'")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Cloudflare client: %v", err)
 	}
@@ -41,6 +51,15 @@ func NewCloudflareProviderWithProfile(profileName string, config map[string]stri
 		BaseProvider: base,
 		client:       api,
 		zoneIDs:      make(map[string]string),
+	}
+	for key := range base.Config {
+		domain, ok := strings.CutPrefix(key, "zone_ids.")
+		if !ok || domain == "" {
+			continue
+		}
+		if zoneID := base.Option(key, ""); zoneID != "" {
+			provider.zoneIDs[domain] = zoneID
+		}
 	}
 
 	base.Logger.With("action", "provider.init").Debug("initialized (retries: %d, timeout: %v)", base.Retries, base.Timeout)

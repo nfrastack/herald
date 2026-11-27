@@ -233,6 +233,10 @@ func (dc *DomainConfig) GetName() string {
 	return dc.Name
 }
 
+func (dc *DomainConfig) GetZoneID() string {
+	return dc.ZoneID
+}
+
 func (ipc *InputProviderConfig) GetOptions(profileName string) map[string]string {
 	options := make(map[string]string)
 	val := reflect.ValueOf(*ipc)

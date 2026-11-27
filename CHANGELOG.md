@@ -1,7 +1,9 @@
-## dev
+## 3.0.1 2026-11-28 <code at nfrasack dot com>
 
-   ### Changed
-    - (output/dns) reuse shared secret value helper drop private duplicate
+   ### Fixed
+    - (container) fix accepting CLOUDFLARE_API_EMAIL for Global API Key authentication
+    - (output/dns/cloudflare) honor per domain zone_id values skipping cf zone discovery
+    - (output/dns/cloudflare) restore api tokens and global api concurrently
 
 
 ## 3.0.0 2026-11-26 <code at nfrastack dot com>
