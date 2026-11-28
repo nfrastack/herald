@@ -4,7 +4,8 @@
     - (api) reject malformed uploads and remove unreachable removal branch
     - (api) sync file outputs after API removals
     - (config) accept documented domain provider and log_level fields
-    - (config) honor skip_domain_validation and remove dead validators
+    - (config) allow skip_domain_validation and remove dead validators
+    - (config) allow log_timestamps from includes
     - (config, input/zerotier) remove write-never domain config store
     - (config) remove dead secret-expansion helpers and config merger
     - (domain, output) remove dormant routing paths and unused provider registry

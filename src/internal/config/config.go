@@ -102,6 +102,7 @@ type APIClientProfile struct {
 type GeneralConfig struct {
 	LogLevel             string   `yaml:"log_level"`
 	LogTimestamps        bool     `yaml:"log_timestamps"`
+	LogTimestampsSet     bool     `yaml:"-"`
 	LogType              string   `yaml:"log_type"`
 	LogFormat            string   `yaml:"log_format"`
 	InputProfiles        []string `yaml:"input_profiles"` // New input profiles list

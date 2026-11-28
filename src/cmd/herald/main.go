@@ -171,7 +171,7 @@ func main() {
 		} else if valLower == "true" || valLower == "1" || valLower == "yes" {
 			logTimestamps = true
 		}
-	} else if config.FieldSetInConfigFile(configFilePath, "log_timestamps") {
+	} else if cfg.General.LogTimestampsSet {
 		logTimestamps = cfg.General.LogTimestamps
 	}
 

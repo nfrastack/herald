@@ -58,7 +58,13 @@ func LoadConfigFile(path string) (*ConfigFile, error) {
 	if cfg.General.LogLevel == "" {
 		cfg.General.LogLevel = "verbose"
 	}
-	if os.Getenv("LOG_TIMESTAMPS") == "" && !FieldSetInConfigFile(path, "log_timestamps") {
+	var rawMerged map[string]any
+	if err := yaml.Unmarshal(processed, &rawMerged); err == nil {
+		if general, ok := rawMerged["general"].(map[string]any); ok {
+			_, cfg.General.LogTimestampsSet = general["log_timestamps"]
+		}
+	}
+	if os.Getenv("LOG_TIMESTAMPS") == "" && !cfg.General.LogTimestampsSet {
 		cfg.General.LogTimestamps = true
 	}
 	if cfg.General.LogType == "" {
@@ -210,21 +216,4 @@ func FindConfigFile(requested string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no configuration file found (tried: %v)", candidates)
-}
-
-func FieldSetInConfigFile(configFilePath, field string) bool {
-	data, err := os.ReadFile(configFilePath)
-	if err != nil {
-		return false
-	}
-	var raw map[string]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return false
-	}
-	general, ok := raw["general"].(map[string]any)
-	if !ok {
-		return false
-	}
-	_, exists := general[field]
-	return exists
 }
