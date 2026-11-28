@@ -1,6 +1,7 @@
 ## dev
 
    ### Fixed
+    - (api) remove unused remote action payload type
     - (api) reject malformed uploads and remove unreachable removal branch
     - (api) sync file outputs after API removals
     - (config) accept documented domain provider and log_level fields
@@ -17,7 +18,6 @@
     - (output/file) write API-uploaded records to hosts output
     - (output) clear only synced profiles on change tracking
     - (output/file) fix hosts record map data race
-    - (api) remove unused remote action payload type
 
 
 ## 3.0.1 2026-11-28 <code at nfrasack dot com>
