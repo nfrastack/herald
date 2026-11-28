@@ -116,6 +116,12 @@ func (h *HostsFormat) WriteRecord(domain, hostname, target, recordType string, t
 	return h.WriteRecordWithSource(domain, hostname, target, recordType, ttl, "herald")
 }
 
+func (h *HostsFormat) recordCount() int {
+	h.Lock()
+	defer h.Unlock()
+	return len(h.records)
+}
+
 func (h *HostsFormat) WriteRecordWithSource(domain, hostname, target, recordType string, ttl int, source string) error {
 	return h.WriteRecordWithSourceAt(domain, hostname, target, recordType, ttl, source, time.Time{}, time.Time{})
 }
@@ -125,7 +131,7 @@ func (h *HostsFormat) WriteRecordWithSourceAt(domain, hostname, target, recordTy
 	log.NewScopedLogger("[output/file]", "").With("action", "record.create").Debug("%s domain=%s, hostname=%s, target=%s, type=%s, ttl=%d, source=%s", h.getHostsLogPrefix(), domain, hostname, target, recordType, ttl, source)
 	defer func() {
 		dur := time.Now().UnixMilli() - start
-		log.NewScopedLogger("[output/file]", "").With("action", "record.create").Debug("%s domain=%s, hostname=%s, type=%s, records_now=%d, dur_ms=%d", h.getHostsLogPrefix(), domain, hostname, recordType, len(h.records), dur)
+		log.NewScopedLogger("[output/file]", "").With("action", "record.create").Debug("%s domain=%s, hostname=%s, type=%s, records_now=%d, dur_ms=%d", h.getHostsLogPrefix(), domain, hostname, recordType, h.recordCount(), dur)
 		if dur > 5000 {
 			log.NewScopedLogger("[output/file]", "").With("action", "record.create").Warn("%s took too long: %d ms (>5s)", h.getHostsLogPrefix(), dur)
 		}
@@ -394,14 +400,14 @@ func (h *HostsFormat) Sync() error {
 	}
 	defer hostsReentrancyGuard.Delete(key)
 
-	log.NewScopedLogger("[output/file]", "").With("action", "sync.start").Debug("%s sync: domain=%s, profile=%s, file=%s, records=%d", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), len(h.records))
+	log.NewScopedLogger("[output/file]", "").With("action", "sync.start").Debug("%s sync: domain=%s, profile=%s, file=%s, records=%d", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), h.recordCount())
 	log.NewScopedLogger("[output/file]", "").With("action", "output.write").Debug("%s writing file: %s", h.getHostsLogPrefix(), h.GetFilePath())
 
 	err := h.CommonFormat.SyncWithSerializer(h.serializeHosts, h.domain)
 	if err != nil {
 		log.NewScopedLogger("[output/file]", "").With("action", "sync.fail").Error("%s sync failed for domain=%s, profile=%s, file=%s: %v", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), err)
 	} else {
-		log.NewScopedLogger("[output/file]", "").With("action", "sync.done").Info("%s sync done for domain=%s, profile=%s, file=%s, records=%d", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), len(h.records))
+		log.NewScopedLogger("[output/file]", "").With("action", "sync.done").Info("%s sync done for domain=%s, profile=%s, file=%s, records=%d", h.getHostsLogPrefix(), h.domain, h.profileName, h.GetFilePath(), h.recordCount())
 	}
 	return err
 }

@@ -1,19 +1,21 @@
 ## dev
 
    ### Fixed
-    - (config) accept documented domain provider and log_level fields
-    - (input/docker) remove records for destroyed containers from cached entries when inspection fails
-    - (output/dns) validate provider credentials at startup
-    - (output/dns) skip unchanged records on the primary write path
-    - (domain, output) remove dormant routing paths and unused provider registry
-    - (output/file) write API-uploaded records to hosts output
+    - (api) reject malformed uploads and remove unreachable removal branch
     - (api) sync file outputs after API removals
-    - (output) remove uncalled global sync that wiped other sources' changes
+    - (config) accept documented domain provider and log_level fields
     - (config) honor skip_domain_validation and remove dead validators
     - (config, input/zerotier) remove write-never domain config store
     - (config) remove dead secret-expansion helpers and config merger
-    - (api) reject malformed uploads and remove unreachable removal branch
+    - (domain, output) remove dormant routing paths and unused provider registry
+    - (input/docker) remove records for destroyed containers from cached entries when inspection fails
     - (input/zerotier) remove meaningless error return from DNS update path
+    - (output) remove uncalled global sync that wiped other sources' changes
+    - (output/dns) validate provider credentials at startup
+    - (output/dns) skip unchanged records on the primary write path
+    - (output/file) write API-uploaded records to hosts output
+    - (output) clear only synced profiles on change tracking
+    - (output/file) fix hosts record map data race
 
 
 ## 3.0.1 2026-11-28 <code at nfrasack dot com>

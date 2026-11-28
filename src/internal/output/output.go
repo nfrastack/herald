@@ -57,6 +57,16 @@ func getGlobalConfigForOutput() GlobalConfigForOutput {
 	return nil
 }
 
+func (om *OutputManager) markChanged(source, profile string) {
+	om.changesMutex.Lock()
+	defer om.changesMutex.Unlock()
+	if om.changedProfiles[source] == nil {
+		om.changedProfiles[source] = make(map[string]uint64)
+	}
+	om.changeClock++
+	om.changedProfiles[source][profile] = om.changeClock
+}
+
 func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat, domain, hostname, target, recordType string, ttl int, source string, proxied bool, overwrite bool) (bool, string) {
 	if DryRun() {
 		mgrLog.With("action", "dryrun.skip", "profile", profileName, "domain", domain).Debug("write skipped: %s %s -> %s", hostname, recordType, target)
@@ -91,12 +101,7 @@ func (om *OutputManager) writeToProfile(profileName string, profile OutputFormat
 		mgrLog.With("action", "record.create", "profile", profileName).Debug("record to profile")
 	}
 
-	om.changesMutex.Lock()
-	if om.changedProfiles[source] == nil {
-		om.changedProfiles[source] = make(map[string]bool)
-	}
-	om.changedProfiles[source][profileName] = true
-	om.changesMutex.Unlock()
+	om.markChanged(source, profileName)
 
 	return true, ""
 }
@@ -145,18 +150,19 @@ type OutputFormat = common.OutputFormat
 type OutputManager struct {
 	profiles        map[string]OutputFormat
 	mutex           sync.RWMutex
-	syncMutex       sync.Mutex                 // Prevent concurrent sync operations
-	lastSync        time.Time                  // Track last sync time
-	syncCooldown    time.Duration              // Minimum time between syncs
-	changedProfiles map[string]map[string]bool // Track which profiles have changes per source
-	changesMutex    sync.RWMutex               // Protect changes tracking
+	syncMutex       sync.Mutex                   // Prevent concurrent sync operations
+	lastSync        time.Time                    // Track last sync time
+	syncCooldown    time.Duration                // Minimum time between syncs
+	changedProfiles map[string]map[string]uint64 // Track which profiles have changes per source
+	changeClock     uint64                       // Monotonic generation for change marks
+	changesMutex    sync.RWMutex                 // Protect changes tracking
 }
 
 func NewOutputManager() *OutputManager {
 	return &OutputManager{
 		profiles:        make(map[string]OutputFormat),
 		syncCooldown:    0, // Disable cooldown for debugging
-		changedProfiles: make(map[string]map[string]bool),
+		changedProfiles: make(map[string]map[string]uint64),
 	}
 }
 
@@ -314,13 +320,10 @@ func (om *OutputManager) WriteRecordWithSource(domain, hostname, target, recordT
 			return err
 		}
 
-		om.changesMutex.Lock()
-		if om.changedProfiles[source] == nil {
-			om.changedProfiles[source] = make(map[string]bool)
-		}
-		om.changedProfiles[source][profileName] = true
+		om.markChanged(source, profileName)
+		om.changesMutex.RLock()
 		mgrLog.With("action", "state.save", "source", source).Debug("changed profiles after WriteRecordWithSource: %v", om.changedProfiles[source])
-		om.changesMutex.Unlock()
+		om.changesMutex.RUnlock()
 	}
 	return nil
 }
@@ -370,11 +373,9 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 		return nil
 	}
 
-	changedProfiles := make([]string, 0, len(sourceChanges))
-	for profileName, changed := range sourceChanges {
-		if changed {
-			changedProfiles = append(changedProfiles, profileName)
-		}
+	changedProfiles := make(map[string]uint64, len(sourceChanges))
+	for profileName, gen := range sourceChanges {
+		changedProfiles[profileName] = gen
 	}
 	om.changesMutex.RUnlock()
 
@@ -385,7 +386,7 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 
 	mgrLog.With("action", "sync.start", "source", source).Debug("sync for %d changed output profiles: %v", len(changedProfiles), changedProfiles)
 
-	for _, profileName := range changedProfiles {
+	for profileName := range changedProfiles {
 		if outputFormat, exists := om.profiles[profileName]; exists {
 			mgrLog.With("action", "sync.start", "profile", profileName, "source", source).Debug("changed profile")
 			err := outputFormat.Sync()
@@ -398,7 +399,16 @@ func (om *OutputManager) SyncAllFromSource(source string) error {
 	}
 
 	om.changesMutex.Lock()
-	delete(om.changedProfiles, source)
+	if profiles, ok := om.changedProfiles[source]; ok {
+		for profileName, gen := range changedProfiles {
+			if profiles[profileName] == gen {
+				delete(profiles, profileName)
+			}
+		}
+		if len(profiles) == 0 {
+			delete(om.changedProfiles, source)
+		}
+	}
 	om.changesMutex.Unlock()
 
 	om.lastSync = time.Now()

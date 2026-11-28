@@ -89,12 +89,7 @@ func (om *OutputManager) RemoveRecordFromOutputs(allowedOutputs []string, domain
 			mgrLog.With("action", "output.remove", "profile", profileName).Debug("record from profile")
 			removedCount++
 
-			om.changesMutex.Lock()
-			if om.changedProfiles[source] == nil {
-				om.changedProfiles[source] = make(map[string]bool)
-			}
-			om.changedProfiles[source][profileName] = true
-			om.changesMutex.Unlock()
+			om.markChanged(source, profileName)
 		}
 	}
 
