@@ -71,11 +71,6 @@ type Record struct {
 	Source    string    `json:"source,omitempty" yaml:"source,omitempty"`
 }
 
-type RemoteActionPayload struct {
-	Action  string             `json:"action" yaml:"action"`
-	Domains map[string]*Domain `json:"domains" yaml:"domains"`
-}
-
 type APIServer struct {
 	clients        map[string]*ClientData
 	mutex          sync.RWMutex
